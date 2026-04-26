@@ -1,0 +1,1 @@
+Use `read` to view file contents from the local filesystem. Returns contents with line numbers prefixed. Use `offset` and `limit` for long files. Use absolute paths for `filePath`.

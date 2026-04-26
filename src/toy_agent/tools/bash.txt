@@ -1,0 +1,1 @@
+Use `bash` to run shell commands (install packages, run code, check directories). Commands timeout after 120 seconds and output is truncated at 50KB. Describe each command in 5-10 words via the `description` parameter.

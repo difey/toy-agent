@@ -1,0 +1,1 @@
+Use `glob` to find files by filename patterns (e.g., `**/*.py`, `*.ts`). Returns matching file paths sorted by modification time.

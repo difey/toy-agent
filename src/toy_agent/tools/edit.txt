@@ -1,0 +1,1 @@
+Use `edit` to perform exact string replacements in files. ALWAYS prefer `edit` over `write` when modifying existing files. The edit will fail if `oldString` is not found or is found multiple times (use `replaceAll=true` for multiple matches). Preserve exact indentation (tabs/spaces) from the original. Use `read` before editing to understand existing code.

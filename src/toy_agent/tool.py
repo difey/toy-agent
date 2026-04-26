@@ -1,3 +1,5 @@
+import inspect
+import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
@@ -15,6 +17,18 @@ class ToolContext:
     cwd: str
 
 
+def _find_prompt_file(cls: type) -> str | None:
+    try:
+        src = inspect.getfile(cls)
+    except TypeError:
+        return None
+    base, _ = os.path.splitext(src)
+    txt = base + ".txt"
+    if os.path.exists(txt):
+        return txt
+    return None
+
+
 class Tool(ABC):
     @property
     @abstractmethod
@@ -27,6 +41,14 @@ class Tool(ABC):
     @property
     @abstractmethod
     def parameters(self) -> dict: ...
+
+    @property
+    def prompt_text(self) -> str:
+        path = _find_prompt_file(type(self))
+        if path:
+            with open(path, "r") as f:
+                return f.read().strip()
+        return self.description
 
     @abstractmethod
     async def execute(self, args: dict, ctx: ToolContext) -> ToolExecResult: ...
@@ -54,3 +76,11 @@ class ToolRegistry:
             }
             for t in self._tools.values()
         ]
+
+    def get_tools_prompt(self, **kwargs) -> str:
+        lines = ["## Available Tools"]
+        lines.append(f"You have the following tools: {', '.join(self._tools)}.")
+        for tool in self._tools.values():
+            text = tool.prompt_text.format(**kwargs) if kwargs else tool.prompt_text
+            lines.append(f"- {text}")
+        return "\n".join(lines)

@@ -1,0 +1,1 @@
+Use `write` to create or overwrite files. Creates parent directories automatically. Use absolute paths for `filePath`. Prefer `edit` over `write` when modifying existing files.

@@ -1,0 +1,1 @@
+Use `websearch` to search the web for up-to-date information, current events, recent docs, or information beyond your knowledge cutoff. Supports configurable result counts and search types. The current year is {year}. ALWAYS use this year when searching for recent information. Use `webfetch` to read the full content of a specific URL found via websearch.

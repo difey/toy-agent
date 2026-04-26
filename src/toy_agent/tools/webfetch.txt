@@ -1,0 +1,1 @@
+Use `webfetch` to fetch and convert web page content. HTML is converted to markdown by default. Format options: markdown (default), text, or html. HTTP URLs are automatically upgraded to HTTPS. The URL must be fully-formed and valid. Results may be summarized if large. Use webfetch to read the full content of a specific URL found via websearch.

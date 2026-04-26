@@ -1,0 +1,1 @@
+Use `codesearch` to search for code examples, documentation, and API references. Use this for ANY programming question — library docs, API references, code examples. Returns comprehensive context from the highest quality sources. Adjustable token count for focused or comprehensive results. Examples: 'React useState hook examples', 'Python pandas dataframe filtering'.

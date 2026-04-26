@@ -1,0 +1,1 @@
+Use `grep` to search file contents with regular expressions. Supports full regex syntax (e.g., `log.*Error`, `function\s+\w+`). Returns file paths and line numbers. Use `include` parameter to filter by file pattern.
