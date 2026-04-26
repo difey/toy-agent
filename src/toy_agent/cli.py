@@ -19,7 +19,17 @@ from toy_agent.message import ToolCall
 from toy_agent.session import Session
 from toy_agent.setup import has_user_config, run_wizard
 from toy_agent.tool import ToolRegistry
-from toy_agent.tools import BashTool, EditTool, GlobTool, GrepTool, ReadTool, WriteTool
+from toy_agent.tools import (
+    BashTool,
+    CodeSearchTool,
+    EditTool,
+    GlobTool,
+    GrepTool,
+    ReadTool,
+    WebFetchTool,
+    WebSearchTool,
+    WriteTool,
+)
 
 console = Console()
 
@@ -60,6 +70,9 @@ def _build_registry() -> ToolRegistry:
     registry.register(EditTool())
     registry.register(GlobTool())
     registry.register(GrepTool())
+    registry.register(WebFetchTool())
+    registry.register(WebSearchTool())
+    registry.register(CodeSearchTool())
     return registry
 
 

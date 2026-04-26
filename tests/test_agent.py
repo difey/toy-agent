@@ -7,7 +7,17 @@ from toy_agent.config import ProviderConfig, detect_provider, resolve_config, PR
 from toy_agent.message import AssistantMessage, TextDelta, ToolCall, ToolCallBegin, ToolCallArgDelta
 from toy_agent.session import Session, estimate_tokens, message_tokens
 from toy_agent.tool import ToolContext, ToolRegistry
-from toy_agent.tools import BashTool, EditTool, GlobTool, GrepTool, ReadTool, WriteTool
+from toy_agent.tools import (
+    BashTool,
+    CodeSearchTool,
+    EditTool,
+    GlobTool,
+    GrepTool,
+    ReadTool,
+    WebFetchTool,
+    WebSearchTool,
+    WriteTool,
+)
 
 
 def test_registry_to_openai_tools():
@@ -254,11 +264,14 @@ def test_registry_all_tools():
     registry.register(EditTool())
     registry.register(GlobTool())
     registry.register(GrepTool())
+    registry.register(WebFetchTool())
+    registry.register(WebSearchTool())
+    registry.register(CodeSearchTool())
 
     tools = registry.to_openai_tools()
-    assert len(tools) == 6
+    assert len(tools) == 9
     names = {t["function"]["name"] for t in tools}
-    assert names == {"bash", "read", "write", "edit", "glob", "grep"}
+    assert names == {"bash", "read", "write", "edit", "glob", "grep", "webfetch", "websearch", "codesearch"}
 
 
 def test_estimate_tokens():
@@ -448,3 +461,44 @@ def test_resolve_config_uses_user_config(tmp_path, monkeypatch):
     assert config.default_model == "deepseek-chat"
     assert config.api_key == "sk-from-file"
     assert config.name == "deepseek"
+
+
+@pytest.mark.asyncio
+async def test_webfetch_rejects_invalid_url():
+    tool = WebFetchTool()
+    ctx = ToolContext(cwd="/tmp")
+    r = await tool.execute({"url": "not-a-url"}, ctx)
+    assert "error" in r.title
+
+
+@pytest.mark.asyncio
+async def test_webfetch_upgrades_http():
+    tool = WebFetchTool()
+    ctx = ToolContext(cwd="/tmp")
+    r = await tool.execute({"url": "http://example.com"}, ctx)
+    assert "webfetch" in r.title
+
+
+@pytest.mark.asyncio
+async def test_websearch_missing_query():
+    from toy_agent.tools.exa_client import call_exa_tool
+    from unittest.mock import AsyncMock, patch
+
+    with patch("toy_agent.tools.websearch.call_exa_tool") as mock_call:
+        mock_call.return_value = None
+        tool = WebSearchTool()
+        ctx = ToolContext(cwd="/tmp")
+        r = await tool.execute({"query": "nothing matches this"}, ctx)
+        assert r.output == "No search results found."
+
+
+@pytest.mark.asyncio
+async def test_codesearch_missing_query():
+    from unittest.mock import patch
+
+    with patch("toy_agent.tools.codesearch.call_exa_tool") as mock_call:
+        mock_call.return_value = None
+        tool = CodeSearchTool()
+        ctx = ToolContext(cwd="/tmp")
+        r = await tool.execute({"query": "nothing matches this"}, ctx)
+        assert r.output == "No code documentation found."
