@@ -7,13 +7,14 @@ from toy_agent.tool import Tool, ToolContext, ToolExecResult
 
 
 DANGEROUS_PATTERNS = [
-    r"rm\s+-rf\s+/",
-    r"mkfs\.",
-    r"dd\s+if=",
-    r":\(\)\s*\{.*:\|:&\s*\};:",
-    r"chmod\s+-R\s+777\s+/",
-    r">\s*/dev/sd[a-z]",
-    r">\s*/dev/nvme",
+    (r"rm\s+-rf\s+/", "recursively delete root directory"),
+    (r"mkfs\.", "format filesystem"),
+    (r"dd\s+if=", "raw disk write"),
+    (r":\(\)\s*\{.*:\|:&\s*\};:", "fork bomb"),
+    (r"chmod\s+-R\s+777\s+/", "recursive world-writable permissions on root"),
+    (r">\s*/dev/sd[a-z]", "overwrite block device"),
+    (r">\s*/dev/nvme", "overwrite NVMe device"),
+    (r"sudo\s+rm\s+-rf\s+/", "sudo delete root"),
 ]
 
 
@@ -57,11 +58,16 @@ class BashTool(Tool):
         workdir = args.get("workdir", ctx.cwd)
         desc = args.get("description", "")
 
-        if not self._is_safe(command, workdir):
-            return ToolExecResult(
-                output=f"Blocked: command '{command}' matches dangerous pattern.",
-                title="bash [blocked]",
+        danger_reason = self._danger_reason(command)
+        if danger_reason and ctx.permission_callback:
+            result = await ctx.permission_callback(
+                "bash", command, danger_reason
             )
+            if result == "deny":
+                return ToolExecResult(
+                    output=f"Blocked by user: {danger_reason}",
+                    title="bash [denied]",
+                )
 
         if not os.path.isdir(workdir):
             return ToolExecResult(
@@ -98,10 +104,10 @@ class BashTool(Tool):
 
         return ToolExecResult(output=out, title=title, metadata={"exit_code": proc.returncode})
 
-    def _is_safe(self, command: str, workdir: str) -> bool:
-        for pattern in DANGEROUS_PATTERNS:
+    def _danger_reason(self, command: str) -> str:
+        for pattern, reason in DANGEROUS_PATTERNS:
             if re.search(pattern, command):
-                return False
+                return reason
 
         interactive_commands = {"vim", "vi", "nano", "less", "more", "top", "htop", "ssh"}
         try:
@@ -109,6 +115,6 @@ class BashTool(Tool):
         except ValueError:
             tokens = command.split()
         if tokens and tokens[0] in interactive_commands:
-            return False
+            return f"interactive command: {tokens[0]}"
 
-        return True
+        return ""

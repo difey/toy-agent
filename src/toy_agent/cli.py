@@ -90,9 +90,38 @@ def _on_tool_end(name: str, title: str, output: str):
         style = "bold red"
     elif "timeout" in title.lower():
         style = "bold yellow"
+    elif "denied" in title.lower():
+        style = "bold yellow"
 
     label = Text(f"\n  [{title}]", style=style)
     console.print(label)
+
+
+async def _permission_callback(tool: str, target: str, reason: str) -> str:
+    console.print()
+    if tool == "bash":
+        console.print(f"  [!] [bold yellow]Dangerous command detected:[/bold yellow] {reason}")
+        console.print(f"  Command: {target[:100]}")
+        console.print("  [dim]\\[y]es / \\[n]o[/dim]", end="")
+    else:
+        console.print(f"  [!] [bold yellow]{tool} wants to access:[/bold yellow] {target}")
+        console.print("  [dim]\\[y]es / \\[n]o / \\[a]lways allow this file[/dim]", end="")
+
+    console.print(" ", end="")
+    sys.stdout.flush()
+
+    try:
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, sys.stdin.readline)
+        choice = result.strip().lower()
+    except Exception:
+        choice = "n"
+
+    if choice in ("y", "yes"):
+        return "allow"
+    if choice in ("a", "always"):
+        return "allow_always"
+    return "deny"
 
 
 def _session_path(cwd: str) -> str:
@@ -150,6 +179,7 @@ def main(message: str | None, model: str | None, cwd: str | None, force_setup: b
         tools=registry,
         api_key=config.api_key,
         base_url=config.base_url,
+        permission_callback=_permission_callback,
         on_text_delta=_on_text_delta,
         on_tool_start=_on_tool_start,
         on_tool_end=_on_tool_end,

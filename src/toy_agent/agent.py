@@ -16,7 +16,12 @@ from toy_agent.message import (
     ToolResult,
 )
 from toy_agent.session import Session
-from toy_agent.tool import ToolContext, ToolExecResult, ToolRegistry
+from toy_agent.tool import (
+    PermissionCallback,
+    ToolContext,
+    ToolExecResult,
+    ToolRegistry,
+)
 
 
 SYSTEM_PROMPT = textwrap.dedent("""\
@@ -52,12 +57,14 @@ class Agent:
         tools: ToolRegistry,
         api_key: str | None = None,
         base_url: str | None = None,
+        permission_callback: PermissionCallback | None = None,
         on_text_delta: Callable | None = None,
         on_tool_start: Callable | None = None,
         on_tool_end: Callable | None = None,
     ):
         self.llm = LLMClient(model=model, api_key=api_key, base_url=base_url)
         self.tools = tools
+        self.permission_callback = permission_callback
         self.on_text_delta = on_text_delta
         self.on_tool_start = on_tool_start
         self.on_tool_end = on_tool_end
@@ -165,7 +172,10 @@ class Agent:
         cwd: str,
         session: Session | None = None,
     ) -> str:
-        ctx = ToolContext(cwd=str(Path(cwd).resolve()))
+        ctx = ToolContext(
+            cwd=str(Path(cwd).resolve()),
+            permission_callback=self.permission_callback,
+        )
         sess = self._get_or_create_session(session, ctx.cwd)
         await sess.add_user_message(user_message)
 
@@ -193,7 +203,10 @@ class Agent:
         cwd: str,
         session: Session | None = None,
     ) -> None:
-        ctx = ToolContext(cwd=str(Path(cwd).resolve()))
+        ctx = ToolContext(
+            cwd=str(Path(cwd).resolve()),
+            permission_callback=self.permission_callback,
+        )
         sess = self._get_or_create_session(session, ctx.cwd)
         await sess.add_user_message(user_message)
 

@@ -2,7 +2,10 @@ import inspect
 import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Awaitable, Callable
+
+# PermissionCallback: returns "allow" | "deny" | "allow_always"
+PermissionCallback = Callable[[str, str, str], Awaitable[str]]
 
 
 @dataclass
@@ -15,6 +18,45 @@ class ToolExecResult:
 @dataclass
 class ToolContext:
     cwd: str
+    allowed_files: set = field(default_factory=set)
+    permission_callback: PermissionCallback | None = None
+
+
+def _resolve_path(path: str, cwd: str) -> str:
+    p = os.path.join(cwd, path) if not os.path.isabs(path) else path
+    return os.path.realpath(p)
+
+
+def _is_within_cwd(path: str, cwd: str) -> bool:
+    try:
+        resolved_path = os.path.realpath(path)
+        resolved_cwd = os.path.realpath(cwd)
+        common = os.path.commonpath([resolved_path, resolved_cwd])
+        return common == resolved_cwd
+    except (ValueError, OSError):
+        return False
+
+
+async def check_file_permission(
+    ctx: ToolContext, file_path: str
+) -> tuple[bool, str]:
+    resolved_cwd = os.path.realpath(ctx.cwd)
+    resolved_path = _resolve_path(file_path, ctx.cwd)
+
+    if _is_within_cwd(resolved_path, resolved_cwd):
+        return True, ""
+
+    if resolved_path in ctx.allowed_files:
+        return True, ""
+
+    if ctx.permission_callback is None:
+        return True, ""
+
+    result = await ctx.permission_callback("file", file_path, resolved_path)
+    if result == "allow_always":
+        ctx.allowed_files.add(resolved_path)
+        return True, ""
+    return result == "allow", result
 
 
 def _find_prompt_file(cls: type) -> str | None:

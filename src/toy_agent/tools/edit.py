@@ -1,7 +1,7 @@
 import os
 import re
 
-from toy_agent.tool import Tool, ToolContext, ToolExecResult
+from toy_agent.tool import Tool, ToolContext, ToolExecResult, check_file_permission
 
 
 class EditTool(Tool):
@@ -48,6 +48,13 @@ class EditTool(Tool):
         old_string = args["oldString"]
         new_string = args["newString"]
         replace_all = args.get("replaceAll", False)
+
+        allowed, _ = await check_file_permission(ctx, file_path)
+        if not allowed:
+            return ToolExecResult(
+                output=f"Permission denied: {file_path}",
+                title="edit [denied]",
+            )
 
         if not os.path.isfile(file_path):
             return ToolExecResult(

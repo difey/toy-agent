@@ -1,6 +1,6 @@
 import os
 
-from toy_agent.tool import Tool, ToolContext, ToolExecResult
+from toy_agent.tool import Tool, ToolContext, ToolExecResult, check_file_permission
 
 
 class WriteTool(Tool):
@@ -36,6 +36,13 @@ class WriteTool(Tool):
     async def execute(self, args: dict, ctx: ToolContext) -> ToolExecResult:
         file_path = args["filePath"]
         content = args["content"]
+
+        allowed, _ = await check_file_permission(ctx, file_path)
+        if not allowed:
+            return ToolExecResult(
+                output=f"Permission denied: {file_path}",
+                title="write [denied]",
+            )
 
         parent = os.path.dirname(file_path)
         if parent:

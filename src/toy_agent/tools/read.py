@@ -1,6 +1,6 @@
 import os
 
-from toy_agent.tool import Tool, ToolContext, ToolExecResult
+from toy_agent.tool import Tool, ToolContext, ToolExecResult, check_file_permission
 
 
 class ReadTool(Tool):
@@ -42,6 +42,13 @@ class ReadTool(Tool):
         file_path = args["filePath"]
         offset = args.get("offset")
         limit = args.get("limit")
+
+        allowed, _ = await check_file_permission(ctx, file_path)
+        if not allowed:
+            return ToolExecResult(
+                output=f"Permission denied: {file_path}",
+                title="read [denied]",
+            )
 
         if not os.path.isfile(file_path):
             return ToolExecResult(
