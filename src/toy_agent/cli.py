@@ -6,8 +6,10 @@ from datetime import datetime
 from pathlib import Path
 
 import click
+from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.styles import Style
 from rich.console import Console
-from rich.prompt import Prompt
 from rich.table import Table
 from rich.text import Text
 
@@ -20,6 +22,34 @@ from toy_agent.tool import ToolRegistry
 from toy_agent.tools import BashTool, EditTool, GlobTool, GrepTool, ReadTool, WriteTool
 
 console = Console()
+
+_STYLE = Style.from_dict({
+    "prompt": "bold",
+})
+
+_COMMANDS = [
+    "/help",
+    "/clear",
+    "/tokens",
+    "/session",
+    "/sessions",
+    "/exit",
+]
+
+
+class SlashCompleter(Completer):
+    def __init__(self, cwd: str):
+        self.cwd = cwd
+
+    def get_completions(self, document, complete_event):
+        word = document.text_before_cursor
+        for cmd in _COMMANDS:
+            if cmd.startswith(word):
+                yield Completion(cmd, start_position=-len(word))
+        if word.startswith("/session "):
+            yield Completion("/session new", start_position=-len(word))
+            for i, _ in enumerate(_list_sessions(self.cwd), 1):
+                yield Completion(f"/session {i}", start_position=-len(word))
 
 
 def _build_registry() -> ToolRegistry:
@@ -187,11 +217,15 @@ def _print_sessions(cwd: str) -> None:
 
 
 def _run_interactive(agent: Agent, cwd: str, session: Session, session_file_ref: list) -> None:
-    console.print("[dim]ToyAgent interactive mode. Type /help for commands, Ctrl+C to exit.[/dim]")
+    prompt_session = PromptSession(
+        completer=SlashCompleter(cwd),
+        style=_STYLE,
+    )
+    console.print("[dim]ToyAgent interactive mode. Type /help for commands, Tab to complete, Ctrl+C to exit.[/dim]")
 
     while True:
         try:
-            line = Prompt.ask(">")
+            line = prompt_session.prompt([("class:prompt", "> ")])
         except (KeyboardInterrupt, EOFError):
             break
 
