@@ -272,33 +272,37 @@ def test_session_create():
     assert s.messages[0].content == "You are a helpful assistant."
 
 
-def test_session_add_messages():
+@pytest.mark.asyncio
+async def test_session_add_messages():
     s = Session()
-    s.add_user_message("hello")
+    await s.add_user_message("hello")
     assert len(s.messages) == 1
     assert s.messages[0].content == "hello"
 
 
-def test_session_total_tokens():
+@pytest.mark.asyncio
+async def test_session_total_tokens():
     s = Session()
-    s.add_user_message("hello world!")
+    await s.add_user_message("hello world!")
     assert s.total_tokens() > 0
 
 
-def test_session_compact():
+@pytest.mark.asyncio
+async def test_session_compact():
     s = Session(max_tokens=100)
-    s.add_user_message("first message that takes some tokens " * 5)
-    s.add_user_message("second message also taking tokens " * 5)
+    await s.add_user_message("first message that takes some tokens " * 5)
+    await s.add_user_message("second message also taking tokens " * 5)
     assert len(s.messages) == 2
 
     s.max_tokens = 1
-    s._compact()
+    await s._compact()
     assert len(s.messages) == 1
 
 
-def test_session_save_load(tmp_path):
+@pytest.mark.asyncio
+async def test_session_save_load(tmp_path):
     s = Session(system_prompt="test")
-    s.add_user_message("hello")
+    await s.add_user_message("hello")
     p = str(tmp_path / "session.json")
     s.save(p)
 

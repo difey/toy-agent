@@ -109,7 +109,7 @@ class Agent:
         return text, reasoning, calls
 
     async def _execute_tool_calls(
-        self, tool_calls: list[ToolCall], ctx: ToolContext, messages: list
+        self, tool_calls: list[ToolCall], ctx: ToolContext, sess: Session
     ) -> None:
         for call in tool_calls:
             tool = self.tools.get(call.name)
@@ -137,10 +137,12 @@ class Agent:
                     if self.on_tool_end:
                         self.on_tool_end(call.name, exec_result.title, exec_result.output)
 
-            messages.append(ToolResult(
+            sess.messages.append(ToolResult(
                 tool_call_id=call.id,
                 content=exec_result.output,
             ))
+
+        await sess._compact()
 
     def _build_system_prompt(self, cwd: str) -> str:
         return SYSTEM_PROMPT.format(
@@ -151,8 +153,21 @@ class Agent:
 
     def _get_or_create_session(self, session: Session | None, cwd: str) -> Session:
         if session is not None:
+            if session.summarizer is None:
+                session.summarizer = self._summarize
             return session
-        return Session(system_prompt=self._build_system_prompt(cwd))
+        return Session(
+            system_prompt=self._build_system_prompt(cwd),
+            summarizer=self._summarize,
+        )
+
+    async def _summarize(self, prompt: str) -> str:
+        messages: list = [UserMessage(content=prompt)]
+        response = await self.llm.chat(
+            messages=messages,
+            tools=[],
+        )
+        return response.content or ""
 
     async def run(
         self,
@@ -162,7 +177,7 @@ class Agent:
     ) -> str:
         ctx = ToolContext(cwd=str(Path(cwd).resolve()))
         sess = self._get_or_create_session(session, ctx.cwd)
-        sess.add_user_message(user_message)
+        await sess.add_user_message(user_message)
 
         while True:
             response = await self.llm.chat(
@@ -173,14 +188,14 @@ class Agent:
             text_content = response.content or ""
             tool_calls = response.tool_calls or []
 
-            sess.add_message(
+            await sess.add_message(
                 AssistantMessage(content=text_content, tool_calls=tool_calls)
             )
 
             if not tool_calls:
                 return text_content
 
-            await self._execute_tool_calls(tool_calls, ctx, sess.messages)
+            await self._execute_tool_calls(tool_calls, ctx, sess)
 
     async def run_stream(
         self,
@@ -190,7 +205,7 @@ class Agent:
     ) -> None:
         ctx = ToolContext(cwd=str(Path(cwd).resolve()))
         sess = self._get_or_create_session(session, ctx.cwd)
-        sess.add_user_message(user_message)
+        await sess.add_user_message(user_message)
 
         while True:
             stream = self.llm.chat_stream(
@@ -200,7 +215,7 @@ class Agent:
 
             text, reasoning, tool_calls = await self._build_tool_calls(stream)
 
-            sess.add_message(AssistantMessage(
+            await sess.add_message(AssistantMessage(
                 content=text,
                 reasoning_content=reasoning,
                 tool_calls=tool_calls,
@@ -209,4 +224,4 @@ class Agent:
             if not tool_calls:
                 return
 
-            await self._execute_tool_calls(tool_calls, ctx, sess.messages)
+            await self._execute_tool_calls(tool_calls, ctx, sess)
