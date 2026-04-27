@@ -15,11 +15,15 @@ class ToolExecResult:
     metadata: dict = field(default_factory=dict)
 
 
+AskUserCallback = Callable[[str, str, list[dict], bool], Awaitable[list[str]]]
+
+
 @dataclass
 class ToolContext:
     cwd: str
     allowed_files: set = field(default_factory=set)
     permission_callback: PermissionCallback | None = None
+    ask_user_callback: AskUserCallback | None = None
 
 
 def _resolve_path(path: str, cwd: str) -> str:

@@ -1,7 +1,7 @@
 import os
 import re
 
-from toy_agent.tool import Tool, ToolContext, ToolExecResult, check_file_permission
+from nano_claude.tool import Tool, ToolContext, ToolExecResult, check_file_permission
 
 
 class EditTool(Tool):

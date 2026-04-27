@@ -3,7 +3,7 @@ from typing import AsyncIterator
 
 from openai import AsyncOpenAI
 
-from toy_agent.message import (
+from nano_claude.message import (
     AssistantMessage,
     Message,
     ReasoningDelta,

@@ -1,7 +1,7 @@
 import glob
 import os
 
-from toy_agent.tool import Tool, ToolContext, ToolExecResult
+from nano_claude.tool import Tool, ToolContext, ToolExecResult
 
 
 class GlobTool(Tool):

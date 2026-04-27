@@ -5,7 +5,7 @@ from rich.console import Console
 from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
-CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".my_code")
+CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".nano_claude")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "config.toml")
 
 PRESET_MODELS = [
@@ -38,7 +38,7 @@ def has_user_config() -> bool:
 
 def run_wizard(console: Console) -> tuple[str, str]:
     console.print()
-    console.print("[bold]Welcome to ToyAgent! :rocket:[/bold]")
+    console.print("[bold]Welcome to nanoClaude! :rocket:[/bold]")
     console.print("Let's set up your model and API key.")
     console.print()
 

@@ -2,18 +2,21 @@ from unittest.mock import patch
 
 import pytest
 
-from toy_agent.agent import Agent
-from toy_agent.config import ProviderConfig, detect_provider, resolve_config, PROVIDERS
-from toy_agent.message import AssistantMessage, TextDelta, ToolCall, ToolCallBegin, ToolCallArgDelta
-from toy_agent.session import Session, estimate_tokens, message_tokens
-from toy_agent.tool import ToolContext, ToolRegistry
-from toy_agent.tools import (
+from nano_claude.agent import Agent
+from nano_claude.config import ProviderConfig, detect_provider, resolve_config, PROVIDERS
+from nano_claude.message import AssistantMessage, TextDelta, ToolCall, ToolCallBegin, ToolCallArgDelta
+from nano_claude.session import Session, estimate_tokens, message_tokens
+from nano_claude.tool import ToolContext, ToolRegistry
+from nano_claude.tools import (
+    ApplyPatchTool,
     BashTool,
     CodeSearchTool,
     EditTool,
     GlobTool,
     GrepTool,
+    QuestionTool,
     ReadTool,
+    TodoWriteTool,
     WebFetchTool,
     WebSearchTool,
     WriteTool,
@@ -267,11 +270,18 @@ def test_registry_all_tools():
     registry.register(WebFetchTool())
     registry.register(WebSearchTool())
     registry.register(CodeSearchTool())
+    registry.register(TodoWriteTool())
+    registry.register(QuestionTool())
+    registry.register(ApplyPatchTool())
 
     tools = registry.to_openai_tools()
-    assert len(tools) == 9
+    assert len(tools) == 12
     names = {t["function"]["name"] for t in tools}
-    assert names == {"bash", "read", "write", "edit", "glob", "grep", "webfetch", "websearch", "codesearch"}
+    assert names == {
+        "bash", "read", "write", "edit", "glob", "grep",
+        "webfetch", "websearch", "codesearch",
+        "todowrite", "question", "apply_patch",
+    }
 
 
 def test_estimate_tokens():
@@ -388,7 +398,7 @@ def test_detect_provider_unknown():
 
 def test_resolve_config_deepseek(monkeypatch):
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
-    monkeypatch.delenv("TOY_AGENT_MODEL", raising=False)
+    monkeypatch.delenv("NANO_CLAUDE_MODEL", raising=False)
     config = resolve_config("deepseek-chat")
     assert config.name == "deepseek"
     assert config.api_key == "sk-test"
@@ -398,7 +408,7 @@ def test_resolve_config_deepseek(monkeypatch):
 
 def test_resolve_config_openai(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
-    monkeypatch.delenv("TOY_AGENT_MODEL", raising=False)
+    monkeypatch.delenv("NANO_CLAUDE_MODEL", raising=False)
     config = resolve_config("gpt-4o")
     assert config.name == "openai"
     assert config.api_key == "sk-openai"
@@ -406,13 +416,13 @@ def test_resolve_config_openai(monkeypatch):
 
 
 def test_resolve_config_ollama(monkeypatch):
-    monkeypatch.setenv("TOY_AGENT_PROVIDER", "ollama")
+    monkeypatch.setenv("NANO_CLAUDE_PROVIDER", "ollama")
     config = resolve_config("llama3")
     assert config.name == "ollama"
 
 
 def test_resolve_config_generic_key(monkeypatch):
-    monkeypatch.setenv("TOY_AGENT_API_KEY", "sk-generic")
+    monkeypatch.setenv("NANO_CLAUDE_API_KEY", "sk-generic")
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     config = resolve_config("deepseek-chat")
     assert config.api_key == "sk-generic"
@@ -427,7 +437,7 @@ def test_providers_registered():
 
 
 def test_user_config_save_load(tmp_path, monkeypatch):
-    import toy_agent.setup as setup
+    import nano_claude.setup as setup
     config_dir = tmp_path / ".my_code"
     config_file = config_dir / "config.toml"
     monkeypatch.setattr(setup, "CONFIG_DIR", str(config_dir))
@@ -444,7 +454,7 @@ def test_user_config_save_load(tmp_path, monkeypatch):
 
 
 def test_resolve_config_uses_user_config(tmp_path, monkeypatch):
-    import toy_agent.setup as setup
+    import nano_claude.setup as setup
     config_dir = tmp_path / "my_code"
     config_file = config_dir / "config.toml"
     monkeypatch.setattr(setup, "CONFIG_DIR", str(config_dir))
@@ -452,8 +462,8 @@ def test_resolve_config_uses_user_config(tmp_path, monkeypatch):
 
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("TOY_AGENT_API_KEY", raising=False)
-    monkeypatch.delenv("TOY_AGENT_MODEL", raising=False)
+    monkeypatch.delenv("NANO_CLAUDE_API_KEY", raising=False)
+    monkeypatch.delenv("NANO_CLAUDE_MODEL", raising=False)
 
     setup.save_user_config("deepseek-chat", "sk-from-file")
 
@@ -481,10 +491,10 @@ async def test_webfetch_upgrades_http():
 
 @pytest.mark.asyncio
 async def test_websearch_missing_query():
-    from toy_agent.tools.exa_client import call_exa_tool
+    from nano_claude.tools.exa_client import call_exa_tool
     from unittest.mock import AsyncMock, patch
 
-    with patch("toy_agent.tools.websearch.call_exa_tool") as mock_call:
+    with patch("nano_claude.tools.websearch.call_exa_tool") as mock_call:
         mock_call.return_value = None
         tool = WebSearchTool()
         ctx = ToolContext(cwd="/tmp")
@@ -496,9 +506,125 @@ async def test_websearch_missing_query():
 async def test_codesearch_missing_query():
     from unittest.mock import patch
 
-    with patch("toy_agent.tools.codesearch.call_exa_tool") as mock_call:
+    with patch("nano_claude.tools.codesearch.call_exa_tool") as mock_call:
         mock_call.return_value = None
         tool = CodeSearchTool()
         ctx = ToolContext(cwd="/tmp")
         r = await tool.execute({"query": "nothing matches this"}, ctx)
         assert r.output == "No code documentation found."
+
+
+def test_todowrite_tool_basic():
+    tool = TodoWriteTool()
+    assert tool.name == "todowrite"
+    assert "todo" in tool.description.lower()
+
+
+@pytest.mark.asyncio
+async def test_todowrite_execute(tmp_path):
+    import nano_claude.tools.todowrite as td
+    td.TODO_STORE_FILE = str(tmp_path / "todos.json")
+
+    tool = TodoWriteTool()
+    ctx = ToolContext(cwd="/tmp")
+    todos = [
+        {"content": "Task 1", "status": "completed", "priority": "high"},
+        {"content": "Task 2", "status": "in_progress", "priority": "medium"},
+        {"content": "Task 3", "status": "pending", "priority": "low"},
+    ]
+    r = await tool.execute({"todos": todos}, ctx)
+    assert "1 completed" in r.title
+    assert "2 active" in r.title
+    assert "Task 1" in r.output
+
+
+def test_question_tool_basic():
+    tool = QuestionTool()
+    assert tool.name == "question"
+
+
+@pytest.mark.asyncio
+async def test_question_no_callback():
+    tool = QuestionTool()
+    ctx = ToolContext(cwd="/tmp")
+    r = await tool.execute({
+        "questions": [{
+            "question": "Test?",
+            "header": "Test",
+            "options": [{"label": "A", "description": "Option A"}],
+        }]
+    }, ctx)
+    assert "error" in r.title
+
+
+@pytest.mark.asyncio
+async def test_question_with_callback():
+    tool = QuestionTool()
+    async def fake_ask(header, question, options, multiple):
+        return ["A"]
+    ctx = ToolContext(cwd="/tmp", ask_user_callback=fake_ask)
+    r = await tool.execute({
+        "questions": [{
+            "question": "Test?",
+            "header": "Test",
+            "options": [{"label": "A", "description": "Option A"}],
+        }]
+    }, ctx)
+    assert "answered" in r.title
+    assert "A" in r.output
+
+
+def test_apply_patch_tool_basic():
+    tool = ApplyPatchTool()
+    assert tool.name == "apply_patch"
+
+
+@pytest.mark.asyncio
+async def test_apply_patch_add(tmp_path):
+    tool = ApplyPatchTool()
+    ctx = ToolContext(cwd=str(tmp_path))
+    r = await tool.execute({
+        "patchText": "*** Add File: hello.txt\n+Hello world\n+Second line\n"
+    }, ctx)
+    assert "1 files" in r.title
+    assert (tmp_path / "hello.txt").exists()
+    assert (tmp_path / "hello.txt").read_text() == "Hello world\nSecond line"
+
+
+@pytest.mark.asyncio
+async def test_apply_patch_delete(tmp_path):
+    f = tmp_path / "delete_me.txt"
+    f.write_text("content")
+    tool = ApplyPatchTool()
+    ctx = ToolContext(cwd=str(tmp_path))
+    r = await tool.execute({
+        "patchText": "*** Delete File: delete_me.txt\n"
+    }, ctx)
+    assert "1 files" in r.title
+    assert not f.exists()
+
+
+@pytest.mark.asyncio
+async def test_apply_patch_empty():
+    tool = ApplyPatchTool()
+    ctx = ToolContext(cwd="/tmp")
+    r = await tool.execute({"patchText": ""}, ctx)
+    assert "error" in r.title
+
+
+@pytest.mark.asyncio
+async def test_apply_patch_update(tmp_path):
+    f = tmp_path / "update.txt"
+    f.write_text("old line\nkeep this\n")
+    tool = ApplyPatchTool()
+    ctx = ToolContext(cwd=str(tmp_path))
+    r = await tool.execute({
+        "patchText": (
+            "*** Update File: update.txt\n"
+            "@@ -1,1 +1,1 @@\n"
+            "-old line\n"
+            "+new line\n"
+        )
+    }, ctx)
+    assert "1 files" in r.title
+    assert (tmp_path / "update.txt").read_text() == "new line\nkeep this\n"

@@ -1,5 +1,5 @@
-from toy_agent.tool import Tool, ToolContext, ToolExecResult
-from toy_agent.tools.exa_client import call_exa_tool
+from nano_claude.tool import Tool, ToolContext, ToolExecResult
+from nano_claude.tools.exa_client import call_exa_tool
 
 
 class CodeSearchTool(Tool):

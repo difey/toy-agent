@@ -1,0 +1,32 @@
+## todowrite: Task Tracking Tool
+
+Use `todowrite` to create and manage a structured task list for multi-step work.
+
+### When to Use
+1. Complex tasks with 3+ steps that need planning
+2. Multi-step operations where you need to track progress
+3. User explicitly asks you to use todos
+4. User provides multiple tasks (numbered or comma-separated)
+5. After completing a task, immediately mark it as `completed` and add any follow-up tasks
+
+### When NOT to Use
+1. Single simple tasks (1-2 steps)
+2. Pure informational or conversational questions
+3. Tasks that can be completed in one tool call
+
+### Task States
+- `pending` → Not started yet
+- `in_progress` → Currently working on (only ONE task at a time)
+- `completed` → Successfully finished
+- `cancelled` → No longer needed or abandoned
+
+### Priority Levels
+- `high` → Critical, do first
+- `medium` → Important but not urgent
+- `low` → Nice to have
+
+### Rules
+- Always provide the FULL list of todos (this tool replaces the entire list)
+- Only one task should be `in_progress` at a time
+- When you start a new task, mark the previous one as `completed` first
+- Update priorities as the user provides more context

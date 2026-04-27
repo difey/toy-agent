@@ -1,7 +1,7 @@
 import os
 from dataclasses import dataclass, field
 
-from toy_agent.setup import load_user_config
+from nano_claude.setup import load_user_config
 
 
 @dataclass
@@ -49,7 +49,7 @@ def detect_provider(model: str) -> str:
     for prefix, provider in MODEL_PROVIDER_PREFIX.items():
         if model_lower.startswith(prefix):
             return provider
-    return os.environ.get("TOY_AGENT_PROVIDER", "openai")
+    return os.environ.get("NANO_CLAUDE_PROVIDER", "openai")
 
 
 def resolve_config(model: str | None = None) -> ProviderConfig:
@@ -57,7 +57,7 @@ def resolve_config(model: str | None = None) -> ProviderConfig:
 
     resolved_model = (
         model
-        or os.environ.get("TOY_AGENT_MODEL")
+        or os.environ.get("NANO_CLAUDE_MODEL")
         or user_config.get("model")
         or "gpt-4o"
     )
@@ -82,7 +82,7 @@ def _resolve_api_key(provider_name: str, user_config: dict | None = None) -> str
     env_var = f"{provider_name.upper()}_API_KEY"
     key = os.environ.get(env_var)
     if not key:
-        key = os.environ.get("TOY_AGENT_API_KEY")
+        key = os.environ.get("NANO_CLAUDE_API_KEY")
     if not key:
         key = user_config.get("api_key")
     if not key and provider_name == "ollama":

@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 from typing import Awaitable, Callable
 
-from toy_agent.message import (
+from nano_claude.message import (
     AssistantMessage,
     Message,
     SystemMessage,

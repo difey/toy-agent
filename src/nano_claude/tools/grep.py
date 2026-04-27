@@ -4,7 +4,7 @@ import os
 import re
 import subprocess
 
-from toy_agent.tool import Tool, ToolContext, ToolExecResult
+from nano_claude.tool import Tool, ToolContext, ToolExecResult
 
 
 class GrepTool(Tool):

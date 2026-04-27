@@ -13,19 +13,22 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from toy_agent.agent import Agent
-from toy_agent.config import resolve_config
-from toy_agent.message import ToolCall
-from toy_agent.session import Session
-from toy_agent.setup import has_user_config, run_wizard
-from toy_agent.tool import ToolRegistry
-from toy_agent.tools import (
+from nano_claude.agent import Agent
+from nano_claude.config import resolve_config
+from nano_claude.message import ToolCall
+from nano_claude.session import Session
+from nano_claude.setup import has_user_config, run_wizard
+from nano_claude.tool import ToolRegistry
+from nano_claude.tools import (
+    ApplyPatchTool,
     BashTool,
     CodeSearchTool,
     EditTool,
     GlobTool,
     GrepTool,
+    QuestionTool,
     ReadTool,
+    TodoWriteTool,
     WebFetchTool,
     WebSearchTool,
     WriteTool,
@@ -58,8 +61,13 @@ class SlashCompleter(Completer):
                 yield Completion(cmd, start_position=-len(word))
         if word.startswith("/session "):
             yield Completion("/session new", start_position=-len(word))
+            yield Completion("/session delete ", start_position=-len(word))
             for i, _ in enumerate(_list_sessions(self.cwd), 1):
                 yield Completion(f"/session {i}", start_position=-len(word))
+        if word.startswith("/session delete "):
+            yield Completion("/session delete all", start_position=-len(word))
+            for i, _ in enumerate(_list_sessions(self.cwd), 1):
+                yield Completion(f"/session delete {i}", start_position=-len(word))
 
 
 def _build_registry() -> ToolRegistry:
@@ -73,6 +81,9 @@ def _build_registry() -> ToolRegistry:
     registry.register(WebFetchTool())
     registry.register(WebSearchTool())
     registry.register(CodeSearchTool())
+    registry.register(TodoWriteTool())
+    registry.register(QuestionTool())
+    registry.register(ApplyPatchTool())
     return registry
 
 
@@ -124,6 +135,67 @@ async def _permission_callback(tool: str, target: str, reason: str) -> str:
     return "deny"
 
 
+async def _ask_user_callback(
+    header: str, question: str, options: list[dict], multiple: bool
+) -> list[str]:
+    """Display a question to the user and return their answer(s)."""
+    console.print()
+    console.print(f"  [bold cyan]{header}[/bold cyan]")
+    console.print(f"  {question}")
+    console.print()
+
+    option_map: dict[str, str] = {}
+    for i, opt in enumerate(options, 1):
+        label = opt["label"]
+        desc = opt.get("description", "")
+        option_map[str(i)] = label
+        option_map[label.lower()] = label
+        desc_text = f" - {desc}" if desc else ""
+        console.print(f"    {i}. [bold]{label}[/bold]{desc_text}")
+
+    custom_idx = len(options) + 1
+    console.print(f"    {custom_idx}. [bold]Custom[/bold] (type your own answer)")
+    console.print()
+
+    answers: list[str] = []
+    prompt_text = f"  Your answer (1-{custom_idx}{', comma-separated for multiple' if multiple else ''}): "
+    console.print(prompt_text, end="")
+    sys.stdout.flush()
+
+    try:
+        loop = asyncio.get_running_loop()
+        raw = await loop.run_in_executor(None, sys.stdin.readline)
+    except Exception:
+        return []
+
+    raw = raw.strip()
+    if not raw:
+        return []
+
+    selected = [s.strip() for s in raw.replace("，", ",").split(",") if s.strip()]
+
+    for choice in selected:
+        if choice in option_map:
+            answers.append(option_map[choice])
+        elif choice.isdigit() and int(choice) == custom_idx:
+            console.print("  Type your answer: ", end="")
+            sys.stdout.flush()
+            try:
+                custom = await loop.run_in_executor(None, sys.stdin.readline)
+                answers.append(custom.strip() or "(skipped)")
+            except Exception:
+                answers.append("(skipped)")
+        elif choice.isdigit() and 1 <= int(choice) <= len(options):
+            answers.append(options[int(choice) - 1]["label"])
+        else:
+            answers.append(choice)
+
+    if not answers:
+        return ["(skipped)"]
+
+    return answers
+
+
 def _session_path(cwd: str) -> str:
     ts = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
     directory = os.path.join(cwd, ".session")
@@ -143,9 +215,9 @@ def _ensure_cwd(cwd: str) -> str:
 @click.option("--cwd", default=None, help="Working directory (default: current directory)")
 @click.option("--setup", "force_setup", is_flag=True, default=False, help="Re-run the setup wizard")
 def main(message: str | None, model: str | None, cwd: str | None, force_setup: bool):
-    """ToyAgent - a CLI coding assistant that uses tools to complete coding tasks.
+    """nanoClaude - a CLI coding assistant that uses tools to complete coding tasks.
 
-    Set DEEPSEEK_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, or TOY_AGENT_API_KEY
+    Set DEEPSEEK_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, or NANO_CLAUDE_API_KEY
     depending on the provider. Provider is auto-detected from the model name:
 
     \b
@@ -157,7 +229,7 @@ def main(message: str | None, model: str | None, cwd: str | None, force_setup: b
     Run without MESSAGE to enter interactive multi-turn mode.
 
     Session files are auto-saved to <cwd>/.session/<timestamp>.json.
-    Configuration is stored at ~/.my_code/config.toml.
+    Configuration is stored at ~/.nano_claude/config.toml.
     """
 
     if force_setup or not has_user_config():
@@ -166,8 +238,8 @@ def main(message: str | None, model: str | None, cwd: str | None, force_setup: b
     config = resolve_config(model)
     if not config.api_key:
         console.print(f"[bold red]Error:[/bold red] No API key found for provider '{config.name}'.")
-        console.print(f"  Set {config.name.upper()}_API_KEY or TOY_AGENT_API_KEY environment variable,")
-        console.print(f"  or run `toy-agent --setup` to configure.")
+        console.print(f"  Set {config.name.upper()}_API_KEY or NANO_CLAUDE_API_KEY environment variable,")
+        console.print(f"  or run `nano-claude --setup` to configure.")
         sys.exit(1)
 
     resolved_model = config.default_model
@@ -180,6 +252,7 @@ def main(message: str | None, model: str | None, cwd: str | None, force_setup: b
         api_key=config.api_key,
         base_url=config.base_url,
         permission_callback=_permission_callback,
+        ask_user_callback=_ask_user_callback,
         on_text_delta=_on_text_delta,
         on_tool_start=_on_tool_start,
         on_tool_end=_on_tool_end,
@@ -214,7 +287,7 @@ def _session_info(filepath: str) -> dict:
         sess = Session.load(filepath)
         first_msg = ""
         for m in sess.messages:
-            from toy_agent.message import UserMessage
+            from nano_claude.message import UserMessage
             if isinstance(m, UserMessage) and isinstance(m.content, str):
                 first_msg = m.content
                 break
@@ -264,7 +337,7 @@ def _run_interactive(agent: Agent, cwd: str, session: Session, session_file_ref:
         completer=SlashCompleter(cwd),
         style=_STYLE,
     )
-    console.print("[dim]ToyAgent interactive mode. Type /help for commands, Tab to complete, Ctrl+C to exit.[/dim]")
+    console.print("[dim]nanoClaude interactive mode. Type /help for commands, Tab to complete, Ctrl+C to exit.[/dim]")
 
     while True:
         try:
@@ -295,14 +368,16 @@ def _handle_command(
     arg = parts[1] if len(parts) > 1 else ""
 
     if cmd == "/help":
-        console.print("  /help           Show this help")
-        console.print("  /clear          Clear conversation history")
-        console.print("  /tokens         Show token usage")
-        console.print("  /session        Show current session info")
-        console.print("  /session new    Start a new session")
-        console.print("  /sessions       List all saved sessions")
-        console.print("  /session <n>    Switch to session n (from /sessions list)")
-        console.print("  /exit           Exit")
+        console.print("  /help                Show this help")
+        console.print("  /clear               Clear conversation history")
+        console.print("  /tokens              Show token usage")
+        console.print("  /session             Show current session info")
+        console.print("  /session new         Start a new session")
+        console.print("  /sessions            List all saved sessions")
+        console.print("  /session <n>         Switch to session n (from /sessions list)")
+        console.print("  /session delete <n>  Delete session n")
+        console.print("  /session delete all  Delete all saved sessions")
+        console.print("  /exit                Exit")
         return True
 
     if cmd == "/exit":
@@ -327,6 +402,9 @@ def _handle_command(
             session.messages.clear()
             session_file_ref[0] = _session_path(cwd)
             console.print(f"[dim]New session started: {os.path.basename(session_file_ref[0])}[/dim]")
+            return True
+        if arg.startswith("delete "):
+            _delete_session(session, cwd, arg[7:], session_file_ref)
             return True
         if arg.isdigit():
             _switch_session(session, cwd, int(arg), session_file_ref)
@@ -374,6 +452,66 @@ def _switch_session(
     console.print(f"[dim]Switched to session: {info['name']}  "
                   f"Messages: {info['messages']}  "
                   f"Tokens: ~{info['tokens']}[/dim]")
+
+
+def _delete_session(
+    session: Session, cwd: str, target: str, session_file_ref: list
+) -> None:
+    files = _list_sessions(cwd)
+    if not files:
+        console.print("[dim]No saved sessions to delete.[/dim]")
+        return
+
+    if target == "all":
+        console.print("[yellow]Delete ALL saved sessions? This cannot be undone.[/yellow]")
+        console.print("  [dim]\\[y]es / \\[n]o[/dim] ", end="")
+        sys.stdout.flush()
+        try:
+            choice = sys.stdin.readline().strip().lower()
+        except Exception:
+            choice = "n"
+        if choice not in ("y", "yes"):
+            console.print("[dim]Cancelled.[/dim]")
+            return
+
+        current_abs = os.path.abspath(session_file_ref[0])
+        deleted_count = 0
+        for f in files:
+            if os.path.abspath(f) != current_abs:
+                try:
+                    os.remove(f)
+                    deleted_count += 1
+                except OSError:
+                    pass
+        if deleted_count:
+            console.print(f"[dim]Deleted {deleted_count} session(s).[/dim]")
+        else:
+            console.print("[dim]No sessions to delete (only current session remains).[/dim]")
+        return
+
+    if not target.isdigit():
+        console.print(f"[dim]Usage: /session delete <n> or /session delete all[/dim]")
+        return
+
+    index = int(target)
+    if index < 1 or index > len(files):
+        console.print(f"[dim]Invalid session number: {index}[/dim]")
+        return
+
+    target_file = files[index - 1]
+    target_abs = os.path.abspath(target_file)
+
+    # Check if deleting the current session
+    if target_abs == os.path.abspath(session_file_ref[0]):
+        console.print("[dim]Cannot delete the current active session. Switch to another session first.[/dim]")
+        return
+
+    try:
+        os.remove(target_file)
+        info = _session_info(target_file)
+        console.print(f"[dim]Deleted session {index}: {info['name']} ({info['messages']} messages)[/dim]")
+    except OSError as e:
+        console.print(f"[bold red]Failed to delete session: {e}[/bold red]")
 
 
 if __name__ == "__main__":

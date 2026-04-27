@@ -3,7 +3,7 @@ import os
 import re
 import shlex
 
-from toy_agent.tool import Tool, ToolContext, ToolExecResult
+from nano_claude.tool import Tool, ToolContext, ToolExecResult
 
 
 DANGEROUS_PATTERNS = [

@@ -4,7 +4,7 @@ import httpx
 from bs4 import BeautifulSoup
 from markdownify import markdownify
 
-from toy_agent.tool import Tool, ToolContext, ToolExecResult
+from nano_claude.tool import Tool, ToolContext, ToolExecResult
 
 MAX_SIZE = 5 * 1024 * 1024
 DEFAULT_TIMEOUT = 30.0
@@ -98,7 +98,7 @@ class WebFetchTool(Tool):
                     response.status_code == 403
                     and response.headers.get("cf-mitigated") == "challenge"
                 ):
-                    headers["User-Agent"] = "toy-agent"
+                    headers["User-Agent"] = "nano-claude"
                     response = await client.get(url, headers=headers)
 
                 response.raise_for_status()

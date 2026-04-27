@@ -5,8 +5,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
-from toy_agent.llm import LLMClient
-from toy_agent.message import (
+from nano_claude.llm import LLMClient
+from nano_claude.message import (
     AssistantMessage,
     ReasoningDelta,
     TextDelta,
@@ -15,8 +15,9 @@ from toy_agent.message import (
     ToolCallBegin,
     ToolResult,
 )
-from toy_agent.session import Session
-from toy_agent.tool import (
+from nano_claude.session import Session
+from nano_claude.tool import (
+    AskUserCallback,
     PermissionCallback,
     ToolContext,
     ToolExecResult,
@@ -25,7 +26,7 @@ from toy_agent.tool import (
 
 
 SYSTEM_PROMPT = textwrap.dedent("""\
-You are ToyAgent, a CLI coding assistant. You help users write code by using tools.
+You are nanoClaude, a CLI coding assistant. You help users write code by using tools.
 
 ## Working Environment
 - Working directory: {cwd}
@@ -58,6 +59,7 @@ class Agent:
         api_key: str | None = None,
         base_url: str | None = None,
         permission_callback: PermissionCallback | None = None,
+        ask_user_callback: AskUserCallback | None = None,
         on_text_delta: Callable | None = None,
         on_tool_start: Callable | None = None,
         on_tool_end: Callable | None = None,
@@ -65,6 +67,7 @@ class Agent:
         self.llm = LLMClient(model=model, api_key=api_key, base_url=base_url)
         self.tools = tools
         self.permission_callback = permission_callback
+        self.ask_user_callback = ask_user_callback
         self.on_text_delta = on_text_delta
         self.on_tool_start = on_tool_start
         self.on_tool_end = on_tool_end
@@ -175,6 +178,7 @@ class Agent:
         ctx = ToolContext(
             cwd=str(Path(cwd).resolve()),
             permission_callback=self.permission_callback,
+            ask_user_callback=self.ask_user_callback,
         )
         sess = self._get_or_create_session(session, ctx.cwd)
         await sess.add_user_message(user_message)
@@ -189,7 +193,11 @@ class Agent:
             tool_calls = response.tool_calls or []
 
             await sess.add_message(
-                AssistantMessage(content=text_content, tool_calls=tool_calls)
+                AssistantMessage(
+                    content=text_content,
+                    reasoning_content=response.reasoning_content,
+                    tool_calls=tool_calls,
+                )
             )
 
             if not tool_calls:
@@ -206,6 +214,7 @@ class Agent:
         ctx = ToolContext(
             cwd=str(Path(cwd).resolve()),
             permission_callback=self.permission_callback,
+            ask_user_callback=self.ask_user_callback,
         )
         sess = self._get_or_create_session(session, ctx.cwd)
         await sess.add_user_message(user_message)

@@ -1,44 +1,71 @@
-# toy-agent
+# nanoClaude
 
 A Python CLI coding assistant that uses LLM-powered tools to complete coding tasks from natural language input.
 
 ```bash
-$ toy-agent "用 FastAPI 写一个 hello world 服务"
+$ nano-claude "用 FastAPI 写一个 hello world 服务"
    Let me create a FastAPI hello world service.
   [bash [install fastapi]] pip install fastapi uvicorn...
   [write [main.py]] Wrote 350 bytes to main.py
    Done! Created main.py, run with `uvicorn main:app`.
 ```
 
+## Installation
+
+### Prerequisites
+
+- Python 3.11+
+- [uv](https://docs.astral.sh/uv/) (Python package manager)
+
+### Install globally
+
+```bash
+cd nanoClaude/
+
+# Install as a global CLI tool (run from anywhere)
+uv tool install .
+
+# Verify installation
+uv tool list
+```
+
+### Upgrade
+
+```bash
+cd nanoClaude/
+uv tool install --reinstall .
+```
+
+### Uninstall
+
+```bash
+uv tool uninstall nanoClaude
+```
+
 ## Quick Start
 
 ```bash
-cd toy-agent/
-
-# Install globally (run from anywhere)
-uv tool install .
-
 # First run — setup wizard guides you through model + API key
-toy-agent
+nano-claude
 ```
 
-Configuration is saved to `~/.my_code/config.toml`. Run `toy-agent --setup` to reconfigure.
+Configuration is saved to `~/.nano_claude/config.toml`. Run `nano-claude --setup` to reconfigure.
 
 ## Usage
 
 ### Single turn
 
 ```bash
-toy-agent "create a python script"
-toy-agent "add tests to main.py" --cwd /tmp/my-project
-toy-agent "..." --model deepseek-v4-pro
+nano-claude "create a python script"
+nano-claude "add tests to main.py" --cwd /tmp/my-project
+nano-claude "..." --model deepseek-v4-pro
 ```
 
 ### Interactive mode
 
 ```bash
-$ toy-agent --cwd ./my-project
-ToyAgent interactive mode. Type /help for commands, Ctrl+C to exit.
+$ nano-claude --cwd ./my-project
+nanoClaude interactive mode. Type /help for commands, Ctrl+C to exit.
 > write a hello world script
   [write [hello.py]] Wrote 120 bytes to hello.py
    Done!
@@ -69,7 +96,7 @@ Provider is auto-detected from the model name prefix:
 | `claude-*` | Anthropic | `ANTHROPIC_API_KEY` | `https://api.anthropic.com/v1` |
 | (custom) | Ollama | `OLLAMA_BASE_URL` | `http://localhost:11434/v1` |
 
-For Ollama, set `TOY_AGENT_PROVIDER=ollama`. Use `TOY_AGENT_API_KEY` as a fallback key for any provider.
+For Ollama, set `NANO_CLAUDE_PROVIDER=ollama`. Use `NANO_CLAUDE_API_KEY` as a fallback key for any provider.
 
 ## Environment Variables
 
@@ -78,9 +105,9 @@ For Ollama, set `TOY_AGENT_PROVIDER=ollama`. Use `TOY_AGENT_API_KEY` as a fallba
 | `DEEPSEEK_API_KEY` | DeepSeek API key |
 | `OPENAI_API_KEY` | OpenAI API key |
 | `ANTHROPIC_API_KEY` | Anthropic API key |
-| `TOY_AGENT_API_KEY` | Fallback key for any provider |
-| `TOY_AGENT_MODEL` | Default model |
-| `TOY_AGENT_PROVIDER` | Force provider |
+| `NANO_CLAUDE_API_KEY` | Fallback key for any provider |
+| `NANO_CLAUDE_MODEL` | Default model |
+| `NANO_CLAUDE_PROVIDER` | Force provider |
 
 ## Available Tools
 
@@ -92,10 +119,16 @@ For Ollama, set `TOY_AGENT_PROVIDER=ollama`. Use `TOY_AGENT_API_KEY` as a fallba
 | `edit` | Exact string replacement in files (prefer edit over write for modifications) |
 | `glob` | Filename pattern search (e.g. `**/*.py`) |
 | `grep` | Content search with regex (uses ripgrep when available, Python fallback) |
+| `webfetch` | Fetch content from URLs with format options (markdown, text, html); auto-upgrades HTTP to HTTPS |
+| `websearch` | Real-time web search using Exa AI; provides up-to-date information beyond the model's knowledge cutoff |
+| `codesearch` | Programming-oriented search using Exa Code API; returns code examples, docs, and API references |
+| `todowrite` | Create and manage a structured task list for tracking multi-step progress (persisted to `~/.nano_claude/todos.json`) |
+| `question` | Ask the user for input to gather preferences, clarify ambiguous instructions, or get decisions |
+| `apply_patch` | Structured batch editing: add/update/delete multiple files in one call using unified diff format |
 
 ## Run Tests
 
 ```bash
-cd toy-agent/
+cd nanoClaude/
 uv run -m pytest tests/ -v
 ```
