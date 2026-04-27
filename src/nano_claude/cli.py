@@ -1,6 +1,7 @@
 import asyncio
 import glob
 import os
+import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -44,6 +45,7 @@ _COMMANDS = [
     "/help",
     "/clear",
     "/tokens",
+    "/vscode",
     "/session",
     "/sessions",
     "/exit",
@@ -371,6 +373,7 @@ def _handle_command(
         console.print("  /help                Show this help")
         console.print("  /clear               Clear conversation history")
         console.print("  /tokens              Show token usage")
+        console.print("  /vscode              Open current working directory in VS Code")
         console.print("  /session             Show current session info")
         console.print("  /session new         Start a new session")
         console.print("  /sessions            List all saved sessions")
@@ -390,6 +393,16 @@ def _handle_command(
 
     if cmd == "/tokens":
         console.print(f"[dim]~{session.total_tokens()} tokens used.[/dim]")
+        return True
+
+    if cmd == "/vscode":
+        try:
+            subprocess.run(["code", cwd], check=True)
+            console.print(f"[dim]Opened VS Code at {cwd}[/dim]")
+        except FileNotFoundError:
+            console.print("[bold red]Error:[/bold red] `code` command not found. Make sure VS Code is installed and the `code` CLI is in your PATH.")
+        except subprocess.CalledProcessError as e:
+            console.print(f"[bold red]Error:[/bold red] Failed to open VS Code: {e}")
         return True
 
     if cmd == "/sessions":
