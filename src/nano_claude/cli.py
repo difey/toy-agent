@@ -9,6 +9,7 @@ from pathlib import Path
 import click
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.styles import Style
 from rich.console import Console
 from rich.table import Table
@@ -334,10 +335,35 @@ def _print_sessions(cwd: str) -> None:
     console.print(table)
 
 
+class _SessionBar:
+    """Bottom toolbar showing session info."""
+
+    def __init__(self, session: Session, cwd: str, session_file_ref: list):
+        self.session = session
+        self.cwd = cwd
+        self.session_file_ref = session_file_ref
+
+    def __call__(self) -> HTML:
+        info = _session_info(self.session_file_ref[0])
+        name = info["name"]
+        tokens = info["tokens"]
+        cwd_display = self.cwd
+        # Truncate cwd if too long
+        if len(cwd_display) > 50:
+            cwd_display = "..." + cwd_display[-47:]
+        return HTML(
+            f'<b> Session:</b> {name} '
+            f'<b> CWD:</b> {cwd_display} '
+            f'<b> Tokens:</b> ~{tokens}'
+        )
+
+
 def _run_interactive(agent: Agent, cwd: str, session: Session, session_file_ref: list) -> None:
+    bottom_toolbar = _SessionBar(session, cwd, session_file_ref)
     prompt_session = PromptSession(
         completer=SlashCompleter(cwd),
         style=_STYLE,
+        bottom_toolbar=bottom_toolbar,
     )
     console.print("[dim]nanoClaude interactive mode. Type /help for commands, Tab to complete, Ctrl+C to exit.[/dim]")
 
