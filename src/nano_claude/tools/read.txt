@@ -1,1 +1,1 @@
-Use `read` to view file contents from the local filesystem. Returns contents with line numbers prefixed. Use `offset` and `limit` for long files. Use absolute paths for `filePath`.
+Use `read` to view file contents from the local filesystem. Returns contents with line numbers prefixed. Use `offset` and `limit` for long files. Provide paths relative to cwd (e.g. `src/main.py`) or absolute paths based on cwd. Do NOT use made-up paths like `/workspace/...`.

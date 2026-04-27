@@ -8,7 +8,7 @@ from rich.console import Console
 
 from nano_claude.agent import Agent
 from nano_claude.config import resolve_config
-from nano_claude.session import Session, session_path
+from nano_claude.session import Session, save_current, session_path
 from nano_claude.setup import has_user_config, run_wizard
 from nano_claude.tool import ToolRegistry
 from nano_claude.tools import (
@@ -124,7 +124,7 @@ def main(message: str | None, model: str | None, cwd: str | None, force_setup: b
         console.print(f"\n[bold red]Error:[/bold red] {e}")
         sys.exit(1)
     finally:
-        session.save(session_file_ref[0])
+        save_current(session, session_file_ref[0])
 
 
 if __name__ == "__main__":

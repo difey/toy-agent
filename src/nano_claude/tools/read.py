@@ -1,6 +1,12 @@
 import os
 
-from nano_claude.tool import Tool, ToolContext, ToolExecResult, check_file_permission
+from nano_claude.tool import (
+    Tool,
+    ToolContext,
+    ToolExecResult,
+    check_file_permission,
+    resolve_safe_path,
+)
 
 
 class ReadTool(Tool):
@@ -24,7 +30,7 @@ class ReadTool(Tool):
             "properties": {
                 "filePath": {
                     "type": "string",
-                    "description": "Absolute path to the file to read",
+                    "description": "Path to the file to read. Can be relative to cwd or absolute.",
                 },
                 "offset": {
                     "type": "number",
@@ -43,25 +49,36 @@ class ReadTool(Tool):
         offset = args.get("offset")
         limit = args.get("limit")
 
-        allowed, _ = await check_file_permission(ctx, file_path)
+        # Resolve path with hallucination correction
+        resolved_path = resolve_safe_path(file_path, ctx)
+
+        allowed, _ = await check_file_permission(ctx, resolved_path)
         if not allowed:
             return ToolExecResult(
-                output=f"Permission denied: {file_path}",
+                output=f"Permission denied: {resolved_path}",
                 title="read [denied]",
             )
 
-        if not os.path.isfile(file_path):
+        if not os.path.isfile(resolved_path):
+            hint = ""
+            # Provide hints for common hallucinated paths
+            if file_path != resolved_path:
+                hint = (
+                    f"\n\nNote: The path you provided ('{file_path}') was auto-corrected "
+                    f"to '{resolved_path}'. The actual working directory is '{ctx.cwd}'. "
+                    f"Please use the correct absolute path or a relative path."
+                )
             return ToolExecResult(
-                output=f"Error: file not found: {file_path}",
+                output=f"Error: file not found: {resolved_path}{hint}",
                 title="read [error]",
             )
 
         try:
-            with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+            with open(resolved_path, "r", encoding="utf-8", errors="replace") as f:
                 lines = f.readlines()
         except OSError as e:
             return ToolExecResult(
-                output=f"Error reading file '{file_path}': {e}",
+                output=f"Error reading file '{resolved_path}': {e}",
                 title="read [error]",
             )
 
@@ -77,8 +94,8 @@ class ReadTool(Tool):
         selected = lines[start:end]
         output_lines = [f"{start + i + 1}: {line.rstrip()}" for i, line in enumerate(selected)]
 
-        fname = os.path.basename(file_path)
-        header = f"{file_path} (lines {start + 1}-{start + len(selected)}/{total_lines})"
+        fname = os.path.basename(resolved_path)
+        header = f"{resolved_path} (lines {start + 1}-{start + len(selected)}/{total_lines})"
         output = header + "\n" + "\n".join(output_lines)
 
         if start + len(selected) < total_lines:

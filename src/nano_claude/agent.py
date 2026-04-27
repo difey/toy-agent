@@ -29,11 +29,19 @@ SYSTEM_PROMPT = textwrap.dedent("""\
 You are nanoClaude, a CLI coding assistant. You help users write code by using tools.
 
 ## Working Environment
-- Working directory: {cwd}
+- Working directory (cwd): {cwd}
 - Platform: {platform}
 - Today: {date}
 
 {tools}
+
+## ⚠️ CRITICAL: Path Usage Rules
+- Your cwd is ALWAYS `{cwd}`. Do NOT assume any other base path like `/workspace`, `/project`, `/app`, etc.
+- When accessing files, ALWAYS use absolute paths rooted at `{cwd}` (e.g. `{cwd}/src/file.py`).
+  You can also use relative paths like `src/file.py`.
+- If a path you try does NOT exist, check if you made up a wrong base path. The tools will auto-correct
+  common mistakes like `/workspace/...` → `{cwd}/...`, but it's better to get it right the first time.
+- Use `bash ls` or `glob` to explore the directory structure before trying to access files.
 
 ## General Guidelines
 - Never generate or assume URLs unless you are confident they are correct.
@@ -137,6 +145,7 @@ class Agent:
             sess.messages.append(ToolResult(
                 tool_call_id=call.id,
                 content=exec_result.output,
+                tool_name=call.name,
             ))
 
         await sess._compact()
@@ -152,12 +161,15 @@ class Agent:
         )
 
     def _get_or_create_session(self, session: Session | None, cwd: str) -> Session:
+        system_prompt = self._build_system_prompt(cwd)
         if session is not None:
             if session.summarizer is None:
                 session.summarizer = self._summarize
+            # Ensure the session always has the latest system prompt as the first message
+            session._ensure_system_prompt(system_prompt)
             return session
         return Session(
-            system_prompt=self._build_system_prompt(cwd),
+            system_prompt=system_prompt,
             summarizer=self._summarize,
         )
 

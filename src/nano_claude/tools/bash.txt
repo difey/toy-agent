@@ -1,1 +1,6 @@
 Use `bash` to run shell commands (install packages, run code, check directories). Commands timeout after 120 seconds and output is truncated at 50KB. Describe each command in 5-10 words via the `description` parameter.
+
+⚠️ IMPORTANT: Do NOT use `bash` for file searches (e.g. `find .`, `grep -r`, `rg`, `ag`, `fd`, `locate`). These commands are very slow on large codebases and have a shorter 30-second timeout with auto-exclusions. Instead, use the dedicated tools:
+  - `glob` — for finding files by name patterns (e.g. `**/*.py`)
+  - `grep` — for searching file contents with regex
+  - `codesearch` — for searching programming documentation

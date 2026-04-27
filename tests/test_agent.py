@@ -666,3 +666,119 @@ async def test_apply_patch_update(tmp_path):
     }, ctx)
     assert "1 files" in r.title
     assert (tmp_path / "update.txt").read_text() == "new line\nkeep this\n"
+
+
+@pytest.mark.asyncio
+async def test_bash_search_guard_detection():
+    """Test that file-search commands are detected."""
+    from nano_claude.tools.bash import (
+        SEARCH_COMMAND_PATTERNS,
+        SEARCH_COMMAND_TIMEOUT,
+        HEAVY_DIRS_TO_EXCLUDE,
+    )
+
+    tool = BashTool()
+
+    # Commands that SHOULD be detected as search
+    search_cmds = [
+        "find . -name '*.py'",
+        "find . -type f",
+        "grep -r 'pattern' .",
+        "grep -rn 'pattern' .",
+        "grep -rli 'pattern' .",
+        "rg 'pattern'",
+        "ag 'pattern'",
+        "ack 'pattern'",
+        "fd 'pattern'",
+        "locate something",
+    ]
+    for cmd in search_cmds:
+        reason, timeout = tool._detect_search_command(cmd)
+        assert reason, f"Command should be detected as search: {cmd}"
+        assert timeout == SEARCH_COMMAND_TIMEOUT, f"Timeout should be {SEARCH_COMMAND_TIMEOUT}"
+
+    # Commands that should NOT be detected
+    non_search_cmds = [
+        "echo hello",
+        "ls -la",
+        "python script.py",
+        "npm install",
+        "grep 'pattern' file.txt",  # non-recursive grep on a single file
+        "cat file.txt",
+        "cd /tmp && pwd",
+        "pip install requests",
+        "touch newfile.txt",
+    ]
+    for cmd in non_search_cmds:
+        reason, timeout = tool._detect_search_command(cmd)
+        assert not reason, f"Command should NOT be detected as search: {cmd} ({reason})"
+
+
+@pytest.mark.asyncio
+async def test_bash_search_guard_exclusions(tmp_path):
+    """Test that heavy dir exclusions are auto-added to search commands."""
+    tool = BashTool()
+
+    # Create some heavy directories
+    (tmp_path / ".git").mkdir()
+    (tmp_path / "node_modules").mkdir()
+    (tmp_path / "__pycache__").mkdir()
+
+    # Test find command auto-exclusion
+    modified = tool._auto_exclude_heavy_dirs("find . -name '*.py'", str(tmp_path))
+    assert '.git' in modified
+    assert 'node_modules' in modified
+    assert '__pycache__' in modified
+    assert '-not -path' in modified
+
+    # Test grep auto-exclusion
+    modified = tool._auto_exclude_heavy_dirs("grep -r 'pattern' .", str(tmp_path))
+    assert '--exclude-dir=".git"' in modified
+    assert '--exclude-dir="node_modules"' in modified
+
+    # Test rg auto-exclusion
+    modified = tool._auto_exclude_heavy_dirs("rg 'pattern' .", str(tmp_path))
+    assert '--exclude-dir=".git"' in modified
+
+    # Test fd auto-exclusion
+    modified = tool._auto_exclude_heavy_dirs("fd 'pattern'", str(tmp_path))
+    assert '--exclude=".git"' in modified
+
+
+@pytest.mark.asyncio
+async def test_bash_search_guard_no_exclusions_when_no_heavy_dirs(tmp_path):
+    """Test that no exclusions are added when heavy dirs don't exist."""
+    tool = BashTool()
+
+    modified = tool._auto_exclude_heavy_dirs("find . -name '*.py'", str(tmp_path))
+    assert modified == "find . -name '*.py'", "No modification expected when heavy dirs don't exist"
+
+    modified = tool._auto_exclude_heavy_dirs("grep -r 'pattern' .", str(tmp_path))
+    assert modified == "grep -r 'pattern' .", "No modification expected when heavy dirs don't exist"
+
+
+@pytest.mark.asyncio
+async def test_bash_search_guard_execute_adds_warning(tmp_path):
+    """Test that executing a search command via bash adds a warning."""
+    tool = BashTool()
+    ctx = ToolContext(cwd=str(tmp_path))
+
+    # Run a simple find on an empty temp dir (should complete quickly)
+    result = await tool.execute({"command": "find . -maxdepth 1 -type f", "description": "test find"}, ctx)
+
+    # Should include search guard warning
+    assert "[Search guard]" in result.output
+    assert "Detected:" in result.output
+    assert "glob" in result.output or "grep" in result.output
+
+
+@pytest.mark.asyncio
+async def test_bash_non_search_no_warning(tmp_path):
+    """Test that non-search commands don't get a warning."""
+    tool = BashTool()
+    ctx = ToolContext(cwd=str(tmp_path))
+
+    result = await tool.execute({"command": "echo 'hello world'", "description": "test echo"}, ctx)
+
+    assert "[Search guard]" not in result.output
+    assert result.title == "bash [test echo]"

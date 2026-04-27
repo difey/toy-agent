@@ -164,10 +164,28 @@ class Session:
             self.messages.pop(first)
         return True
 
+    def _ensure_system_prompt(self, system_prompt: str) -> None:
+        """Ensure the session has the current system prompt as the first message."""
+        if not system_prompt:
+            return
+        # Replace existing SystemMessage at position 0, or insert at front
+        if self.messages and isinstance(self.messages[0], SystemMessage):
+            self.messages[0].content = system_prompt
+        else:
+            self.messages.insert(0, SystemMessage(content=system_prompt))
+
     def save(self, path: str) -> None:
+        # Extract system prompt as a separate field
+        system_prompt = ""
+        for m in self.messages:
+            if isinstance(m, SystemMessage):
+                system_prompt = m.content
+                break
+
         data = {
             "max_tokens": self.max_tokens,
             "title": self.title,
+            "system_prompt": system_prompt,
             "messages": [
                 {
                     "type": type(m).__name__,
@@ -182,7 +200,12 @@ class Session:
     def load(cls, path: str) -> "Session":
         data = json.loads(Path(path).read_text())
         title = data.get("title", "")
-        session = cls(max_tokens=data.get("max_tokens", 100_000), title=title)
+        system_prompt = data.get("system_prompt", "")
+        session = cls(
+            max_tokens=data.get("max_tokens", 100_000),
+            title=title,
+            system_prompt=system_prompt,
+        )
         session.messages = [_deserialize_message(item) for item in data["messages"]]
         return session
 
@@ -207,6 +230,7 @@ def _serialize_message(msg: Message) -> dict:
         return {
             "tool_call_id": msg.tool_call_id,
             "content": msg.content,
+            "tool_name": msg.tool_name,
         }
     raise TypeError(f"Unknown message type: {type(msg)}")
 
@@ -231,6 +255,7 @@ def _deserialize_message(item: dict) -> Message:
         return ToolResult(
             tool_call_id=data["tool_call_id"],
             content=data["content"],
+            tool_name=data.get("tool_name", ""),
         )
     raise TypeError(f"Unknown message type: {msg_type}")
 

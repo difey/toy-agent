@@ -1,7 +1,13 @@
 import os
 import re
 
-from nano_claude.tool import Tool, ToolContext, ToolExecResult, check_file_permission
+from nano_claude.tool import (
+    Tool,
+    ToolContext,
+    ToolExecResult,
+    check_file_permission,
+    resolve_safe_path,
+)
 
 
 class EditTool(Tool):
@@ -25,7 +31,7 @@ class EditTool(Tool):
             "properties": {
                 "filePath": {
                     "type": "string",
-                    "description": "Absolute path to the file to modify",
+                    "description": "Path to the file to modify. Can be relative to cwd or absolute.",
                 },
                 "oldString": {
                     "type": "string",
@@ -49,32 +55,42 @@ class EditTool(Tool):
         new_string = args["newString"]
         replace_all = args.get("replaceAll", False)
 
-        allowed, _ = await check_file_permission(ctx, file_path)
+        # Resolve path with hallucination correction
+        resolved_path = resolve_safe_path(file_path, ctx)
+
+        allowed, _ = await check_file_permission(ctx, resolved_path)
         if not allowed:
             return ToolExecResult(
-                output=f"Permission denied: {file_path}",
+                output=f"Permission denied: {resolved_path}",
                 title="edit [denied]",
             )
 
-        if not os.path.isfile(file_path):
+        if not os.path.isfile(resolved_path):
+            hint = ""
+            if file_path != resolved_path:
+                hint = (
+                    f"\n\nNote: The path you provided ('{file_path}') was auto-corrected "
+                    f"to '{resolved_path}'. The actual working directory is '{ctx.cwd}'. "
+                    f"Please use the correct absolute path or a relative path."
+                )
             return ToolExecResult(
-                output=f"Error: file not found: {file_path}",
+                output=f"Error: file not found: {resolved_path}{hint}",
                 title="edit [error]",
             )
 
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(resolved_path, "r", encoding="utf-8") as f:
                 content = f.read()
         except OSError as e:
             return ToolExecResult(
-                output=f"Error reading file '{file_path}': {e}",
+                output=f"Error reading file '{resolved_path}': {e}",
                 title="edit [error]",
             )
 
         count = content.count(old_string)
         if count == 0:
             return ToolExecResult(
-                output=f"Error: oldString not found in {file_path}",
+                output=f"Error: oldString not found in {resolved_path}",
                 title="edit [error]",
             )
         if not replace_all and count > 1:
@@ -87,17 +103,17 @@ class EditTool(Tool):
         new_content = content.replace(old_string, new_string) if replace_all else content.replace(old_string, new_string, 1)
 
         try:
-            with open(file_path, "w", encoding="utf-8") as f:
+            with open(resolved_path, "w", encoding="utf-8") as f:
                 f.write(new_content)
         except OSError as e:
             return ToolExecResult(
-                output=f"Error writing file '{file_path}': {e}",
+                output=f"Error writing file '{resolved_path}': {e}",
                 title="edit [error]",
             )
 
         num = count if replace_all else 1
-        fname = os.path.basename(file_path)
+        fname = os.path.basename(resolved_path)
         return ToolExecResult(
-            output=f"Successfully replaced {num} occurrence(s) in {file_path}",
+            output=f"Successfully replaced {num} occurrence(s) in {resolved_path}",
             title=f"edit [{fname}]",
         )

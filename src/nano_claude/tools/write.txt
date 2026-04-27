@@ -1,1 +1,1 @@
-Use `write` to create or overwrite files. Creates parent directories automatically. Use absolute paths for `filePath`. Prefer `edit` over `write` when modifying existing files.
+Use `write` to create or overwrite files. Creates parent directories automatically. Provide paths relative to cwd (e.g. `src/main.py`) or absolute paths based on cwd. Prefer `edit` over `write` when modifying existing files.
