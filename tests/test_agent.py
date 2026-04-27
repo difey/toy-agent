@@ -335,6 +335,44 @@ async def test_session_save_load(tmp_path):
     assert s2.messages[1].content == "hello"
 
 
+def test_session_title_from_first_message():
+    s = Session()
+    assert s.title == ""
+    coro = s.add_user_message("write a python script for sorting")
+    import asyncio
+    asyncio.run(coro)
+    assert s.title == "write a python script for sorting"
+
+
+def test_session_title_truncated():
+    s = Session()
+    long_msg = "a" * 100
+    coro = s.add_user_message(long_msg)
+    import asyncio
+    asyncio.run(coro)
+    assert s.title == "a" * 37 + "..."
+    assert len(s.title) == 40
+
+
+def test_session_title_only_first_message():
+    s = Session()
+    coro1 = s.add_user_message("first task")
+    import asyncio
+    asyncio.run(coro1)
+    assert s.title == "first task"
+    coro2 = s.add_user_message("second task")
+    asyncio.run(coro2)
+    assert s.title == "first task"  # title unchanged
+
+
+def test_session_title_from_multiline():
+    s = Session()
+    coro = s.add_user_message("\n\n  second line  \nthird line")
+    import asyncio
+    asyncio.run(coro)
+    assert s.title == "second line"
+
+
 @pytest.mark.asyncio
 async def test_agent_multi_turn_with_session():
     registry = ToolRegistry()

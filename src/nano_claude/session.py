@@ -1,4 +1,7 @@
+import glob
 import json
+import os
+from datetime import datetime
 from pathlib import Path
 from typing import Awaitable, Callable
 
@@ -33,7 +36,7 @@ def message_tokens(msg: Message) -> int:
     return 0
 
 
-Summarizer = Callable[[list[Message]], Awaitable[str]]
+Summarizer = Callable[[str], Awaitable[str]]
 
 
 def _format_message_for_summary(msg: Message) -> str:
@@ -57,14 +60,43 @@ class Session:
         system_prompt: str = "",
         max_tokens: int = 100_000,
         summarizer: Summarizer | None = None,
+        title: str = "",
     ):
         self.max_tokens = max_tokens
         self.summarizer = summarizer
         self.messages: list[Message] = []
+        self.title = title
         if system_prompt:
             self.messages.append(SystemMessage(content=system_prompt))
 
+    async def _generate_title(self, content: str) -> str:
+        """Generate a concise session title, using AI summarizer when available."""
+        if self.summarizer is not None:
+            prompt = (
+                "Generate a very short title (max 40 chars, in Chinese) for this conversation session "
+                "based on the user's first message. Output ONLY the title, no quotes or extra text.\n\n"
+                f"User message: {content[:500]}\n\nTitle:"
+            )
+            import asyncio
+            try:
+                title = await asyncio.wait_for(self.summarizer(prompt), timeout=15)
+                title = title.strip().strip('"').strip("'").strip()
+                if title:
+                    return title[:40]
+            except Exception:
+                pass
+        # Fallback: take first non-empty line, strip to ~40 chars
+        for line in content.split("\n"):
+            line = line.strip()
+            if line:
+                if len(line) > 40:
+                    return line[:37] + "..."
+                return line
+        return content[:40]
+
     async def add_user_message(self, content: str) -> None:
+        if not self.title and content.strip():
+            self.title = await self._generate_title(content)
         self.messages.append(UserMessage(content=content))
         await self._compact()
 
@@ -135,6 +167,7 @@ class Session:
     def save(self, path: str) -> None:
         data = {
             "max_tokens": self.max_tokens,
+            "title": self.title,
             "messages": [
                 {
                     "type": type(m).__name__,
@@ -148,7 +181,8 @@ class Session:
     @classmethod
     def load(cls, path: str) -> "Session":
         data = json.loads(Path(path).read_text())
-        session = cls(max_tokens=data.get("max_tokens", 100_000))
+        title = data.get("title", "")
+        session = cls(max_tokens=data.get("max_tokens", 100_000), title=title)
         session.messages = [_deserialize_message(item) for item in data["messages"]]
         return session
 
@@ -199,3 +233,48 @@ def _deserialize_message(item: dict) -> Message:
             content=data["content"],
         )
     raise TypeError(f"Unknown message type: {msg_type}")
+
+
+def session_path(cwd: str) -> str:
+    ts = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+    directory = os.path.join(cwd, ".session")
+    os.makedirs(directory, exist_ok=True)
+    return os.path.join(directory, f"{ts}.json")
+
+
+def list_sessions(cwd: str) -> list[str]:
+    pattern = os.path.join(cwd, ".session", "*.json")
+    return sorted(glob.glob(pattern))
+
+
+def session_info(filepath: str) -> dict:
+    try:
+        sess = Session.load(filepath)
+        first_msg = ""
+        for m in sess.messages:
+            if isinstance(m, UserMessage) and isinstance(m.content, str):
+                first_msg = m.content
+                break
+        title = sess.title or (first_msg[:40] if first_msg else "(empty)")
+        return {
+            "path": filepath,
+            "name": os.path.splitext(os.path.basename(filepath))[0],
+            "title": title,
+            "messages": len(sess.messages),
+            "tokens": sess.total_tokens(),
+            "preview": first_msg[:60] + ("..." if len(first_msg) > 60 else ""),
+        }
+    except Exception:
+        return {
+            "path": filepath,
+            "name": os.path.basename(filepath),
+            "title": "(unreadable)",
+            "messages": 0,
+            "tokens": 0,
+            "preview": "(unreadable)",
+        }
+
+
+def save_current(session: "Session", filepath: str) -> None:
+    if session.messages:
+        session.save(filepath)
