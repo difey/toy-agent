@@ -112,8 +112,11 @@ class LLMClient:
                 formatted.append({"role": "user", "content": msg.content})
             elif isinstance(msg, AssistantMessage):
                 entry: dict = {"role": "assistant"}
-                if msg.content:
+                if msg.content is not None:
                     entry["content"] = msg.content
+                # DeepSeek thinking mode requires reasoning_content to be passed
+                # back for turns that involved tool calls. OpenAI/anthropic
+                # simply ignore this field, so including it is harmless.
                 if msg.reasoning_content:
                     entry["reasoning_content"] = msg.reasoning_content
                 if msg.tool_calls:
