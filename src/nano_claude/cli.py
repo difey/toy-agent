@@ -5,11 +5,10 @@ from pathlib import Path
 
 import click
 from rich.console import Console
-from rich.table import Table
 
 from nano_claude.agent import Agent
 from nano_claude.config import resolve_config
-from nano_claude.session import Session, list_sessions, save_current, session_info, session_path
+from nano_claude.session import Session, session_path
 from nano_claude.setup import has_user_config, run_wizard
 from nano_claude.tool import ToolRegistry
 from nano_claude.tools import (
@@ -52,118 +51,6 @@ def _ensure_cwd(cwd: str) -> str:
     resolved = str(Path(cwd).resolve())
     os.makedirs(resolved, exist_ok=True)
     return resolved
-
-
-def _print_sessions(cwd: str) -> None:
-    files = list_sessions(cwd)
-    if not files:
-        console.print("[dim]No saved sessions.[/dim]")
-        return
-
-    table = Table(title=f"Sessions in {cwd}/.session/")
-    table.add_column("#", style="dim", width=4)
-    table.add_column("Title")
-    table.add_column("Msgs", width=5)
-    table.add_column("Preview")
-    for i, f in enumerate(files, 1):
-        info = session_info(f)
-        table.add_row(
-            str(i),
-            info["title"],
-            str(info["messages"]),
-            info["preview"],
-        )
-    console.print(table)
-
-
-def _switch_session(
-    session: Session, cwd: str, index: int, session_file_ref: list
-) -> None:
-    files = list_sessions(cwd)
-    if index < 1 or index > len(files):
-        console.print(f"[dim]Invalid session number: {index}[/dim]")
-        return
-
-    target = files[index - 1]
-    if os.path.abspath(target) == os.path.abspath(session_file_ref[0]):
-        console.print("[dim]Already on this session.[/dim]")
-        return
-
-    save_current(session, session_file_ref[0])
-
-    try:
-        new_session = Session.load(target)
-    except Exception:
-        console.print(f"[bold red]Failed to load session: {target}[/bold red]")
-        return
-
-    session.messages.clear()
-    session.messages.extend(new_session.messages)
-    session.title = new_session.title
-    session_file_ref[0] = target
-
-    info = session_info(target)
-    console.print(f"[dim]Switched to session: {info['title']}  "
-                  f"Messages: {info['messages']}[/dim]")
-
-
-def _delete_session(
-    session: Session, cwd: str, target: str, session_file_ref: list
-) -> None:
-    files = list_sessions(cwd)
-    if not files:
-        console.print("[dim]No saved sessions to delete.[/dim]")
-        return
-
-    if target == "all":
-        console.print("[yellow]Delete ALL saved sessions? This cannot be undone.[/yellow]")
-        console.print("  [dim]\\[y]es / \\[n]o[/dim] ", end="")
-        sys.stdout.flush()
-        try:
-            choice = sys.stdin.readline().strip().lower()
-        except Exception:
-            choice = "n"
-        if choice not in ("y", "yes"):
-            console.print("[dim]Cancelled.[/dim]")
-            return
-
-        current_abs = os.path.abspath(session_file_ref[0])
-        deleted_count = 0
-        for f in files:
-            if os.path.abspath(f) != current_abs:
-                try:
-                    os.remove(f)
-                    deleted_count += 1
-                except OSError:
-                    pass
-        if deleted_count:
-            console.print(f"[dim]Deleted {deleted_count} session(s).[/dim]")
-        else:
-            console.print("[dim]No sessions to delete (only current session remains).[/dim]")
-        return
-
-    if not target.isdigit():
-        console.print(f"[dim]Usage: /sessions delete <n> or /sessions delete all[/dim]")
-        return
-
-    index = int(target)
-    if index < 1 or index > len(files):
-        console.print(f"[dim]Invalid session number: {index}[/dim]")
-        return
-
-    target_file = files[index - 1]
-    target_abs = os.path.abspath(target_file)
-
-    if target_abs == os.path.abspath(session_file_ref[0]):
-        console.print("[dim]Cannot delete the current active session. Switch to another session first.[/dim]")
-        return
-
-    try:
-        os.remove(target_file)
-        info = session_info(target_file)
-        console.print(f"[dim]Deleted session {index}: {info['name']} ({info['messages']} messages)[/dim]")
-    except OSError as e:
-        console.print(f"[bold red]Failed to delete session: {e}[/bold red]")
 
 
 def _run_interactive(agent: Agent, cwd: str, session: Session, session_file_ref: list) -> None:

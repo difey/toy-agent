@@ -349,6 +349,8 @@ class InteractiveUI:
         )
 
     async def _handle_submit(self, text: str):
+        if self._turn_count > 0:
+            self._append_output("\n\n=============================================\n\n")
         if text.startswith("/"):
             handled = await self._handle_command(text)
             if handled:
@@ -359,8 +361,6 @@ class InteractiveUI:
         self._state = "RUNNING"
         self.application.invalidate()
 
-        if self._turn_count > 0:
-            self._append_output("\n───\n")
         self._turn_count += 1
         self._append_output(f"\n> {text}\n")
 
