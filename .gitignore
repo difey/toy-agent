@@ -9,3 +9,5 @@ build/
 *.egg
 .eggs/
 uv.lock
+
+.session/
