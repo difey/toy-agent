@@ -143,7 +143,7 @@ def _delete_session(
         return
 
     if not target.isdigit():
-        console.print(f"[dim]Usage: /session delete <n> or /session delete all[/dim]")
+        console.print(f"[dim]Usage: /sessions delete <n> or /sessions delete all[/dim]")
         return
 
     index = int(target)
