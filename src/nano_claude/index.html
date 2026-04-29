@@ -27,17 +27,7 @@
     --tool-bg: #f6f8fa; --danger: #cf222e; --danger-hover: #a40e26;
     --input-bg: #ffffff;
   }
-  @media (prefers-color-scheme: light) {
-    :root {
-      --bg: #ffffff; --bg2: #f6f8fa; --bg3: #eaeef2;
-      --sidebar-bg: #f6f8fa; --sidebar-hover: #eaeef2; --sidebar-active: #d0d7de;
-      --text: #24292f; --text-dim: #656d76; --text-bright: #1f2328;
-      --accent: #0969da; --accent2: #1a7f37; --accent3: #8250df; --accent4: #bf4b00;
-      --border: #d0d7de; --user-bg: #0969da15; --assistant-bg: #ffffff;
-      --tool-bg: #f6f8fa; --danger: #cf222e; --danger-hover: #a40e26;
-      --input-bg: #ffffff;
-    }
-  }
+
   html, body { height: 100%; background: var(--bg); color: var(--text); font: 14px/1.6 var(--font); overflow: hidden; }
   #app { display: flex; height: 100vh; overflow: hidden; }
 
@@ -237,6 +227,14 @@
   ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
 </style>
+<script>
+  // Set theme immediately to prevent flash
+  (function() {
+    var t = localStorage.getItem('theme');
+    if (!t) t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', t);
+  })();
+</script>
 </head>
 <body>
 <div id="app">
@@ -364,7 +362,11 @@ createApp({
     const toast = reactive({ visible: false, message: '', timer: null });
 
     // ── Theme ─────────────────────────────────────────
-    const darkMode = ref(localStorage.getItem('theme') !== 'light');
+    function detectSystemDark() {
+      return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }
+    const stored = localStorage.getItem('theme');
+    const darkMode = ref(stored !== null ? stored === 'dark' : detectSystemDark());
 
     function applyTheme(dark) {
       darkMode.value = dark;
