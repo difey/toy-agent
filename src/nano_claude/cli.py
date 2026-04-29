@@ -59,12 +59,24 @@ def _run_interactive(agent: Agent, cwd: str, session: Session, session_file_ref:
     ui.run()
 
 
+def _run_web(agent: Agent, cwd: str, session: Session, session_file: str, port: int) -> None:
+    """Run the web UI server using FastAPI + Uvicorn."""
+    from nano_claude.webui import start_web_ui
+
+    try:
+        start_web_ui(agent, cwd, session, session_file, port=port)
+    except KeyboardInterrupt:
+        pass
+
+
 @click.command()
 @click.argument("message", required=False)
 @click.option("--model", default=None, help="LLM model (auto-detects provider from model name)")
 @click.option("--cwd", default=None, help="Working directory (default: current directory)")
 @click.option("--setup", "force_setup", is_flag=True, default=False, help="Re-run the setup wizard")
-def main(message: str | None, model: str | None, cwd: str | None, force_setup: bool):
+@click.option("--web", "web_mode", is_flag=True, default=False, help="Start web UI server instead of TUI")
+@click.option("--port", default=8080, type=int, help="Port for web UI server (default: 8080)")
+def main(message: str | None, model: str | None, cwd: str | None, force_setup: bool, web_mode: bool, port: int):
     """nanoClaude - a CLI coding assistant that uses tools to complete coding tasks.
 
     Set DEEPSEEK_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, or NANO_CLAUDE_API_KEY
@@ -116,6 +128,8 @@ def main(message: str | None, model: str | None, cwd: str | None, force_setup: b
         if message:
             asyncio.run(agent.run_stream(message, resolved_cwd, session=session))
             console.print()
+        elif web_mode:
+            _run_web(agent, resolved_cwd, session, session_file_ref[0], port)
         else:
             _run_interactive(agent, resolved_cwd, session, session_file_ref)
     except (KeyboardInterrupt, EOFError):

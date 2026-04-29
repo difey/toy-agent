@@ -61,7 +61,7 @@ nano-claude "add tests to main.py" --cwd /tmp/my-project
 nano-claude "..." --model deepseek-v4-pro
 ```
 
-### Interactive mode
+### Interactive mode (TUI)
 
 ```bash
 $ nano-claude --cwd ./my-project
@@ -79,9 +79,35 @@ nanoClaude interactive mode. Type /help for commands, Ctrl+C to exit.
 | `/tokens` | Show token usage |
 | `/session` | Show current session info |
 | `/session new` | Start a new session |
-| `/sessions` | List all saved sessions |
-| `/session <n>` | Switch to session n |
+| `/sessions` | Interactive session list (↑↓→← Esc) |
+| `/sessions new` | Start a new session |
+| `/sessions <n>` | Switch to session n |
+| `/sessions delete <n>` | Delete session n |
+| `/sessions delete all` | Delete all saved sessions |
+| `/vscode` | Open current directory in VS Code |
 | `/exit` | Exit |
+
+### Web UI mode
+
+Start a browser-based UI with a session sidebar and waterfall chat display:
+
+```bash
+# Start web UI on default port 8080
+nano-claude --web
+
+# Custom port
+nano-claude --web --port 9090
+```
+
+The web UI opens automatically in your browser at `http://127.0.0.1:8080`.
+
+**Features:**
+- **Left sidebar** — lists all saved sessions; click to switch, ✕ to delete, "+ New Session" to start fresh
+- **Waterfall chat** — user messages (right-aligned, blue), assistant responses with Markdown rendering (code blocks, lists, bold/italic, links), tool calls and results shown as cards
+- **Real-time streaming** — AI responses and tool outputs stream in as they're generated via SSE (Server-Sent Events)
+- **Send shortcut** — `⌘+Enter` (Mac) or `Ctrl+Enter` (Windows/Linux) to send; plain `Enter` inserts a newline
+- **Dark/Light theme** — auto-detects system preference, toggle with the ☀️/🌙 button
+- **Multi-turn conversations** — same session management as TUI, auto-saved to `<cwd>/.session/`
 
 Session history is auto-saved to `<cwd>/.session/<timestamp>.json`.
 

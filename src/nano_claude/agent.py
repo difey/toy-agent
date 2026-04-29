@@ -1,3 +1,4 @@
+import asyncio
 import json
 import platform
 import textwrap
@@ -80,6 +81,13 @@ class Agent:
         self.on_tool_start = on_tool_start
         self.on_tool_end = on_tool_end
 
+    async def _call_with_await(self, fn, *args, **kwargs):
+        """Call a callback, awaiting it if it returns a coroutine (async function)."""
+        result = fn(*args, **kwargs)
+        if asyncio.iscoroutine(result):
+            result = await result
+        return result
+
     async def _build_tool_calls(self, stream) -> tuple[str, str | None, list[ToolCall]]:
         accumulated_text: list[str] = []
         accumulated_reasoning: list[str] = []
@@ -91,7 +99,7 @@ class Agent:
             if isinstance(chunk, TextDelta):
                 accumulated_text.append(chunk.text)
                 if self.on_text_delta:
-                    self.on_text_delta(chunk.text)
+                    await self._call_with_await(self.on_text_delta, chunk.text)
             elif isinstance(chunk, ReasoningDelta):
                 accumulated_reasoning.append(chunk.text)
             elif isinstance(chunk, ToolCallBegin):
@@ -125,10 +133,10 @@ class Agent:
                     title="unknown tool",
                 )
                 if self.on_tool_end:
-                    self.on_tool_end(call.name, "unknown tool", "")
+                    await self._call_with_await(self.on_tool_end, call.name, "unknown tool", "")
             else:
                 if self.on_tool_start:
-                    self.on_tool_start(call)
+                    await self._call_with_await(self.on_tool_start, call)
                 try:
                     exec_result = await tool.execute(call.arguments, ctx)
                 except Exception as e:
@@ -137,10 +145,10 @@ class Agent:
                         title="error",
                     )
                     if self.on_tool_end:
-                        self.on_tool_end(call.name, "error", "")
+                        await self._call_with_await(self.on_tool_end, call.name, "error", "")
                 else:
                     if self.on_tool_end:
-                        self.on_tool_end(call.name, exec_result.title, exec_result.output)
+                        await self._call_with_await(self.on_tool_end, call.name, exec_result.title, exec_result.output)
 
             sess.messages.append(ToolResult(
                 tool_call_id=call.id,
