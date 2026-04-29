@@ -31,8 +31,11 @@ uv tool list
 
 ### Upgrade
 
+> ⚠️ **Note**: When upgrading, the tool is reinstalled from source. If you've pulled the latest code (e.g. via `git pull`), make sure to rebuild so that any web UI changes are correctly applied.
+
 ```bash
 cd nanoClaude/
+uv build
 uv tool install --reinstall .
 ```
 
