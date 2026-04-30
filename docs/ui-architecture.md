@@ -1,7 +1,7 @@
 # Interactive UI Architecture
 
 > This document explains the prompt_toolkit-based TUI (Text User Interface) used in nanoClaude's interactive mode.
-> Last updated: 2026-04-27
+> Last updated: 2026-04-30
 
 ## Overview
 
@@ -54,7 +54,7 @@ The UI operates as a state machine. The status bar visually reflects the current
 
 | State | Description | Status Bar Indicator | Key Bindings Active |
 |-------|-------------|---------------------|---------------------|
-| `INPUT` | Waiting for user input | (session info only) | Enter → submit, Tab → complete |
+| `INPUT` | Waiting for user input | (session info only) + `[🔨 Build]` or `[📋 Plan]` | Enter → submit, Tab → complete |
 | `RUNNING` | AI is responding / executing tools | `[🔄 AI running...]` | None (input disabled) |
 | `AWAITING_PERMISSION` | Tool needs user approval | `[❓ Confirm (y/n)]` | y / n / a |
 | `AWAITING_QUESTION` | AI asked a question | `[❓ Answer above]` | Enter → submit answer |
@@ -94,8 +94,8 @@ RUNNING ──(AI finishes)──→ INPUT
 
 - A `FormattedTextControl` that returns an `HTML` object
 - Called by prompt_toolkit on each UI refresh
-- Dynamically reads `self.session.title`, `self.cwd`, and `self._state`
-- Shows session title, CWD (truncated to 50 chars), and state indicator
+- Dynamically reads `self.session.title`, `self.cwd`, `self.agent.mode`, and `self._state`
+- Shows session title, CWD (truncated to 50 chars), mode tag (`[🔨 Build]` / `[📋 Plan]`), and state indicator
 
 #### Turn Separator
 
@@ -203,6 +203,45 @@ When the AI uses the `question` tool:
    - Supports "Custom" option (prompts for free-text input)
 8. Future resolves, agent resumes
 
+## Mode Switching
+
+The status bar displays the current mode: `[🔨 Build]` or `[📋 Plan]`.
+
+### Commands
+
+| Command | Behavior |
+|---------|----------|
+| `/plan` | Calls `Agent.set_mode("plan")`, inserts transition message, shows confirmation |
+| `/build` | Calls `Agent.set_mode("build")`, inserts transition message, shows confirmation |
+
+Mode switching preserves the full conversation history — the agent sees the entire discussion across both modes.
+
+### "执行" Workflow
+
+When in plan mode, the UI has special handling for the `执行` (execute) trigger:
+
+1. **After each plan mode response** (`_handle_submit` finally block):
+   - Calls `_find_latest_plan()` to find the most recent `.md` file (excluding README.md, agents.md, etc.)
+   - If found, appends the plan content to the output with a prompt: `输入「执行」切换到 build mode`
+
+2. **When user types `执行`** (`_handle_submit` entry):
+   - Finds the latest plan file via `_find_latest_plan()`
+   - Calls `Agent.set_mode("build")`
+   - Reads the plan file content
+   - Injects it as context: user message with `"请按照以下计划严格执行：\n\n{plan_content}"`
+   - Agent then runs in build mode and implements according to the plan
+
+```python
+def _find_latest_plan(self) -> str | None:
+    md_files = list(Path(self.cwd).glob("*.md"))
+    exclude = {"README.md", "LICENSE.md", "CHANGELOG.md",
+               "CONTRIBUTING.md", "agents.md"}
+    md_files = [f for f in md_files if f.name not in exclude]
+    if not md_files:
+        return None
+    return str(max(md_files, key=os.path.getmtime))
+```
+
 ## /commands in UI Mode
 
 All slash commands are handled within the UI:
@@ -218,6 +257,8 @@ All slash commands are handled within the UI:
 | `/session <n>` | Loads saved session, resets output |
 | `/session delete <n\|all>` | Confirms via permission Future, deletes |
 | `/sessions` | Lists sessions as plain text in output area |
+| `/plan` | Switch to plan mode |
+| `/build` | Switch to build mode |
 | `/exit` | Calls `application.exit()` |
 
 Note: `/sessions` and session management commands output **plain text** to the UI buffer rather than using Rich tables, since Rich's `console.print` would conflict with the full-screen TUI rendering.

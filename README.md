@@ -64,6 +64,55 @@ nano-claude "add tests to main.py" --cwd /tmp/my-project
 nano-claude "..." --model deepseek-v4-pro
 ```
 
+### Plan Mode & Build Mode
+
+nanoClaude supports two operational modes in interactive and web UI:
+
+| Mode | Icon | Purpose | Available Tools |
+|------|------|---------|-----------------|
+| **Build mode** (default) | 🔨 | Implement code, run commands, make changes | All tools (bash, read, write, edit, glob, grep, etc.) |
+| **Plan mode** | 📋 | Discuss requirements, write specifications only | Restricted: read, write (`.md` only), edit, glob, grep, question, todowrite |
+
+**Plan mode** is designed for requirement analysis. The agent can only read files and write/edit `.md` files — it cannot write source code or run shell commands. This lets you discuss and document what needs to be built before any code is written.
+
+**Build mode** unlocks all tools, allowing the agent to implement code, run commands, and make changes.
+
+**Starting in plan mode:**
+```bash
+# Start interactive mode in plan mode
+nano-claude --plan
+```
+
+**Switching modes interactively:**
+- `/plan` — switch to plan mode (discuss requirements only)
+- `/build` — switch to build mode (implement code)
+
+Mode switching preserves the full conversation history. When switching from plan to build, the agent sees the entire planning discussion.
+
+**"执行" workflow:** After the agent produces a plan (`.md` file) in plan mode, the plan content is automatically displayed at the end of each response. Type `执行` to automatically switch to build mode with the plan content injected as context — the agent will implement according to the plan.
+
+### Web UI mode (recommended)
+
+Start a browser-based UI with a session sidebar and waterfall chat display:
+
+```bash
+# Start web UI on default port 8080
+nano-claude --web
+
+# Custom port
+nano-claude --web --port 9090
+```
+
+The web UI opens automatically in your browser at `http://127.0.0.1:8080`.
+
+**Features:**
+- **Left sidebar** — lists all saved sessions; click to switch, ✕ to delete, "+ New Session" to start fresh
+- **Waterfall chat** — user messages (right-aligned, blue), assistant responses with Markdown rendering (code blocks, lists, bold/italic, links), tool calls and results shown as cards
+- **Real-time streaming** — AI responses and tool outputs stream in as they're generated via SSE (Server-Sent Events)
+- **Send shortcut** — `⌘+Enter` (Mac) or `Ctrl+Enter` (Windows/Linux) to send; plain `Enter` inserts a newline
+- **Dark/Light theme** — auto-detects system preference, toggle with the ☀️/🌙 button
+- **Multi-turn conversations** — same session management as TUI, auto-saved to `<cwd>/.session/`
+
 ### Interactive mode (TUI)
 
 ```bash
@@ -87,32 +136,12 @@ nanoClaude interactive mode. Type /help for commands, Ctrl+C to exit.
 | `/sessions <n>` | Switch to session n |
 | `/sessions delete <n>` | Delete session n |
 | `/sessions delete all` | Delete all saved sessions |
+| `/plan` | Switch to plan mode (discuss requirements only) |
+| `/build` | Switch to build mode (implement code) |
 | `/vscode` | Open current directory in VS Code |
 | `/exit` | Exit |
 
-### Web UI mode
-
-Start a browser-based UI with a session sidebar and waterfall chat display:
-
-```bash
-# Start web UI on default port 8080
-nano-claude --web
-
-# Custom port
-nano-claude --web --port 9090
-```
-
-The web UI opens automatically in your browser at `http://127.0.0.1:8080`.
-
-**Features:**
-- **Left sidebar** — lists all saved sessions; click to switch, ✕ to delete, "+ New Session" to start fresh
-- **Waterfall chat** — user messages (right-aligned, blue), assistant responses with Markdown rendering (code blocks, lists, bold/italic, links), tool calls and results shown as cards
-- **Real-time streaming** — AI responses and tool outputs stream in as they're generated via SSE (Server-Sent Events)
-- **Send shortcut** — `⌘+Enter` (Mac) or `Ctrl+Enter` (Windows/Linux) to send; plain `Enter` inserts a newline
-- **Dark/Light theme** — auto-detects system preference, toggle with the ☀️/🌙 button
-- **Multi-turn conversations** — same session management as TUI, auto-saved to `<cwd>/.session/`
-
-Session history is auto-saved to `<cwd>/.session/<timestamp>.json`.
+Session history is auto-saved to `<cwd>/.session/<timestamp>.json`. On startup, nanoClaude automatically resumes the most recent session from the same working directory, so your conversation history persists across restarts.
 
 ## Providers
 
