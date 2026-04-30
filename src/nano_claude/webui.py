@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 from nano_claude.agent import Agent
 from nano_claude.session import Session, list_sessions, save_current, session_info, session_path
-from nano_claude.message import ToolCall
+from nano_claude.message import ToolCall, UserMessage
 
 
 # ── Pydantic models ──────────────────────────────────────────────────────
@@ -132,6 +132,7 @@ class WebAppState:
         info["is_current"] = True
         info["index"] = self._get_current_idx() or 1
         info["messages"] = _serialize_messages_for_api(self.session.messages)
+        info["mode"] = self.agent.mode if self.agent else "build"
         return info
 
     # ── SSE helpers ─────────────────────────────────────────────────────
@@ -298,6 +299,27 @@ async def index() -> HTMLResponse:
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "version": "0.2.0"}
+
+
+@app.get("/api/mode")
+async def api_get_mode():
+    return {"mode": _state.agent.mode if _state.agent else "build"}
+
+
+@app.post("/api/mode")
+async def api_set_mode(body: dict):
+    mode = body.get("mode", "build")
+    if mode not in ("plan", "build"):
+        raise HTTPException(status_code=400, detail="Mode must be 'plan' or 'build'")
+    if _state.agent and _state.session:
+        _state.agent.set_mode(mode)
+        # Insert transition message instead of clearing session
+        if mode == "plan":
+            msg = "[Mode changed to Plan mode. You can now only discuss requirements and write/edit .md files. Do NOT write any source code or run shell commands.]"
+        else:
+            msg = "[Mode changed to Build mode. All tools are now available. You can implement code, run commands, and make changes.]"
+        _state.session.messages.append(UserMessage(content=msg))
+    return {"mode": mode}
 
 
 @app.get("/api/sessions")

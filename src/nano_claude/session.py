@@ -223,7 +223,7 @@ def _serialize_message(msg: Message) -> dict:
                 for tc in msg.tool_calls
             ],
         }
-        if msg.reasoning_content:
+        if msg.reasoning_content is not None:
             data["reasoning_content"] = msg.reasoning_content
         return data
     elif isinstance(msg, ToolResult):

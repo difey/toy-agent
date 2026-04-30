@@ -24,6 +24,7 @@ class ToolContext:
     allowed_files: set = field(default_factory=set)
     permission_callback: PermissionCallback | None = None
     ask_user_callback: AskUserCallback | None = None
+    mode: str = "build"  # "plan" or "build"
 
 
 # Common hallucinated base paths that LLMs tend to generate instead of the real cwd.
@@ -217,6 +218,14 @@ class ToolRegistry:
             }
             for t in self._tools.values()
         ]
+
+    def filtered_copy(self, names: set[str]) -> "ToolRegistry":
+        """Return a new ToolRegistry with only the specified tool names."""
+        new_registry = ToolRegistry()
+        for name in names:
+            if name in self._tools:
+                new_registry.register(self._tools[name])
+        return new_registry
 
     def get_tools_prompt(self, **kwargs) -> str:
         lines = ["## Available Tools"]

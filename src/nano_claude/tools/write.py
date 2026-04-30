@@ -46,6 +46,13 @@ class WriteTool(Tool):
         # Resolve path with hallucination correction
         resolved_path = resolve_safe_path(file_path, ctx)
 
+        # In plan mode, only allow writing .md files
+        if ctx.mode == "plan" and not resolved_path.lower().endswith(".md"):
+            return ToolExecResult(
+                output=f"Plan mode: can only write .md files. Refused to write '{resolved_path}'",
+                title="write [plan mode]",
+            )
+
         allowed, _ = await check_file_permission(ctx, resolved_path)
         if not allowed:
             return ToolExecResult(

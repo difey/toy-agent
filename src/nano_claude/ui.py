@@ -2,6 +2,7 @@ import asyncio
 import os
 import subprocess
 import traceback
+from pathlib import Path
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.buffer import Buffer
@@ -16,7 +17,7 @@ from prompt_toolkit.layout.menus import CompletionsMenu
 from prompt_toolkit.styles import Style
 
 from nano_claude.agent import Agent
-from nano_claude.message import ToolCall
+from nano_claude.message import ToolCall, UserMessage
 from nano_claude.session import Session, list_sessions, save_current, session_info, session_path
 
 _STYLE = Style.from_dict({
@@ -32,6 +33,8 @@ _COMMANDS = [
     "/tokens",
     "/vscode",
     "/sessions",
+    "/plan",
+    "/build",
     "/exit",
 ]
 
@@ -102,10 +105,11 @@ class InteractiveUI:
             "AWAITING_PERMISSION": "  [❓ Confirm (y/n)]",
             "AWAITING_QUESTION": "  [❓ Answer above]",
         }
+        mode_tag = " [🔨 Build]" if self.agent.mode == "build" else " [📋 Plan]"
         if self._show_session_list:
-            state_text = "  [📋 Session list]"
+            state_text = mode_tag + "  [📋 Session list]"
         else:
-            state_text = state_indicators.get(self._state, "")
+            state_text = mode_tag + state_indicators.get(self._state, "")
 
         return HTML(
             f'<b> Session:</b> {title} '
@@ -348,9 +352,33 @@ class InteractiveUI:
             Document(text, len(text)), bypass_readonly=True
         )
 
+    def _find_latest_plan(self) -> str | None:
+        """Find the most recently modified .md plan file (excluding common non-plan files)."""
+        md_files = list(Path(self.cwd).glob("*.md"))
+        exclude = {"README.md", "LICENSE.md", "CHANGELOG.md", "CONTRIBUTING.md", "agents.md"}
+        md_files = [f for f in md_files if f.name not in exclude]
+        if not md_files:
+            return None
+        return str(max(md_files, key=os.path.getmtime))
+
     async def _handle_submit(self, text: str):
         if self._turn_count > 0:
             self._append_output("\n\n=============================================\n\n")
+
+        # "执行" trigger in plan mode → auto-switch to build
+        if self.agent.mode == "plan" and text.strip() == "执行":
+            plan_file = self._find_latest_plan()
+            if not plan_file:
+                self._append_output("\n[No plan file found. Create a plan first, then type 「执行」.]")
+                return
+            plan_content = Path(plan_file).read_text()
+            self.agent.set_mode("build")
+            self.session.messages.append(
+                UserMessage(content="[Mode changed to Build mode. 以下为计划内容，请按照计划执行。]")
+            )
+            text = f"请按照以下计划严格执行：\n\n{plan_content}"
+            self._append_output(f"\n[📋 找到计划文件: {os.path.basename(plan_file)}，切换到 🔨 build mode...]\n")
+
         if text.startswith("/"):
             handled = await self._handle_command(text)
             if handled:
@@ -390,6 +418,22 @@ class InteractiveUI:
             self.agent.permission_callback = original_permission
             self.agent.ask_user_callback = original_ask_user
             self.agent.on_tool_start = original_on_tool_start
+            # In plan mode, show the latest plan file after response
+            if self.agent.mode == "plan":
+                plan_file = self._find_latest_plan()
+                if plan_file:
+                    content = Path(plan_file).read_text()
+                    self._append_output(
+                        f"\n\n{'='*60}\n"
+                        f"📋 当前计划: {os.path.basename(plan_file)}\n"
+                        f"{'='*60}\n"
+                    )
+                    self._append_output(content)
+                    self._append_output(
+                        f"\n{'='*60}\n"
+                        f"📝 输入「执行」切换到 build mode 并按计划实施，或继续讨论修改计划\n"
+                        f"{'='*60}\n"
+                    )
             self._state = "INPUT"
             self.application.invalidate()
 
@@ -510,7 +554,31 @@ class InteractiveUI:
             self._append_output("\n  /sessions <n>        Switch to session n")
             self._append_output("\n  /sessions delete <n>  Delete session n")
             self._append_output("\n  /sessions delete all  Delete all saved sessions")
+            self._append_output("\n  /plan                Switch to plan mode (discuss requirements only)")
+            self._append_output("\n  /build               Switch to build mode (implement code)")
             self._append_output("\n  /exit                Exit")
+            return True
+
+        if cmd == "/plan":
+            if self.agent.mode == "plan":
+                self._append_output("\n[Already in plan mode.]")
+            else:
+                self.agent.set_mode("plan")
+                self.session.messages.append(
+                    UserMessage(content="[Mode changed to Plan mode. You can now only discuss requirements and write/edit .md files. Do NOT write any source code or run shell commands.]")
+                )
+                self._append_output("\n[Switched to 📋 plan mode. Session context preserved. Send a message to continue planning.]")
+            return True
+
+        if cmd == "/build":
+            if self.agent.mode == "build":
+                self._append_output("\n[Already in build mode.]")
+            else:
+                self.agent.set_mode("build")
+                self.session.messages.append(
+                    UserMessage(content="[Mode changed to Build mode. All tools are now available. You can implement code, run commands, and make changes.]")
+                )
+                self._append_output("\n[Switched to 🔨 build mode. Session context preserved. Send a message to continue building.]")
             return True
 
         if cmd == "/exit":

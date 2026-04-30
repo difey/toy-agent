@@ -8,7 +8,7 @@ from rich.console import Console
 
 from nano_claude.agent import Agent
 from nano_claude.config import resolve_config
-from nano_claude.session import Session, save_current, session_path
+from nano_claude.session import Session, list_sessions, save_current, session_path
 from nano_claude.setup import has_user_config, run_wizard
 from nano_claude.tool import ToolRegistry
 from nano_claude.tools import (
@@ -76,7 +76,8 @@ def _run_web(agent: Agent, cwd: str, session: Session, session_file: str, port: 
 @click.option("--setup", "force_setup", is_flag=True, default=False, help="Re-run the setup wizard")
 @click.option("--web", "web_mode", is_flag=True, default=False, help="Start web UI server instead of TUI")
 @click.option("--port", default=8080, type=int, help="Port for web UI server (default: 8080)")
-def main(message: str | None, model: str | None, cwd: str | None, force_setup: bool, web_mode: bool, port: int):
+@click.option("--plan", "plan_mode", is_flag=True, default=False, help="Start in plan mode (discuss requirements only)")
+def main(message: str | None, model: str | None, cwd: str | None, force_setup: bool, web_mode: bool, port: int, plan_mode: bool):
     """nanoClaude - a CLI coding assistant that uses tools to complete coding tasks.
 
     Set DEEPSEEK_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, or NANO_CLAUDE_API_KEY
@@ -118,10 +119,22 @@ def main(message: str | None, model: str | None, cwd: str | None, force_setup: b
         on_text_delta=None,         # Will be overridden in interactive mode
         on_tool_start=None,
         on_tool_end=None,           # Will be overridden in interactive mode
+        mode="plan" if plan_mode else "build",
     )
 
-    session = Session()
-    session_file = session_path(resolved_cwd)
+    # 启动时自动接续最近一次的 session，避免每次启动都产生新文件
+    existing = list_sessions(resolved_cwd)
+    if existing:
+        last_path = existing[-1]  # sorted 后最后一个就是最新的
+        try:
+            session = Session.load(last_path)
+            session_file = last_path
+        except Exception:
+            session = Session()
+            session_file = session_path(resolved_cwd)
+    else:
+        session = Session()
+        session_file = session_path(resolved_cwd)
     session_file_ref = [session_file]
 
     try:

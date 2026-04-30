@@ -171,7 +171,17 @@
     border: none; color: var(--text); font-size: 15px; font-family: var(--font);
     outline: none; resize: none; line-height: 1.6; min-height: 120px; max-height: 400px; }
   #msg-input::placeholder { color: var(--text-dim); }
-  #input-footer { display: flex; justify-content: flex-end; padding-top: 8px; }
+  #input-footer { display: flex; justify-content: space-between; align-items: center; padding-top: 8px; }
+  /* ── Mode toggle ────────────────────────────────────────── */
+  .mode-toggle { display: flex; align-items: center; gap: 6px; background: var(--bg3);
+    border: 1px solid var(--border); border-radius: 20px; padding: 3px; cursor: pointer;
+    transition: all 0.15s; font-size: 12px; user-select: none; }
+  .mode-toggle:hover { border-color: var(--accent); }
+  .mode-toggle .mode-opt { padding: 4px 12px; border-radius: 16px; transition: all 0.15s;
+    color: var(--text-dim); font-weight: 500; }
+  .mode-toggle .mode-opt.active { background: var(--accent); color: #fff; }
+  .mode-toggle .mode-opt.plan { }
+  .mode-toggle .mode-opt.build { }
   #send-btn { padding: 10px 28px; background: var(--accent); border: none;
     border-radius: var(--radius-sm); color: #fff; font-size: 15px; font-weight: 600;
     cursor: pointer; transition: all 0.15s; letter-spacing: 0.3px; }
@@ -335,6 +345,10 @@
           ref="inputRef" :disabled="isStreaming"></textarea>
       </div>
       <div id="input-footer">
+        <div class="mode-toggle" @click="toggleMode" :title="mode === 'plan' ? 'Current: Plan mode - Click to switch to Build' : 'Current: Build mode - Click to switch to Plan'">
+          <span class="mode-opt plan" :class="{ active: mode === 'plan' }">📋 Plan</span>
+          <span class="mode-opt build" :class="{ active: mode === 'build' }">🔨 Build</span>
+        </div>
         <button id="send-btn" @click="sendMessage" :disabled="isStreaming || !inputText.trim()">发送</button>
       </div>
     </div>
@@ -358,6 +372,7 @@ createApp({
     const eventSource = ref(null);
     const chatContainer = ref(null);
     const inputRef = ref(null);
+    const mode = ref('build');
 
     const toast = reactive({ visible: false, message: '', timer: null });
 
@@ -424,6 +439,19 @@ createApp({
       }
     }
 
+    // ── Mode switching ──────────────────────────────
+    async function toggleMode() {
+      if (isStreaming.value) return;
+      const newMode = mode.value === 'plan' ? 'build' : 'plan';
+      try {
+        const r = await api('POST', '/api/mode', { mode: newMode });
+        mode.value = r.mode;
+        await loadCurrent();
+      } catch (e) {
+        showToast(e.message || 'Failed to switch mode');
+      }
+    }
+
     // ── Session management ────────────────────────────
     async function loadSessions() {
       try {
@@ -439,6 +467,7 @@ createApp({
         currentSession.value = d;
         sessionTitle.value = d.title || 'nanoClaude';
         messages.value = d.messages || [];
+        mode.value = d.mode || 'build';
         await loadSessions();
         scrollBottom();
       } catch (e) {
@@ -727,10 +756,10 @@ createApp({
     return {
       sessions, messages, currentSession, isStreaming, inputText,
       sidebarOpen, sessionTitle, toast, chatContainer, inputRef,
-      darkMode, toggleTheme,
+      darkMode, toggleTheme, mode,
       showToast, truncate, renderMarkdown,
       openVSCode, newSession, switchSession, deleteSession, sendMessage, handleKeydown,
-      JSON
+      toggleMode, JSON
     };
   }
 }).mount('#app');

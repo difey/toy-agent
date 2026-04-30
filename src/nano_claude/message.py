@@ -18,7 +18,7 @@ class UserMessage:
 class AssistantMessage:
     role: Literal["assistant"] = "assistant"
     content: str | None = None
-    reasoning_content: str = ""
+    reasoning_content: str | None = None
     tool_calls: list["ToolCall"] = field(default_factory=list)
 
 

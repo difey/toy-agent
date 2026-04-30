@@ -51,7 +51,7 @@ class LLMClient:
             temperature=0.0,
         )
         choice = response.choices[0]
-        reasoning = _get_reasoning(choice.message) or None
+        reasoning = _get_reasoning(choice.message)
         return AssistantMessage(
             content=choice.message.content,
             reasoning_content=reasoning,
@@ -115,9 +115,9 @@ class LLMClient:
                 if msg.content is not None:
                     entry["content"] = msg.content
                 # DeepSeek thinking mode requires reasoning_content to be passed
-                # back for turns that involved tool calls. OpenAI/anthropic
-                # simply ignore this field, so including it is harmless.
-                if msg.reasoning_content:
+                # back for previous assistant turns. OpenAI/Anthropic simply
+                # ignore this field, so including it is harmless.
+                if msg.reasoning_content is not None:
                     entry["reasoning_content"] = msg.reasoning_content
                 if msg.tool_calls:
                     entry["tool_calls"] = [

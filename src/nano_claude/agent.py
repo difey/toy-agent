@@ -59,6 +59,38 @@ You are nanoClaude, a CLI coding assistant. You help users write code by using t
 - Output text directly, avoid preambles and postambles.
 """)
 
+PLAN_SYSTEM_PROMPT = textwrap.dedent("""\
+You are nanoClaude, a **planning** assistant. You are working in **plan mode**.
+
+## Your Role
+You are here to discuss and analyze requirements ONLY. You must NOT write any implementation code.
+Your goal is to produce a clear, structured requirements document (`.md` file) that describes what needs to be built.
+
+## Working Environment
+- Working directory (cwd): {cwd}
+- Platform: {platform}
+- Today: {date}
+
+{tools}
+
+## ⚠️ Critical Rules
+- You can ONLY read existing files and write/edit **markdown (.md) files**. You are restricted to only the tools listed above.
+- You must NOT write any source code (no .py, .js, .ts, .rs, .go, .java, etc.).
+- You must NOT run any shell commands.
+- Focus on understanding requirements, asking clarifying questions, and documenting everything in a `.md` file.
+- At the end of the planning session, output a comprehensive requirements document (use the `write` tool to create a `.md` file).
+- When the user says they are satisfied with the plan, remind them to switch to **build mode** (via `/build` in TUI or the mode toggle in web UI).
+
+## Guidelines
+- Discuss the requirements thoroughly before writing the document.
+- Ask clarifying questions when requirements are ambiguous.
+- Structure the requirements document with: overview, features, technical requirements, acceptance criteria.
+- Keep responses concise and focused on planning.
+""")
+
+# Tools available in plan mode (only read/file tools + discussion tools)
+PLAN_MODE_TOOLS = {"read", "write", "edit", "glob", "grep", "question", "todowrite"}
+
 
 class Agent:
     def __init__(
@@ -72,14 +104,29 @@ class Agent:
         on_text_delta: Callable | None = None,
         on_tool_start: Callable | None = None,
         on_tool_end: Callable | None = None,
+        mode: str = "build",
     ):
         self.llm = LLMClient(model=model, api_key=api_key, base_url=base_url)
-        self.tools = tools
+        self._full_tools = tools
+        self.mode = mode
+        self.tools = self._get_mode_tools()
         self.permission_callback = permission_callback
         self.ask_user_callback = ask_user_callback
         self.on_text_delta = on_text_delta
         self.on_tool_start = on_tool_start
         self.on_tool_end = on_tool_end
+
+    def _get_mode_tools(self) -> ToolRegistry:
+        if self.mode == "plan":
+            return self._full_tools.filtered_copy(PLAN_MODE_TOOLS)
+        return self._full_tools
+
+    def set_mode(self, mode: str) -> None:
+        valid = {"plan", "build"}
+        if mode not in valid:
+            raise ValueError(f"Invalid mode: {mode}. Must be one of {valid}")
+        self.mode = mode
+        self.tools = self._get_mode_tools()
 
     async def _call_with_await(self, fn, *args, **kwargs):
         """Call a callback, awaiting it if it returns a coroutine (async function)."""
@@ -110,7 +157,7 @@ class Agent:
                 tool_call_args[chunk.index] = tool_call_args.get(chunk.index, "") + chunk.arguments
 
         text = "".join(accumulated_text)
-        reasoning = "".join(accumulated_reasoning) or None
+        reasoning = "".join(accumulated_reasoning)
         calls = [
             ToolCall(
                 id=tool_call_id[idx],
@@ -161,7 +208,8 @@ class Agent:
     def _build_system_prompt(self, cwd: str) -> str:
         year = datetime.now().year
         tools_prompt = self.tools.get_tools_prompt(year=year)
-        return SYSTEM_PROMPT.format(
+        template = PLAN_SYSTEM_PROMPT if self.mode == "plan" else SYSTEM_PROMPT
+        return template.format(
             cwd=cwd,
             platform=platform.system(),
             date=datetime.now().strftime("%a %b %d %Y"),
@@ -199,6 +247,7 @@ class Agent:
             cwd=str(Path(cwd).resolve()),
             permission_callback=self.permission_callback,
             ask_user_callback=self.ask_user_callback,
+            mode=self.mode,
         )
         sess = self._get_or_create_session(session, ctx.cwd)
         await sess.add_user_message(user_message)
@@ -235,6 +284,7 @@ class Agent:
             cwd=str(Path(cwd).resolve()),
             permission_callback=self.permission_callback,
             ask_user_callback=self.ask_user_callback,
+            mode=self.mode,
         )
         sess = self._get_or_create_session(session, ctx.cwd)
         await sess.add_user_message(user_message)
