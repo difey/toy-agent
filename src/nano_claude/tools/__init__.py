@@ -1,6 +1,7 @@
 from nano_claude.tools.apply_patch import ApplyPatchTool
 from nano_claude.tools.bash import BashTool
 from nano_claude.tools.codesearch import CodeSearchTool
+from nano_claude.tools.delegate import DelegateTool
 from nano_claude.tools.edit import EditTool
 from nano_claude.tools.glob_ import GlobTool
 from nano_claude.tools.grep import GrepTool
@@ -15,6 +16,7 @@ __all__ = [
     "ApplyPatchTool",
     "BashTool",
     "CodeSearchTool",
+    "DelegateTool",
     "EditTool",
     "GlobTool",
     "GrepTool",

@@ -91,7 +91,7 @@ Your goal is to produce a clear, structured requirements document (`.md` file in
 """)
 
 # Tools available in plan mode (only read/file tools + discussion tools)
-PLAN_MODE_TOOLS = {"read", "write", "edit", "glob", "grep", "question", "todowrite"}
+PLAN_MODE_TOOLS = {"read", "write", "edit", "glob", "grep", "question", "todowrite", "delegate"}
 
 
 class Agent:
@@ -106,6 +106,7 @@ class Agent:
         on_text_delta: Callable | None = None,
         on_tool_start: Callable | None = None,
         on_tool_end: Callable | None = None,
+        on_event_callback: Callable | None = None,
         mode: str = "build",
     ):
         self.llm = LLMClient(model=model, api_key=api_key, base_url=base_url)
@@ -117,6 +118,7 @@ class Agent:
         self.on_text_delta = on_text_delta
         self.on_tool_start = on_tool_start
         self.on_tool_end = on_tool_end
+        self.on_event_callback = on_event_callback
 
     def _get_mode_tools(self) -> ToolRegistry:
         if self.mode == "plan":
@@ -182,7 +184,7 @@ class Agent:
                     title="unknown tool",
                 )
                 if self.on_tool_end:
-                    await self._call_with_await(self.on_tool_end, call.name, "unknown tool", "")
+                    await self._call_with_await(self.on_tool_end, call.name, "unknown tool", "", exec_result.metadata)
             else:
                 if self.on_tool_start:
                     await self._call_with_await(self.on_tool_start, call)
@@ -194,10 +196,10 @@ class Agent:
                         title="error",
                     )
                     if self.on_tool_end:
-                        await self._call_with_await(self.on_tool_end, call.name, "error", "")
+                        await self._call_with_await(self.on_tool_end, call.name, "error", "", exec_result.metadata)
                 else:
                     if self.on_tool_end:
-                        await self._call_with_await(self.on_tool_end, call.name, exec_result.title, exec_result.output)
+                        await self._call_with_await(self.on_tool_end, call.name, exec_result.title, exec_result.output, exec_result.metadata)
 
             sess.messages.append(ToolResult(
                 tool_call_id=call.id,
@@ -250,6 +252,8 @@ class Agent:
             permission_callback=self.permission_callback,
             ask_user_callback=self.ask_user_callback,
             mode=self.mode,
+            parent_agent=self,
+            on_event=self.on_event_callback,
         )
         sess = self._get_or_create_session(session, ctx.cwd)
         await sess.add_user_message(user_message)
@@ -287,6 +291,8 @@ class Agent:
             permission_callback=self.permission_callback,
             ask_user_callback=self.ask_user_callback,
             mode=self.mode,
+            parent_agent=self,
+            on_event=self.on_event_callback,
         )
         sess = self._get_or_create_session(session, ctx.cwd)
         await sess.add_user_message(user_message)

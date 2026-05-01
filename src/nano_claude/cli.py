@@ -15,6 +15,7 @@ from nano_claude.tools import (
     ApplyPatchTool,
     BashTool,
     CodeSearchTool,
+    DelegateTool,
     EditTool,
     GlobTool,
     GrepTool,
@@ -41,6 +42,7 @@ def _build_registry() -> ToolRegistry:
     registry.register(WebFetchTool())
     registry.register(WebSearchTool())
     registry.register(CodeSearchTool())
+    registry.register(DelegateTool())
     registry.register(TodoWriteTool())
     registry.register(QuestionTool())
     registry.register(ApplyPatchTool())

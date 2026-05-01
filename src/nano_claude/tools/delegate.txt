@@ -1,0 +1,21 @@
+Delegate one or more independent sub-tasks to sub-agents for parallel execution.
+Each sub-agent runs independently with its own LLM context and tool access.
+Use this when you have multiple INDEPENDENT tasks that can be done simultaneously
+(e.g., modifying multiple unrelated files, searching in multiple directions).
+
+## How to use
+1. First explore the codebase (read, glob) to understand the structure
+2. Split work into truly independent files/directories
+3. Provide clear, detailed instructions for each sub-task
+4. Set `scope` to hint which files each task should own
+
+## After delegation
+- All sub-agents run in parallel
+- You will receive all results together
+- Review the results, check for integration issues
+- Make any necessary adjustments yourself
+
+IMPORTANT:
+- Only delegate truly INDEPENDENT tasks
+- You are responsible for integration and conflict resolution
+- Do NOT delegate tasks that depend on each other

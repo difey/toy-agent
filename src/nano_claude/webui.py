@@ -228,6 +228,7 @@ async def _execute_chat(message: str, response_id: str) -> None:
     original_on_tool_end = agent.on_tool_end
     original_permission = agent.permission_callback
     original_ask_user = agent.ask_user_callback
+    original_on_event = agent.on_event_callback
 
     async def on_text(text: str):
         await _state.push_event("message", {"role": "assistant", "type": "text", "content": text})
@@ -248,16 +249,20 @@ async def _execute_chat(message: str, response_id: str) -> None:
             if asyncio.iscoroutine(result):
                 await result
 
-    async def on_tool_end(name: str, title: str, output: str):
-        await _state.push_event("message", {
+    async def on_tool_end(name: str, title: str, output: str, metadata: dict | None = None):
+        event_data = {
             "role": "tool",
             "type": "tool_result",
             "name": name,
             "title": title,
             "content": output,
-        })
+        }
+        # Pass through flow_id from delegate tool for frontend toggle matching
+        if metadata and "flow_id" in metadata:
+            event_data["flow_id"] = metadata["flow_id"]
+        await _state.push_event("message", event_data)
         if original_on_tool_end:
-            result = original_on_tool_end(name, title, output)
+            result = original_on_tool_end(name, title, output, metadata)
             if asyncio.iscoroutine(result):
                 await result
 
@@ -288,11 +293,24 @@ async def _execute_chat(message: str, response_id: str) -> None:
         finally:
             _state._pending_question = None
 
+    async def on_event(event_type: str, data: dict):
+        """Push sub-agent real-time events as SSE sub_agent_message events."""
+        await _state.push_event("sub_agent_message", {
+            "flow_id": data.get("flow_id", ""),
+            "agent_id": data.get("agent_id", ""),
+            "type": event_type.replace("sub_agent_", ""),
+            "name": data.get("name", ""),
+            "arguments": data.get("arguments", {}),
+            "content": data.get("content", ""),
+            "title": data.get("title", ""),
+        })
+
     agent.on_text_delta = on_text
     agent.on_tool_start = on_tool_start
     agent.on_tool_end = on_tool_end
     agent.permission_callback = permission_callback
     agent.ask_user_callback = ask_user_callback
+    agent.on_event_callback = on_event
 
     try:
         await agent.run_stream(message, cwd, session=session)
@@ -308,6 +326,7 @@ async def _execute_chat(message: str, response_id: str) -> None:
         agent.on_tool_end = original_on_tool_end
         agent.permission_callback = original_permission
         agent.ask_user_callback = original_ask_user
+        agent.on_event_callback = original_on_event
         save_current(session, _state.session_file_ref[0])
 
 

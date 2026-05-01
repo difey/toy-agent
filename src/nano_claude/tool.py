@@ -2,7 +2,10 @@ import inspect
 import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
+
+if TYPE_CHECKING:
+    from nano_claude.agent import Agent
 
 # PermissionCallback: returns "allow" | "deny" | "allow_always"
 PermissionCallback = Callable[[str, str, str], Awaitable[str]]
@@ -25,6 +28,8 @@ class ToolContext:
     permission_callback: PermissionCallback | None = None
     ask_user_callback: AskUserCallback | None = None
     mode: str = "build"  # "plan" or "build"
+    parent_agent: Any | None = None  # Reference to parent Agent (for delegate tool)
+    on_event: Callable[[str, dict], Awaitable[None]] | None = None  # Real-time event pusher (for sub-agent streaming)
 
 
 # Common hallucinated base paths that LLMs tend to generate instead of the real cwd.
