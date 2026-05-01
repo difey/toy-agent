@@ -353,10 +353,11 @@ class InteractiveUI:
         )
 
     def _find_latest_plan(self) -> str | None:
-        """Find the most recently modified .md plan file (excluding common non-plan files)."""
-        md_files = list(Path(self.cwd).glob("*.md"))
-        exclude = {"README.md", "LICENSE.md", "CHANGELOG.md", "CONTRIBUTING.md", "agents.md"}
-        md_files = [f for f in md_files if f.name not in exclude]
+        """Find the most recently modified .md plan file in .session/ directory."""
+        session_dir = Path(self.cwd) / ".session"
+        if not session_dir.is_dir():
+            return None
+        md_files = list(session_dir.glob("*.md"))
         if not md_files:
             return None
         return str(max(md_files, key=os.path.getmtime))
@@ -365,6 +366,9 @@ class InteractiveUI:
         if self._turn_count > 0:
             self._append_output("\n\n=============================================\n\n")
 
+        # Track plan file for "执行" flow → rename after build completes
+        _resolved_plan_file: str | None = None
+
         # "执行" trigger in plan mode → auto-switch to build
         if self.agent.mode == "plan" and text.strip() == "执行":
             plan_file = self._find_latest_plan()
@@ -372,6 +376,7 @@ class InteractiveUI:
                 self._append_output("\n[No plan file found. Create a plan first, then type 「执行」.]")
                 return
             plan_content = Path(plan_file).read_text()
+            _resolved_plan_file = plan_file
             self.agent.set_mode("build")
             self.session.messages.append(
                 UserMessage(content="[Mode changed to Build mode. 以下为计划内容，请按照计划执行。]")
@@ -418,6 +423,11 @@ class InteractiveUI:
             self.agent.permission_callback = original_permission
             self.agent.ask_user_callback = original_ask_user
             self.agent.on_tool_start = original_on_tool_start
+            # If this was an "执行" flow and build has completed, rename the plan
+            if _resolved_plan_file and os.path.exists(_resolved_plan_file):
+                resolved_path = _resolved_plan_file + ".resolved"
+                os.rename(_resolved_plan_file, resolved_path)
+                self._append_output(f"\n[✓ 计划已标记为已完成: {os.path.basename(_resolved_plan_file)}]\n")
             # In plan mode, show the latest plan file after response
             if self.agent.mode == "plan":
                 plan_file = self._find_latest_plan()

@@ -58,12 +58,23 @@ class EditTool(Tool):
         # Resolve path with hallucination correction
         resolved_path = resolve_safe_path(file_path, ctx)
 
-        # In plan mode, only allow editing .md files
-        if ctx.mode == "plan" and not resolved_path.lower().endswith(".md"):
-            return ToolExecResult(
-                output=f"Plan mode: can only edit .md files. Refused to edit '{resolved_path}'",
-                title="edit [plan mode]",
-            )
+        # In plan mode, only allow editing .md files under .session/
+        if ctx.mode == "plan":
+            session_dir = os.path.join(ctx.cwd, ".session")
+            resolved_lower = resolved_path.lower()
+            if not resolved_lower.endswith(".md"):
+                return ToolExecResult(
+                    output=f"Plan mode: can only edit .md files. Refused to edit '{resolved_path}'",
+                    title="edit [plan mode]",
+                )
+            if not resolved_path.startswith(session_dir):
+                return ToolExecResult(
+                    output=(
+                        f"Plan mode: can only edit .md files under .session/ directory. "
+                        f"Refused to edit '{resolved_path}'."
+                    ),
+                    title="edit [plan mode]",
+                )
 
         allowed, _ = await check_file_permission(ctx, resolved_path)
         if not allowed:

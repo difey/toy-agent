@@ -10,6 +10,8 @@ $ nano-claude "用 FastAPI 写一个 hello world 服务"
    Done! Created main.py, run with `uvicorn main:app`.
 ```
 
+> **Note**: To learn how to write a minimal AI code agent, you can chekout to the commit 92612c1dabf90bbfa21f9e7ec39ce433eb2a9681.
+
 ## Installation
 
 ### Prerequisites

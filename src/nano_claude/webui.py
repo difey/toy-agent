@@ -296,6 +296,12 @@ async def index() -> HTMLResponse:
     return HTMLResponse(content=_get_index_html())
 
 
+@app.get("/plan-view")
+async def plan_view() -> HTMLResponse:
+    """Serve a standalone page that displays the latest plan document."""
+    return HTMLResponse(content=_get_plan_view_html())
+
+
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "version": "0.2.0"}
@@ -312,6 +318,10 @@ async def api_set_mode(body: dict):
     if mode not in ("plan", "build"):
         raise HTTPException(status_code=400, detail="Mode must be 'plan' or 'build'")
     if _state.agent and _state.session:
+        # When switching from build → plan, mark the latest plan as resolved
+        if mode == "plan" and _state.agent.mode == "build":
+            _resolve_latest_plan(_state.cwd)
+
         _state.agent.set_mode(mode)
         # Insert transition message instead of clearing session
         if mode == "plan":
@@ -400,6 +410,28 @@ async def api_open_vscode():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/plan-doc")
+async def api_plan_doc():
+    """Return the latest plan document from .session/ directory."""
+    from pathlib import Path
+    import os
+    cwd = _state.cwd
+    session_dir = Path(cwd) / ".session"
+    if not session_dir.is_dir():
+        return {"exists": False, "filename": None, "content": None, "modified": None}
+    md_files = sorted(session_dir.glob("*.md"), key=lambda f: os.path.getmtime(f))
+    if not md_files:
+        return {"exists": False, "filename": None, "content": None, "modified": None}
+    latest = md_files[-1]
+    return {
+        "exists": True,
+        "filename": latest.name,
+        "content": latest.read_text(encoding="utf-8"),
+        "modified": os.path.getmtime(latest),
+        "size": latest.stat().st_size,
+    }
+
+
 @app.get("/api/current")
 async def api_current():
     return _state.current_info()
@@ -476,6 +508,28 @@ def _get_index_html() -> str:
     """Read the index.html bundled with the package."""
     from importlib.resources import files
     return (files("nano_claude") / "index.html").read_text(encoding="utf-8")
+
+
+def _get_plan_view_html() -> str:
+    """Read the plan-view.html bundled with the package."""
+    from importlib.resources import files
+    return (files("nano_claude") / "plan-view.html").read_text(encoding="utf-8")
+
+
+def _resolve_latest_plan(cwd: str) -> None:
+    """Rename the latest .md file in .session/ to .md.resolved."""
+    from pathlib import Path
+    import os
+    session_dir = Path(cwd) / ".session"
+    if not session_dir.is_dir():
+        return
+    md_files = sorted(session_dir.glob("*.md"), key=lambda f: os.path.getmtime(f))
+    if not md_files:
+        return
+    latest = str(md_files[-1])
+    resolved_path = latest + ".resolved"
+    if os.path.exists(latest):
+        os.rename(latest, resolved_path)
 
 
 # ── Server startup ──────────────────────────────────────────────────────

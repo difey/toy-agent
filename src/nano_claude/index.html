@@ -189,6 +189,14 @@
   #send-btn:active { transform: scale(0.97); }
   #send-btn:disabled { opacity: 0.35; cursor: not-allowed; background: var(--bg3);
     transform: none; }
+  #review-plan-btn { padding: 5px 14px; background: var(--bg3);
+    border: 1px solid var(--border); border-radius: 16px;
+    color: var(--text); cursor: pointer; font-size: 12px; font-weight: 500;
+    transition: all 0.15s; white-space: nowrap; }
+  #review-plan-btn:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+  #review-plan-btn:disabled { opacity: 0.4; cursor: not-allowed; background: var(--bg3);
+    border-color: var(--border); color: var(--text-dim); }
+  .left-group { display: flex; align-items: center; gap: 8px; }
 
   /* ── Empty state ────────────────────────────────────────── */
   #empty-state { display: flex; flex-direction: column; align-items: center;
@@ -345,9 +353,14 @@
           ref="inputRef" :disabled="isStreaming"></textarea>
       </div>
       <div id="input-footer">
-        <div class="mode-toggle" @click="toggleMode" :title="mode === 'plan' ? 'Current: Plan mode - Click to switch to Build' : 'Current: Build mode - Click to switch to Plan'">
-          <span class="mode-opt plan" :class="{ active: mode === 'plan' }">📋 Plan</span>
-          <span class="mode-opt build" :class="{ active: mode === 'build' }">🔨 Build</span>
+        <div class="left-group">
+          <div class="mode-toggle" @click="toggleMode" :title="mode === 'plan' ? 'Current: Plan mode - Click to switch to Build' : 'Current: Build mode - Click to switch to Plan'">
+            <span class="mode-opt plan" :class="{ active: mode === 'plan' }">📋 Plan</span>
+            <span class="mode-opt build" :class="{ active: mode === 'build' }">🔨 Build</span>
+          </div>
+          <button id="review-plan-btn" v-if="mode === 'plan'" @click="openPlanDoc"
+            :disabled="isStreaming || !hasPlanDoc"
+            title="Open the latest plan document in a new tab">📋 Review Plan Doc</button>
         </div>
         <button id="send-btn" @click="sendMessage" :disabled="isStreaming || !inputText.trim()">发送</button>
       </div>
@@ -373,6 +386,7 @@ createApp({
     const chatContainer = ref(null);
     const inputRef = ref(null);
     const mode = ref('build');
+    const hasPlanDoc = ref(false);
 
     const toast = reactive({ visible: false, message: '', timer: null });
 
@@ -447,9 +461,26 @@ createApp({
         const r = await api('POST', '/api/mode', { mode: newMode });
         mode.value = r.mode;
         await loadCurrent();
+        checkPlanDoc();
       } catch (e) {
         showToast(e.message || 'Failed to switch mode');
       }
+    }
+
+    // ── Plan document preview ──────────────────────
+    async function checkPlanDoc() {
+      if (mode.value !== 'plan') { hasPlanDoc.value = false; return; }
+      try {
+        const r = await fetch('/api/plan-doc');
+        const d = await r.json();
+        hasPlanDoc.value = d.exists;
+      } catch (e) {
+        hasPlanDoc.value = false;
+      }
+    }
+
+    function openPlanDoc() {
+      window.open('/plan-view', '_blank');
     }
 
     // ── Session management ────────────────────────────
@@ -468,6 +499,7 @@ createApp({
         sessionTitle.value = d.title || 'nanoClaude';
         messages.value = d.messages || [];
         mode.value = d.mode || 'build';
+        checkPlanDoc();
         await loadSessions();
         scrollBottom();
       } catch (e) {
@@ -531,12 +563,8 @@ createApp({
 
       // Fenced code blocks
       h = h.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
-        const decoded = code
-          .replace(/&gt;/g, '>').replace(/&lt;/g, '<')
-          .replace(/&amp;/g, '&').replace(/&quot;/g, '"')
-          .replace(/&#39;/g, "'");
         const l = lang || 'code';
-        return '<pre><code class="language-' + l + '">' + decoded + '</code></pre>';
+        return '<pre><code class="language-' + l + '">' + code + '</code></pre>';
       });
 
       // ── Tables (GFM table syntax) ──
@@ -729,6 +757,7 @@ createApp({
             messages.value.pop();
           }
           try { await loadSessions(); } catch (_) {}
+          checkPlanDoc();
           scrollBottom();
         });
 
@@ -788,18 +817,16 @@ createApp({
       loadSessions();
       loadCurrent();
       document.addEventListener('keydown', handleGlobalKeydown);
-    });
-
-    // Watch input text for auto-resize
+    });    // Watch input text for auto-resize
     // We use a watcher via $watch in the template
 
     return {
       sessions, messages, currentSession, isStreaming, inputText,
       sidebarOpen, sessionTitle, toast, chatContainer, inputRef,
-      darkMode, toggleTheme, mode,
+      darkMode, toggleTheme, mode, hasPlanDoc,
       showToast, truncate, renderMarkdown,
       openVSCode, newSession, switchSession, deleteSession, sendMessage, handleKeydown,
-      toggleMode, JSON
+      toggleMode, checkPlanDoc, openPlanDoc, JSON
     };
   }
 }).mount('#app');
