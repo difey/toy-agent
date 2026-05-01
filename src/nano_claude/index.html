@@ -244,6 +244,40 @@
   #vscode-btn:hover { background: var(--bg3); border-color: var(--accent); color: var(--accent); }
   ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
+
+  /* ── Question dialog ──────────────────────────────── */
+  #question-overlay { position: fixed; inset: 0; z-index: 1000;
+    background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center;
+    animation: fadeIn 0.2s ease-out; }
+  .question-card { background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 12px; width: 480px; max-width: 92vw;
+    max-height: 80vh; overflow-y: auto; box-shadow: 0 16px 48px rgba(0,0,0,0.5); }
+  .q-header { padding: 16px 20px 4px; font-size: 16px; font-weight: 700; color: var(--text-bright); }
+  .q-body { padding: 4px 20px 12px; font-size: 14px; color: var(--text);
+    line-height: 1.6; white-space: pre-wrap; }
+  .q-options { padding: 0 20px 12px; }
+  .q-option { display: flex; align-items: flex-start; gap: 8px;
+    padding: 10px 12px; border: 1px solid var(--border);
+    border-radius: var(--radius-sm); margin-bottom: 6px;
+    cursor: pointer; transition: all 0.12s; }
+  .q-option:hover { background: var(--bg3); border-color: var(--accent); }
+  .q-option.selected { background: var(--accent33); border-color: var(--accent); }
+  .q-option input { margin-top: 3px; accent-color: var(--accent); }
+  .q-option .q-label { font-weight: 600; font-size: 13px; white-space: nowrap; color: var(--text-bright); }
+  .q-option .q-desc { font-size: 12px; color: var(--text-dim); display: block; margin-top: 2px; }
+  .q-custom-input { width: 100%; margin-top: 8px; padding: 8px 10px;
+    background: var(--input-bg); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); color: var(--text);
+    font-family: var(--font); font-size: 13px; resize: vertical; min-height: 60px; }
+  .q-custom-input:focus { outline: none; border-color: var(--accent); }
+  .q-actions { display: flex; justify-content: flex-end; gap: 8px;
+    padding: 12px 20px; border-top: 1px solid var(--border); }
+  .q-btn { padding: 8px 20px; border-radius: var(--radius-sm);
+    font-size: 14px; font-weight: 600; cursor: pointer; border: none; transition: all 0.12s; }
+  .q-btn.cancel { background: var(--bg3); color: var(--text-dim); }
+  .q-btn.cancel:hover { background: var(--border); color: var(--text); }
+  .q-btn.submit { background: var(--accent); color: #fff; }
+  .q-btn.submit:hover { opacity: 0.9; }
 </style>
 <script>
   // Set theme immediately to prevent flash
@@ -350,7 +384,7 @@
       <div id="input-row">
         <textarea id="msg-input" v-model="inputText" rows="1"
           placeholder="Type a message..." @keydown="handleKeydown"
-          ref="inputRef" :disabled="isStreaming"></textarea>
+          ref="inputRef" :disabled="isStreaming || activeQuestion !== null"></textarea>
       </div>
       <div id="input-footer">
         <div class="left-group">
@@ -366,6 +400,46 @@
       </div>
     </div>
   </div>
+  <!-- Question dialog overlay -->
+  <div id="question-overlay" v-if="activeQuestion" @click.self="cancelQuestion">
+    <div class="question-card">
+      <div class="q-header">{{ activeQuestion.header }}</div>
+      <div class="q-body">{{ activeQuestion.question }}</div>
+      <div class="q-options">
+        <label v-for="(opt, i) in activeQuestion.options" :key="i"
+               class="q-option" :class="{ selected: questionAnswers.includes(opt.label) }"
+               @click="toggleQuestionOption(opt.label)">
+          <input :type="activeQuestion.multiple ? 'checkbox' : 'radio'"
+                 :name="'q-opt-' + i"
+                 :checked="questionAnswers.includes(opt.label)"
+                 @click.stop="toggleQuestionOption(opt.label)">
+          <span style="display:flex;flex-direction:column;gap:1px">
+            <span class="q-label">{{ opt.label }}</span>
+            <span v-if="opt.description" class="q-desc">{{ opt.description }}</span>
+          </span>
+        </label>
+        <!-- Custom answer -->
+        <div class="q-option" :class="{ selected: questionAnswers.includes('__custom__') }"
+             @click="selectCustomOption">
+          <input type="radio" name="q-custom"
+                 :checked="questionAnswers.includes('__custom__')"
+                 @click.stop="selectCustomOption">
+          <span style="display:flex;flex-direction:column;gap:1px;flex:1">
+            <span class="q-label">Custom (type your own answer)</span>
+            <textarea v-if="questionAnswers.includes('__custom__')"
+                      v-model="customAnswer" class="q-custom-input"
+                      placeholder="Type your answer here..."
+                      @click.stop ref="customInputRef"></textarea>
+          </span>
+        </div>
+      </div>
+      <div class="q-actions">
+        <button class="q-btn cancel" @click="cancelQuestion">Skip</button>
+        <button class="q-btn submit" @click="submitQuestion">Submit</button>
+      </div>
+    </div>
+  </div>
+
   <div id="toast" :class="{ show: toast.visible }">{{ toast.message }}</div>
 </div>
 
@@ -387,6 +461,12 @@ createApp({
     const inputRef = ref(null);
     const mode = ref('build');
     const hasPlanDoc = ref(false);
+
+    // ── Question dialog state ────────────────────────
+    const activeQuestion = ref(null);
+    const questionAnswers = ref([]);
+    const customAnswer = ref('');
+    const customInputRef = ref(null);
 
     const toast = reactive({ visible: false, message: '', timer: null });
 
@@ -745,6 +825,21 @@ createApp({
             scrollBottom();
             return;
           }
+
+        });
+
+        // Question tool event — show question dialog
+        es.addEventListener('question', (evt) => {
+          const q = JSON.parse(evt.data);
+          activeQuestion.value = {
+            header: q.header,
+            question: q.question,
+            options: q.options,
+            multiple: q.multiple,
+          };
+          questionAnswers.value = [];
+          customAnswer.value = '';
+          scrollBottom();
         });
 
         es.addEventListener('done', async () => {
@@ -805,6 +900,50 @@ createApp({
       });
     }
 
+    // ── Question dialog methods ─────────────────────
+    function toggleQuestionOption(label) {
+      if (activeQuestion.value.multiple) {
+        const idx = questionAnswers.value.indexOf(label);
+        if (idx >= 0) questionAnswers.value.splice(idx, 1);
+        else questionAnswers.value.push(label);
+      } else {
+        questionAnswers.value = [label];
+      }
+    }
+
+    function selectCustomOption() {
+      questionAnswers.value = ['__custom__'];
+      nextTick(() => {
+        if (customInputRef.value) customInputRef.value.focus();
+      });
+    }
+
+    async function submitQuestion() {
+      let answers = [];
+      if (questionAnswers.value.includes('__custom__')) {
+        answers = [customAnswer.value.trim() || '(skipped)'];
+      } else {
+        answers = questionAnswers.value;
+      }
+      if (answers.length === 0) answers = ['(skipped)'];
+
+      await fetch('/api/question-answer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ answer: answers })
+      });
+      activeQuestion.value = null;
+    }
+
+    function cancelQuestion() {
+      fetch('/api/question-answer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ answer: ['(skipped)'] })
+      });
+      activeQuestion.value = null;
+    }
+
     // ── Keyboard shortcuts ──────────────────────────
     function handleGlobalKeydown(e) {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); newSession(); }
@@ -826,7 +965,9 @@ createApp({
       darkMode, toggleTheme, mode, hasPlanDoc,
       showToast, truncate, renderMarkdown,
       openVSCode, newSession, switchSession, deleteSession, sendMessage, handleKeydown,
-      toggleMode, checkPlanDoc, openPlanDoc, JSON
+      toggleMode, checkPlanDoc, openPlanDoc, JSON,
+      activeQuestion, questionAnswers, customAnswer, customInputRef,
+      toggleQuestionOption, selectCustomOption, submitQuestion, cancelQuestion,
     };
   }
 }).mount('#app');

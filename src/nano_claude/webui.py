@@ -63,6 +63,8 @@ class WebAppState:
         # SSE queues: keyed by response_id
         self._sse_queues: dict[str, asyncio.Queue] = {}
         self._running_response_id: str | None = None
+        # Pending question state (for question tool)
+        self._pending_question: dict | None = None  # {future, header, question, options, multiple}
 
     # ── session helpers ─────────────────────────────────────────────────
 
@@ -263,7 +265,28 @@ async def _execute_chat(message: str, response_id: str) -> None:
         return "allow"
 
     async def ask_user_callback(header: str, question: str, options: list[dict], multiple: bool) -> list[str]:
-        return ["(skipped)"]
+        await _state.push_event("question", {
+            "header": header,
+            "question": question,
+            "options": options,
+            "multiple": multiple,
+        })
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
+        _state._pending_question = {
+            "future": future,
+            "header": header,
+            "question": question,
+            "options": options,
+            "multiple": multiple,
+        }
+        try:
+            result = await asyncio.wait_for(future, timeout=300)
+            return result
+        except asyncio.TimeoutError:
+            return ["(skipped)"]
+        finally:
+            _state._pending_question = None
 
     agent.on_text_delta = on_text
     agent.on_tool_start = on_tool_start
@@ -448,6 +471,21 @@ async def api_chat(req: ChatRequest):
 
     response_id = await _run_chat(message)
     return {"response_id": response_id}
+
+
+@app.post("/api/question-answer")
+async def api_question_answer(body: dict):
+    if _state._pending_question is None:
+        raise HTTPException(status_code=400, detail="No pending question")
+    answer = body.get("answer")
+    if answer is None:
+        raise HTTPException(status_code=400, detail="Missing 'answer' field")
+    if isinstance(answer, str):
+        answer = [answer]
+    future = _state._pending_question["future"]
+    if not future.done():
+        future.set_result(answer)
+    return {"ok": True}
 
 
 @app.get("/api/events")
