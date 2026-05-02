@@ -63,6 +63,8 @@ class WebAppState:
         # SSE queues: keyed by response_id
         self._sse_queues: dict[str, asyncio.Queue] = {}
         self._running_response_id: str | None = None
+        # Pending permission state (for file access approval)
+        self._pending_permission: dict | None = None  # {future, tool, target, resolved_path}
         # Pending question state (for question tool)
         self._pending_question: dict | None = None  # {future, header, question, options, multiple}
 
@@ -266,8 +268,33 @@ async def _execute_chat(message: str, response_id: str) -> None:
             if asyncio.iscoroutine(result):
                 await result
 
-    async def permission_callback(tool: str, target: str, reason: str) -> str:
-        return "allow"
+    async def permission_callback(tool: str, target: str, resolved_path: str) -> str:
+        """Ask the user for permission to access a file outside cwd.
+
+        Pushes a 'permission_request' SSE event to the frontend and waits
+        for the user's decision (allow / deny / allow_always).
+        """
+        await _state.push_event("permission_request", {
+            "tool": tool,
+            "target": target,
+            "resolved_path": resolved_path,
+            "cwd": cwd,
+        })
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
+        _state._pending_permission = {
+            "future": future,
+            "tool": tool,
+            "target": target,
+            "resolved_path": resolved_path,
+        }
+        try:
+            result = await asyncio.wait_for(future, timeout=120)
+            return result
+        except asyncio.TimeoutError:
+            return "deny"
+        finally:
+            _state._pending_permission = None
 
     async def ask_user_callback(header: str, question: str, options: list[dict], multiple: bool) -> list[str]:
         await _state.push_event("question", {
@@ -504,6 +531,19 @@ async def api_question_answer(body: dict):
     future = _state._pending_question["future"]
     if not future.done():
         future.set_result(answer)
+    return {"ok": True}
+
+
+@app.post("/api/permission-response")
+async def api_permission_response(body: dict):
+    if _state._pending_permission is None:
+        raise HTTPException(status_code=400, detail="No pending permission request")
+    decision = body.get("decision")
+    if decision not in ("allow", "deny", "allow_always"):
+        raise HTTPException(status_code=400, detail="Decision must be 'allow', 'deny', or 'allow_always'")
+    future = _state._pending_permission["future"]
+    if not future.done():
+        future.set_result(decision)
     return {"ok": True}
 
 

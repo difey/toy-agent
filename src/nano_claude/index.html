@@ -276,16 +276,32 @@
   ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
 
-  /* ── Question dialog ──────────────────────────────── */
+  /* ── Question dialog & Permission dialog ────────────────── */
   #question-overlay { position: fixed; inset: 0; z-index: 1000;
+    background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center;
+    animation: fadeIn 0.2s ease-out; }
+  #permission-overlay { position: fixed; inset: 0; z-index: 1001;
     background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center;
     animation: fadeIn 0.2s ease-out; }
   .question-card { background: var(--bg2); border: 1px solid var(--border);
     border-radius: 12px; width: 480px; max-width: 92vw;
     max-height: 80vh; overflow-y: auto; box-shadow: 0 16px 48px rgba(0,0,0,0.5); }
+  .permission-card { background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 12px; width: 520px; max-width: 92vw;
+    max-height: 80vh; overflow-y: auto; box-shadow: 0 16px 48px rgba(0,0,0,0.5); }
   .q-header { padding: 16px 20px 4px; font-size: 16px; font-weight: 700; color: var(--text-bright); }
+  .p-header { padding: 16px 20px; font-size: 16px; font-weight: 700; color: var(--text-bright);
+    display: flex; align-items: center; gap: 8px; }
   .q-body { padding: 4px 20px 12px; font-size: 14px; color: var(--text);
     line-height: 1.6; white-space: pre-wrap; }
+  .p-body { padding: 4px 20px 16px; font-size: 14px; color: var(--text); line-height: 1.6; }
+  .p-path-block { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius-sm);
+    padding: 10px 14px; margin: 6px 0; font-family: var(--mono); font-size: 13px; word-break: break-all; }
+  .p-path-label { font-size: 11px; color: var(--text-dim); font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.5px; margin-bottom: 2px; }
+  .p-path-value { color: var(--text-bright); }
+  .p-cwd { font-size: 12px; color: var(--text-dim); margin-top: 8px; padding: 6px 10px;
+    background: var(--bg3); border-radius: var(--radius-sm); border: 1px solid var(--border); }
   .q-options { padding: 0 20px 12px; }
   .q-option { display: flex; align-items: flex-start; gap: 8px;
     padding: 10px 12px; border: 1px solid var(--border);
@@ -309,6 +325,16 @@
   .q-btn.cancel:hover { background: var(--border); color: var(--text); }
   .q-btn.submit { background: var(--accent); color: #fff; }
   .q-btn.submit:hover { opacity: 0.9; }
+  .p-actions { display: flex; justify-content: flex-end; gap: 8px;
+    padding: 16px 20px; border-top: 1px solid var(--border); }
+  .p-btn { padding: 9px 22px; border-radius: var(--radius-sm);
+    font-size: 14px; font-weight: 600; cursor: pointer; border: none; transition: all 0.12s; }
+  .p-btn.deny { background: var(--danger); color: #fff; }
+  .p-btn.deny:hover { opacity: 0.9; }
+  .p-btn.allow { background: var(--accent); color: #fff; }
+  .p-btn.allow:hover { opacity: 0.9; }
+  .p-btn.always { background: var(--bg3); color: var(--text); border: 1px solid var(--accent); }
+  .p-btn.always:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
 </style>
 <script>
   // Set theme immediately to prevent flash
@@ -483,7 +509,8 @@
       <div id="input-row">
         <textarea id="msg-input" v-model="inputText" rows="1"
           placeholder="Type a message..." @keydown="handleKeydown"
-          ref="inputRef" :disabled="isStreaming || activeQuestion !== null"></textarea>
+          ref="inputRef"
+          :disabled="isStreaming || activeQuestion !== null || activePermission !== null"></textarea>
       </div>
       <div id="input-footer">
         <div class="left-group">
@@ -497,6 +524,39 @@
         </div>
         <button id="send-btn" @click="sendMessage" :disabled="isStreaming || !inputText.trim()">发送</button>
       </div>
+  <!-- Permission dialog overlay (higher z-index than question) -->
+  <div id="permission-overlay" v-if="activePermission" @click.self>
+    <div class="permission-card">
+      <div class="p-header">🔒 File Access Permission Request</div>
+      <div class="p-body">
+        <div style="margin-bottom:10px">
+          <strong>Tool:</strong>
+          <span style="font-family:var(--mono);color:var(--accent);margin-left:6px">{{ activePermission.tool }}</span>
+          wants to access a file outside the working directory.
+        </div>
+
+        <div class="p-path-block">
+          <div class="p-path-label">Requested Path</div>
+          <div class="p-path-value">{{ activePermission.target }}</div>
+        </div>
+
+        <div class="p-path-block" style="margin-top:2px">
+          <div class="p-path-label">Resolved Path</div>
+          <div class="p-path-value" style="color:var(--accent4)">{{ activePermission.resolved_path }}</div>
+        </div>
+
+        <div class="p-cwd">
+          📁 Working Directory: <span style="color:var(--text-bright);font-family:var(--mono)">{{ activePermission.cwd }}</span>
+        </div>
+      </div>
+      <div class="p-actions">
+        <button class="p-btn deny" @click="permissionDeny">Deny</button>
+        <button class="p-btn allow" @click="permissionAllow">Allow</button>
+        <button class="p-btn always" @click="permissionAlwaysAllow">Always Allow</button>
+      </div>
+    </div>
+  </div>
+
     </div>
   </div>
   <!-- Question dialog overlay -->
@@ -574,6 +634,14 @@ createApp({
     const questionAnswers = ref([]);
     const customAnswer = ref('');
     const customInputRef = ref(null);
+
+    // ── Permission dialog state ──────────────────────
+    const activePermission = ref(null);
+    const permissionQueue = ref([]);
+
+    function isInputDisabled() {
+      return isStreaming.value || activeQuestion.value !== null || activePermission.value !== null;
+    }
 
     const toast = reactive({ visible: false, message: '', timer: null });
 
@@ -699,6 +767,8 @@ createApp({
       subAgentFlows.value = {};
       delegateFlowMap.value = {};
       delegateFlowCounter = 0;
+      activePermission.value = null;
+      permissionQueue.value = [];
       try {
         const r = await api('POST', '/api/sessions');
         messages.value = [];
@@ -978,6 +1048,25 @@ createApp({
           scrollBottom();
         });
 
+        // Permission request event — show dialog (higher priority than question)
+        es.addEventListener('permission_request', (evt) => {
+          const data = JSON.parse(evt.data);
+          // If a question dialog is already showing, pause it (queue it)
+          if (activeQuestion.value !== null) {
+            questionQueue.value.unshift({ ...activeQuestion.value });
+            activeQuestion.value = null;
+            questionAnswers.value = [];
+            customAnswer.value = '';
+          }
+          activePermission.value = {
+            tool: data.tool,
+            target: data.target,
+            resolved_path: data.resolved_path,
+            cwd: data.cwd,
+          };
+          scrollBottom();
+        });
+
         // Sub-agent real-time events — build/update parallel columns by flow_id
         es.addEventListener('sub_agent_message', (evt) => {
           const m = JSON.parse(evt.data);
@@ -1039,6 +1128,8 @@ createApp({
         es.addEventListener('done', async () => {
           es.close();
           eventSource.value = null;
+          activePermission.value = null;
+          permissionQueue.value = [];
           isStreaming.value = false;
           // Remove empty assistant messages
           const last = messages.value[messages.value.length - 1];
@@ -1092,6 +1183,48 @@ createApp({
           el.style.height = Math.min(el.scrollHeight, 200) + 'px';
         }
       });
+    }
+
+    // ── Permission dialog methods ─────────────────────
+    function _clearPermission() {
+      activePermission.value = null;
+      // Restore any queued question dialog
+      if (questionQueue.value.length > 0) {
+        const nextQ = questionQueue.value.shift();
+        activeQuestion.value = {
+          header: nextQ.header,
+          question: nextQ.question,
+          options: nextQ.options,
+          multiple: nextQ.multiple,
+        };
+        questionAnswers.value = [];
+        customAnswer.value = '';
+      }
+    }
+
+    async function _sendPermissionDecision(decision) {
+      try {
+        await fetch('/api/permission-response', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ decision: decision })
+        });
+      } catch (e) {
+        console.error('Failed to send permission decision:', e);
+      }
+      _clearPermission();
+    }
+
+    function permissionDeny() {
+      _sendPermissionDecision('deny');
+    }
+
+    function permissionAllow() {
+      _sendPermissionDecision('allow');
+    }
+
+    function permissionAlwaysAllow() {
+      _sendPermissionDecision('allow_always');
     }
 
     // ── Question dialog methods ─────────────────────
@@ -1190,6 +1323,8 @@ createApp({
       sessions, messages, currentSession, isStreaming, inputText,
       sidebarOpen, sessionTitle, toast, chatContainer, inputRef,
       darkMode, toggleTheme, mode, hasPlanDoc,
+      activePermission, permissionQueue,
+      permissionDeny, permissionAllow, permissionAlwaysAllow, isInputDisabled,
       showToast, truncate, renderMarkdown,
       openVSCode, newSession, switchSession, deleteSession, sendMessage, handleKeydown,
       toggleMode, checkPlanDoc, openPlanDoc, JSON,
