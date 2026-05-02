@@ -30,6 +30,7 @@ class ToolContext:
     mode: str = "build"  # "plan" or "build"
     parent_agent: Any | None = None  # Reference to parent Agent (for delegate tool)
     on_event: Callable[[str, dict], Awaitable[None]] | None = None  # Real-time event pusher (for sub-agent streaming)
+    skill_store: Any | None = None  # SkillStore instance for the skill tool
 
 
 # Common hallucinated base paths that LLMs tend to generate instead of the real cwd.

@@ -73,7 +73,7 @@ nanoClaude supports two operational modes in interactive and web UI:
 | Mode | Icon | Purpose | Available Tools |
 |------|------|---------|-----------------|
 | **Build mode** (default) | 🔨 | Implement code, run commands, make changes | All tools (bash, read, write, edit, glob, grep, etc.) |
-| **Plan mode** | 📋 | Discuss requirements, write specifications only | Restricted: read, write (`.md` only), edit, glob, grep, question, todowrite |
+| **Plan mode** | 📋 | Discuss requirements, write specifications only | Restricted: read, write (`.md` only), edit, glob, grep, question, todowrite, skill |
 
 **Plan mode** is designed for requirement analysis. The agent can only read files and write/edit `.md` files — it cannot write source code or run shell commands. This lets you discuss and document what needs to be built before any code is written.
 
@@ -114,6 +114,8 @@ The web UI opens automatically in your browser at `http://127.0.0.1:8080`.
 - **Send shortcut** — `⌘+Enter` (Mac) or `Ctrl+Enter` (Windows/Linux) to send; plain `Enter` inserts a newline
 - **Dark/Light theme** — auto-detects system preference, toggle with the ☀️/🌙 button
 - **Multi-turn conversations** — same session management as TUI, auto-saved to `<cwd>/.session/`
+- **File permission approval** — when the agent accesses files outside the working directory, a permission dialog pops up (Allow / Deny / Always Allow); 120s timeout auto-denies |
+- **Interactive question dialogs** — when the agent asks for clarification, a modal with selectable options appears; supports queuing of multiple questions |
 
 ### Interactive mode (TUI)
 
@@ -185,6 +187,8 @@ For Ollama, set `NANO_CLAUDE_PROVIDER=ollama`. Use `NANO_CLAUDE_API_KEY` as a fa
 | `todowrite` | Create and manage a structured task list for tracking multi-step progress (persisted to `~/.nano_claude/todos.json`) |
 | `question` | Ask the user for input to gather preferences, clarify ambiguous instructions, or get decisions |
 | `apply_patch` | Structured batch editing: add/update/delete multiple files in one call using unified diff format |
+| `skill` | Load a domain-specific skill into the conversation via project `SKILL.md` files |
+| `delegate` | Spawn sub-agents to work on independent tasks in parallel |
 
 ## Run Tests
 

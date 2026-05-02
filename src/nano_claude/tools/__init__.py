@@ -7,6 +7,7 @@ from nano_claude.tools.glob_ import GlobTool
 from nano_claude.tools.grep import GrepTool
 from nano_claude.tools.question import QuestionTool
 from nano_claude.tools.read import ReadTool
+from nano_claude.tools.skill import SkillTool
 from nano_claude.tools.todowrite import TodoWriteTool
 from nano_claude.tools.webfetch import WebFetchTool
 from nano_claude.tools.websearch import WebSearchTool
@@ -22,6 +23,7 @@ __all__ = [
     "GrepTool",
     "QuestionTool",
     "ReadTool",
+    "SkillTool",
     "TodoWriteTool",
     "WebFetchTool",
     "WebSearchTool",

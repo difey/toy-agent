@@ -1,0 +1,10 @@
+Load a domain-specific skill into the conversation. Skills provide specialized
+instructions and context for working in particular domains or frameworks.
+
+Use this tool when:
+1. You need domain-specific knowledge for the current task
+2. The task involves a framework, library, or domain you're not fully familiar with
+3. You want to load best practices and conventions for a specific domain
+4. The project has SKILL.md files that define relevant expertise areas
+
+The skill content is injected as XML so it's clearly scoped in the conversation.

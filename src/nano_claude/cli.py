@@ -21,11 +21,13 @@ from nano_claude.tools import (
     GrepTool,
     QuestionTool,
     ReadTool,
+    SkillTool,
     TodoWriteTool,
     WebFetchTool,
     WebSearchTool,
     WriteTool,
 )
+from nano_claude.tools.skill import SkillStore
 from nano_claude.ui import InteractiveUI
 
 console = Console()
@@ -46,6 +48,7 @@ def _build_registry() -> ToolRegistry:
     registry.register(TodoWriteTool())
     registry.register(QuestionTool())
     registry.register(ApplyPatchTool())
+    registry.register(SkillTool())
     return registry
 
 
@@ -111,9 +114,21 @@ def main(message: str | None, model: str | None, cwd: str | None, force_setup: b
     resolved_cwd = _ensure_cwd(cwd or os.getcwd())
 
     registry = _build_registry()
+
+    # Discover domain-specific skills from SKILL.md files
+    skill_store = SkillStore()
+    skill_store.discover([
+        resolved_cwd,
+        os.path.expanduser("~/.nano_claude/skills"),
+    ])
+    if skill_store.count > 0:
+        names = ", ".join(s.name for s in skill_store.list_all())
+        console.print(f"  📚 Discovered {skill_store.count} skills: {names}")
+
     agent = Agent(
         model=resolved_model,
         tools=registry,
+        skill_store=skill_store,
         api_key=config.api_key,
         base_url=config.base_url,
         permission_callback=None,  # Will be overridden in interactive mode

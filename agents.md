@@ -1,7 +1,7 @@
 # nanoClaude — Agent Context
 
 > Concise project overview for code agent context resets.
-> Last updated: 2026-04-30
+> Last updated: 2026-05-02
 
 nanoClaude is a Python CLI coding assistant. It accepts natural language tasks and uses an LLM with various tools to complete them autonomously.
 
@@ -26,7 +26,7 @@ src/nano_claude/
 ├── config.py    # Provider config detection (OpenAI/DeepSeek/Anthropic/Ollama)
 ├── setup.py     # First-run setup wizard
 ├── tool.py      # ToolRegistry, BaseTool, ToolContext, ToolExecResult
-└── tools/       # 12 tool implementations + .txt descriptions
+└── tools/       # 14 tool implementations + .txt descriptions
 ```
 
 ## Plan Mode & Build Mode
@@ -35,11 +35,11 @@ Two operational modes: **build** (default, all tools) and **plan** (restricted t
 
 → See [docs/architecture-overview.md](docs/architecture-overview.md)
 
-## Available Tools (12 total)
+## Available Tools (14 total)
 
-Tools: `bash`, `read`, `write`, `edit`, `glob`, `grep`, `webfetch`, `websearch`, `codesearch`, `todowrite`, `question`, `apply_patch`.
+Tools: `bash`, `read`, `write`, `edit`, `glob`, `grep`, `webfetch`, `websearch`, `codesearch`, `todowrite`, `question`, `apply_patch`, `skill`, `delegate`.
 
-Plan mode restricts to: `read`, `write`, `edit`, `glob`, `grep`, `question`, `todowrite`.
+Plan mode restricts to: `read`, `write`, `edit`, `glob`, `grep`, `question`, `todowrite`, `skill`.
 
 → See [docs/tool-system.md](docs/tool-system.md)
 
@@ -51,7 +51,7 @@ Sessions auto-save to `<cwd>/.session/<timestamp>.json`. Auto-compact at 100K to
 
 ## Web UI
 
-FastAPI server with SSE streaming. Session sidebar, waterfall chat, Markdown rendering, dark/light theme. Start with `nano-claude --web`.
+FastAPI server with SSE streaming. Session sidebar, waterfall chat, Markdown rendering, dark/light theme. Interactive question dialogs with queuing. File permission approval for out-of-cwd file access (Allow/Deny/Always Allow, 120s timeout). Start with `nano-claude --web`.
 
 → See [docs/web-ui.md](docs/web-ui.md)
 

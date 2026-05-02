@@ -4,7 +4,7 @@ import platform
 import textwrap
 from datetime import datetime
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from nano_claude.llm import LLMClient
 from nano_claude.message import (
@@ -91,7 +91,7 @@ Your goal is to produce a clear, structured requirements document (`.md` file in
 """)
 
 # Tools available in plan mode (only read/file tools + discussion tools)
-PLAN_MODE_TOOLS = {"read", "write", "edit", "glob", "grep", "question", "todowrite", "delegate"}
+PLAN_MODE_TOOLS = {"read", "write", "edit", "glob", "grep", "question", "todowrite", "delegate", "skill"}
 
 
 class Agent:
@@ -107,6 +107,7 @@ class Agent:
         on_tool_start: Callable | None = None,
         on_tool_end: Callable | None = None,
         on_event_callback: Callable | None = None,
+        skill_store: Any | None = None,
         mode: str = "build",
     ):
         self.llm = LLMClient(model=model, api_key=api_key, base_url=base_url)
@@ -119,6 +120,7 @@ class Agent:
         self.on_tool_start = on_tool_start
         self.on_tool_end = on_tool_end
         self.on_event_callback = on_event_callback
+        self.skill_store = skill_store
 
     def _get_mode_tools(self) -> ToolRegistry:
         if self.mode == "plan":
@@ -213,12 +215,17 @@ class Agent:
         year = datetime.now().year
         tools_prompt = self.tools.get_tools_prompt(year=year)
         template = PLAN_SYSTEM_PROMPT if self.mode == "plan" else SYSTEM_PROMPT
-        return template.format(
+        prompt = template.format(
             cwd=cwd,
             platform=platform.system(),
             date=datetime.now().strftime("%a %b %d %Y"),
             tools=tools_prompt,
         )
+        # Append skills section if any skills are available
+        if self.skill_store and self.skill_store.count > 0:
+            from nano_claude.tools.skill import build_skills_section
+            prompt += build_skills_section(self.skill_store.list_all())
+        return prompt
 
     def _get_or_create_session(self, session: Session | None, cwd: str) -> Session:
         system_prompt = self._build_system_prompt(cwd)
@@ -254,6 +261,7 @@ class Agent:
             mode=self.mode,
             parent_agent=self,
             on_event=self.on_event_callback,
+            skill_store=self.skill_store,
         )
         sess = self._get_or_create_session(session, ctx.cwd)
         await sess.add_user_message(user_message)
@@ -293,6 +301,7 @@ class Agent:
             mode=self.mode,
             parent_agent=self,
             on_event=self.on_event_callback,
+            skill_store=self.skill_store,
         )
         sess = self._get_or_create_session(session, ctx.cwd)
         await sess.add_user_message(user_message)
