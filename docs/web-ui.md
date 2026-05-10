@@ -21,6 +21,8 @@ Shared mutable state (`WebAppState` class) holds:
 - `session_file_ref` — current session file path (wrapped in list for mutability)
 - `_sse_queues` — dict of SSE event queues keyed by response_id
 - `_running_response_id` — currently active response ID
+- `_running` — boolean indicating a chat is currently in progress
+- `_running_task` — reference to the asyncio.Task for cancellation
 
 ### FastAPI Routes
 
@@ -37,6 +39,7 @@ Shared mutable state (`WebAppState` class) holds:
 | `DELETE` | `/api/sessions/{idx}` | Delete session |
 | `DELETE` | `/api/sessions` | Delete all non-current sessions |
 | `POST` | `/api/chat` | Send a message (returns response_id) |
+| `POST` | `/api/stop` | Request graceful stop of the current AI response |
 | `GET` | `/api/events` | SSE stream (consumes response_id) |
 | `GET` | `/api/current` | Get current session info + messages |
 | `POST` | `/api/vscode` | Open cwd in VS Code |
@@ -93,6 +96,7 @@ Single-page HTML application with:
 - **Send shortcut** — `⌘+Enter` (Mac) or `Ctrl+Enter` (Windows/Linux); plain `Enter` inserts a newline
 - **Dark/Light theme** — auto-detects system preference, toggle with ☀️/🌙 button
 - **Mode toggle** — plan/build mode switch button in header
+- **Stop button** — while AI is responding, the send button changes to a red stop button (⏹ 停止). Clicking it sends `POST /api/stop`, which cancels the background asyncio Task. The `CancelledError` is caught in `_execute_chat()`, a `done` event is pushed, and the session is saved — preserving all content (text + completed tool results) that was generated before cancellation.
 
 ## Session Persistence
 

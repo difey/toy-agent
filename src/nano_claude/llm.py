@@ -1,7 +1,8 @@
+import asyncio
 import json
 from typing import AsyncIterator
 
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, OpenAIError
 
 from nano_claude.message import (
     AssistantMessage,
@@ -33,9 +34,30 @@ class LLMClient:
         model: str = "gpt-4o",
         api_key: str | None = None,
         base_url: str | None = None,
+        timeout: float = 60.0,
+        max_retries: int = 2,
     ):
         self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
         self.model = model
+        self.timeout = timeout
+        self.max_retries = max_retries
+
+    async def _call_with_timeout_and_retry(self, coro_fn, *args, **kwargs):
+        last_exc = None
+        for attempt in range(1, self.max_retries + 2):
+            try:
+                return await asyncio.wait_for(coro_fn(*args, **kwargs), timeout=self.timeout)
+            except asyncio.TimeoutError as exc:
+                last_exc = exc
+                if attempt > self.max_retries:
+                    raise
+                await asyncio.sleep(1 * attempt)
+            except OpenAIError as exc:
+                last_exc = exc
+                if attempt > self.max_retries:
+                    raise
+                await asyncio.sleep(1 * attempt)
+        raise last_exc
 
     async def chat(
         self,
@@ -43,10 +65,11 @@ class LLMClient:
         tools: list[dict],
     ) -> AssistantMessage:
         formatted = self._format_messages(messages)
-        response = await self.client.chat.completions.create(
+        response = await self._call_with_timeout_and_retry(
+            self.client.chat.completions.create,
             model=self.model,
-            messages=formatted,
-            tools=tools,
+            messages=formatted, # type: ignore
+            tools=tools, # type: ignore
             tool_choice="auto",
             temperature=0.0,
         )
@@ -58,12 +81,20 @@ class LLMClient:
             tool_calls=[
                 ToolCall(
                     id=tc.id,
-                    name=tc.function.name,
-                    arguments=json.loads(tc.function.arguments),
+                    name=tc.function.name, # type: ignore
+                    arguments=json.loads(tc.function.arguments), # type: ignore
                 )
                 for tc in (choice.message.tool_calls or [])
             ],
         )
+
+    async def _aiter_with_timeout(self, stream):
+        while True:
+            try:
+                event = await asyncio.wait_for(stream.__anext__(), timeout=self.timeout)
+            except StopAsyncIteration:
+                return
+            yield event
 
     async def chat_stream(
         self,
@@ -71,16 +102,17 @@ class LLMClient:
         tools: list[dict],
     ) -> AsyncIterator[StreamChunk]:
         formatted = self._format_messages(messages)
-        stream = await self.client.chat.completions.create(
+        stream = await self._call_with_timeout_and_retry(
+            self.client.chat.completions.create,
             model=self.model,
-            messages=formatted,
-            tools=tools,
+            messages=formatted, # type: ignore
+            tools=tools, # type: ignore
             tool_choice="auto",
             temperature=0.0,
             stream=True,
             stream_options={"include_usage": False},
-        )
-        async for event in stream:
+        ) # type: ignore
+        async for event in self._aiter_with_timeout(stream):
             delta = event.choices[0].delta if event.choices else None
             if delta is None:
                 continue

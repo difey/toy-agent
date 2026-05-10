@@ -2,6 +2,7 @@ import asyncio
 import json
 import platform
 import textwrap
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
@@ -267,10 +268,14 @@ class Agent:
         await sess.add_user_message(user_message)
 
         while True:
+            print("\n[CHAT] Calling LLM...")
+            t0 = time.perf_counter()
             response = await self.llm.chat(
                 messages=sess.messages,
                 tools=self.tools.to_openai_tools(),
             )
+            duration = time.perf_counter() - t0
+            print(f"[CHAT] LLM response received in {duration:.2f}s")
 
             text_content = response.content or ""
             tool_calls = response.tool_calls or []
@@ -284,9 +289,15 @@ class Agent:
             )
 
             if not tool_calls:
+                print("[CHAT] No tool calls, returning response.")
                 return text_content
 
+            if tool_calls:
+                print(f"[CHAT] LLM returned {len(tool_calls)} tool call(s)")
+                for i, call in enumerate(tool_calls, 1):
+                    print(f"       [{i}] {call.name}({list(call.arguments.keys())})")
             await self._execute_tool_calls(tool_calls, ctx, sess)
+            print("[CHAT] Tool execution completed, continuing loop.")
 
     async def run_stream(
         self,
@@ -307,12 +318,16 @@ class Agent:
         await sess.add_user_message(user_message)
 
         while True:
+            print("\n[STREAM] Calling LLM with streaming...")
+            t0 = time.perf_counter()
             stream = self.llm.chat_stream(
                 messages=sess.messages,
                 tools=self.tools.to_openai_tools(),
             )
 
             text, reasoning, tool_calls = await self._build_tool_calls(stream)
+            duration = time.perf_counter() - t0
+            print(f"[STREAM] LLM response received in {duration:.2f}s")
 
             await sess.add_message(AssistantMessage(
                 content=text,
@@ -321,6 +336,12 @@ class Agent:
             ))
 
             if not tool_calls:
+                print("[STREAM] No tool calls, returning.")
                 return
 
+            if tool_calls:
+                print(f"[STREAM] LLM returned {len(tool_calls)} tool call(s)")
+                for i, call in enumerate(tool_calls, 1):
+                    print(f"        [{i}] {call.name}({list(call.arguments.keys())})")
             await self._execute_tool_calls(tool_calls, ctx, sess)
+            print("[STREAM] Tool execution completed, continuing loop.")

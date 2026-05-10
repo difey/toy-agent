@@ -63,6 +63,9 @@ class WebAppState:
         # SSE queues: keyed by response_id
         self._sse_queues: dict[str, asyncio.Queue] = {}
         self._running_response_id: str | None = None
+        # Running state for cancellation
+        self._running: bool = False
+        self._running_task: asyncio.Task | None = None
         # Pending permission state (for file access approval)
         self._pending_permission: dict | None = None  # {future, tool, target, resolved_path}
         # Pending question state (for question tool)
@@ -207,14 +210,20 @@ async def _sse_event_generator(response_id: str) -> AsyncGenerator[str, None]:
 
 async def _run_chat(message: str) -> str:
     """Schedule the agent to run in background. Returns the response_id immediately."""
+    if _state._running:
+        raise HTTPException(status_code=409, detail="已有正在运行的回复，请先停止当前回复")
+
     agent = _state.agent
     session = _state.session
+
+    _state._running = True
 
     response_id = f"chat_{id(session)}_{len(session.messages)}_{id(message)}"
     _state.create_sse_queue(response_id)
 
     # Run the agent in a background task so the response_id is returned immediately
-    asyncio.ensure_future(_execute_chat(message, response_id))
+    task = asyncio.ensure_future(_execute_chat(message, response_id))
+    _state._running_task = task
     return response_id
 
 
@@ -355,6 +364,8 @@ async def _execute_chat(message: str, response_id: str) -> None:
         agent.ask_user_callback = original_ask_user
         agent.on_event_callback = original_on_event
         save_current(session, _state.session_file_ref[0])
+        _state._running = False
+        _state._running_task = None
 
 
 # ── API Routes ──────────────────────────────────────────────────────────
@@ -517,6 +528,15 @@ async def api_chat(req: ChatRequest):
 
     response_id = await _run_chat(message)
     return {"response_id": response_id}
+
+
+@app.post("/api/stop")
+async def api_stop():
+    """Cancel the current AI response task."""
+    if not _state._running or _state._running_task is None:
+        return {"ok": True, "already_stopped": True}
+    _state._running_task.cancel()
+    return {"ok": True}
 
 
 @app.post("/api/question-answer")

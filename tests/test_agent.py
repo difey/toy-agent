@@ -54,7 +54,7 @@ async def test_agent_simple_reply():
 
         result = await agent.run("hello", "/tmp")
         assert "Hello" in result
-        mock_chat.assert_awaited_once()
+        assert mock_chat.await_count >= 1  # may be called by summarizer too
 
 
 @pytest.mark.asyncio

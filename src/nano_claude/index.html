@@ -220,6 +220,11 @@
   #send-btn:active { transform: scale(0.97); }
   #send-btn:disabled { opacity: 0.35; cursor: not-allowed; background: var(--bg3);
     transform: none; }
+  #stop-btn { padding: 10px 28px; background: var(--danger); border: none;
+    border-radius: var(--radius-sm); color: #fff; font-size: 15px; font-weight: 600;
+    cursor: pointer; transition: all 0.15s; letter-spacing: 0.3px;
+    display: inline-flex; align-items: center; gap: 6px; }
+  #stop-btn:hover { background: var(--danger-hover); transform: scale(1.03); }
   #review-plan-btn { padding: 5px 14px; background: var(--bg3);
     border: 1px solid var(--border); border-radius: 16px;
     color: var(--text); cursor: pointer; font-size: 12px; font-weight: 500;
@@ -522,7 +527,8 @@
             :disabled="isStreaming || !hasPlanDoc"
             title="Open the latest plan document in a new tab">📋 Review Plan Doc</button>
         </div>
-        <button id="send-btn" @click="sendMessage" :disabled="isStreaming || !inputText.trim()">发送</button>
+        <button id="send-btn" v-if="!isStreaming" @click="sendMessage" :disabled="!inputText.trim()">发送</button>
+        <button id="stop-btn" v-else @click="stopResponse">⏹ 停止</button>
       </div>
   <!-- Permission dialog overlay (higher z-index than question) -->
   <div id="permission-overlay" v-if="activePermission" @click.self>
@@ -1165,6 +1171,25 @@ createApp({
       }
     }
 
+    // ── Stop response ──────────────────────────────
+    async function stopResponse() {
+      try {
+        await fetch('/api/stop', { method: 'POST' });
+      } catch (e) {
+        console.error('Stop request failed:', e);
+      }
+      if (eventSource.value) {
+        eventSource.value.close();
+        eventSource.value = null;
+      }
+      isStreaming.value = false;
+      const last = messages.value[messages.value.length - 1];
+      if (last && last.role === 'assistant' && last.type === 'text' && !last.content.trim()) {
+        messages.value.pop();
+      }
+      scrollBottom();
+    }
+
     // ── Input handling ───────────────────────────────
     function handleKeydown(e) {
       // Cmd+Enter or Ctrl+Enter to send
@@ -1326,7 +1351,7 @@ createApp({
       activePermission, permissionQueue,
       permissionDeny, permissionAllow, permissionAlwaysAllow, isInputDisabled,
       showToast, truncate, renderMarkdown,
-      openVSCode, newSession, switchSession, deleteSession, sendMessage, handleKeydown,
+      openVSCode, newSession, switchSession, deleteSession, sendMessage, stopResponse, handleKeydown,
       toggleMode, checkPlanDoc, openPlanDoc, JSON,
       activeQuestion, questionQueue, questionAnswers, customAnswer, customInputRef,
       toggleQuestionOption, selectCustomOption, submitQuestion, cancelQuestion,
