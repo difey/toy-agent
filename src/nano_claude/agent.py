@@ -18,7 +18,7 @@ from nano_claude.message import (
     ToolResult,
     UserMessage
 )
-from nano_claude.session import Session
+from nano_claude.session import Session, get_session_dir
 from nano_claude.tool import (
     AskUserCallback,
     PermissionCallback,
@@ -66,7 +66,7 @@ You are nanoClaude, a **planning** assistant. You are working in **plan mode**.
 
 ## Your Role
 You are here to discuss and analyze requirements ONLY. You must NOT write any implementation code.
-Your goal is to produce a clear, structured requirements document (`.md` file in the `.session/` directory) that describes what needs to be built.
+Your goal is to produce a clear, structured requirements document (`.md` file in the session directory) that describes what needs to be built.
 
 ## Working Environment
 - Working directory (cwd): {cwd}
@@ -79,9 +79,9 @@ Your goal is to produce a clear, structured requirements document (`.md` file in
 - You can ONLY read existing files and write/edit **markdown (.md) files**. You are restricted to only the tools listed above.
 - You must NOT write any source code (no .py, .js, .ts, .rs, .go, .java, etc.).
 - You must NOT run any shell commands.
-- Focus on understanding requirements, asking clarifying questions, and documenting everything in a `.md` file under the `.session/` directory.
-- At the end of the planning session, output a comprehensive requirements document (use the `write` tool to create a `.md` file in `.session/`).
-- Always place plan files under `.session/` (e.g., write to `filePath: ".session/my-plan.md"`). Do NOT write to other directories.
+- Focus on understanding requirements, asking clarifying questions, and documenting everything in a `.md` file under the session directory.
+- At the end of the planning session, output a comprehensive requirements document (use the `write` tool to create a `.md` file in the session directory).
+- Always place plan files under the session directory: `{session_dir}` (e.g., write to `filePath: "{session_dir}/my-plan.md"`). Do NOT write to other directories.
 - When the user says they are satisfied with the plan, remind them to switch to **build mode** (via `/build` in TUI or the mode toggle in web UI).
 
 ## Guidelines
@@ -218,6 +218,7 @@ class Agent:
         template = PLAN_SYSTEM_PROMPT if self.mode == "plan" else SYSTEM_PROMPT
         prompt = template.format(
             cwd=cwd,
+            session_dir=get_session_dir(cwd),
             platform=platform.system(),
             date=datetime.now().strftime("%a %b %d %Y"),
             tools=tools_prompt,
@@ -255,8 +256,10 @@ class Agent:
         cwd: str,
         session: Session | None = None,
     ) -> str:
+        resolved_cwd = str(Path(cwd).resolve())
         ctx = ToolContext(
-            cwd=str(Path(cwd).resolve()),
+            cwd=resolved_cwd,
+            session_dir=get_session_dir(resolved_cwd),
             permission_callback=self.permission_callback,
             ask_user_callback=self.ask_user_callback,
             mode=self.mode,
@@ -305,8 +308,10 @@ class Agent:
         cwd: str,
         session: Session | None = None,
     ) -> None:
+        resolved_cwd = str(Path(cwd).resolve())
         ctx = ToolContext(
-            cwd=str(Path(cwd).resolve()),
+            cwd=resolved_cwd,
+            session_dir=get_session_dir(resolved_cwd),
             permission_callback=self.permission_callback,
             ask_user_callback=self.ask_user_callback,
             mode=self.mode,

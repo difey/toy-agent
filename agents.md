@@ -45,7 +45,7 @@ Plan mode restricts to: `read`, `write`, `edit`, `glob`, `grep`, `question`, `to
 
 ## Session System
 
-Sessions auto-save to `<cwd>/.session/<timestamp>.json`. Auto-compact at 100K tokens (summarize or drop oldest turn). Auto-resume most recent session on startup.
+Sessions auto-save to `~/.nano_claude/sessions/<hash>/<timestamp>.json` (indexed by cwd). Auto-compact at 100K tokens (summarize or drop oldest turn). Auto-resume most recent session on startup.
 
 → See [docs/session-system.md](docs/session-system.md)
 

@@ -24,6 +24,7 @@ AskUserCallback = Callable[[str, str, list[dict], bool], Awaitable[list[str]]]
 @dataclass
 class ToolContext:
     cwd: str
+    session_dir: str = ""
     allowed_files: set = field(default_factory=set)
     permission_callback: PermissionCallback | None = None
     ask_user_callback: AskUserCallback | None = None
@@ -150,6 +151,10 @@ async def check_file_permission(
     resolved_path = resolve_safe_path(file_path, ctx)
 
     if _is_within_cwd(resolved_path, resolved_cwd):
+        return True, ""
+
+    # Always allow access to the session directory (home dir storage)
+    if ctx.session_dir and _is_within_cwd(resolved_path, ctx.session_dir):
         return True, ""
 
     if resolved_path in ctx.allowed_files:

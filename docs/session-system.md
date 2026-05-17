@@ -1,7 +1,7 @@
 # Session System
 
 > Session management, message history, token accounting, and persistence.
-> Last updated: 2026-04-30
+> Last updated: 2026-05-17
 
 ## Overview
 
@@ -55,17 +55,33 @@ The compaction loop runs until tokens are under the limit or only one turn remai
 
 ## Persistence
 
+Sessions are stored in `~/.nano_claude/sessions/` (user home directory, alongside `config.toml`).
+
+### Index File
+
+An index file (`~/.nano_claude/sessions/index.json`) maps resolved cwd paths to stable hash-based folder names:
+
+```json
+{
+  "/Users/me/project-a": "a1b2c3d4e5f6g7h8",
+  "/Users/me/project-b": "i9j0k1l2m3n4o5p6"
+}
+```
+
+Each session file lives at `~/.nano_claude/sessions/<hash>/<timestamp>.json`. Plan `.md` files also reside in the same directory.
+
 ### Session Path
 
 ```python
 def session_path(cwd: str) -> str:
     ts = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
-    return os.path.join(cwd, ".session", f"{ts}.json")
+    session_dir = _ensure_session_dir(cwd)
+    return os.path.join(session_dir, f"{ts}.json")
 ```
 
 ### Auto-Save
 
-Session is saved to `<cwd>/.session/<timestamp>.json`:
+Session is saved to `~/.nano_claude/sessions/<hash>/<timestamp>.json`:
 - On program exit (`cli.py` finally block)
 - On `/sessions new` command
 - On switching to another session (`/sessions <n>`)
@@ -83,7 +99,11 @@ if existing:
     session_file = last_path  # reuse same file path
 ```
 
-This prevents `.session/` from accumulating files across restarts. Only explicit `/sessions new` creates a new file.
+This prevents the sessions directory from accumulating files across restarts. Only explicit `/sessions new` creates a new file.
+
+### Migration
+
+On first run after upgrading, old `<cwd>/.session/` files are automatically migrated to the new home-directory location via `migrate_old_sessions()`.
 
 ### Save Guard
 
@@ -113,10 +133,12 @@ def save_current(session, filepath):
 
 | Function | Description |
 |----------|-------------|
-| `session_path(cwd)` | Generate timestamped file path |
-| `list_sessions(cwd)` | List all `.json` files in `.session/` (sorted) |
+| `session_path(cwd)` | Generate timestamped file path in `~/.nano_claude/sessions/<hash>/` |
+| `list_sessions(cwd)` | List all `.json` files in the session directory (sorted) |
+| `get_session_dir(cwd)` | Return the session directory path for a given cwd (for plan files, etc.) |
 | `session_info(filepath)` | Get session metadata (title, message count, tokens) |
 | `save_current(session, filepath)` | Save if session has messages |
+| `migrate_old_sessions(cwd)` | Migrate files from `<cwd>/.session/` to home-directory storage |
 
 ## Commands
 

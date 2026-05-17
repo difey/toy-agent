@@ -8,7 +8,7 @@ from rich.console import Console
 
 from nano_claude.agent import Agent
 from nano_claude.config import resolve_config
-from nano_claude.session import Session, list_sessions, save_current, session_path
+from nano_claude.session import Session, list_sessions, migrate_old_sessions, save_current, session_path
 from nano_claude.setup import has_user_config, run_wizard
 from nano_claude.tool import ToolRegistry
 from nano_claude.tools import (
@@ -96,7 +96,7 @@ def main(message: str | None, model: str | None, cwd: str | None, force_setup: b
 
     Run without MESSAGE to enter interactive multi-turn mode.
 
-    Session files are auto-saved to <cwd>/.session/<timestamp>.json.
+    Session files are auto-saved to ~/.nano_claude/sessions/<hash>/<timestamp>.json.
     Configuration is stored at ~/.nano_claude/config.toml.
     """
 
@@ -112,6 +112,11 @@ def main(message: str | None, model: str | None, cwd: str | None, force_setup: b
 
     resolved_model = config.default_model
     resolved_cwd = _ensure_cwd(cwd or os.getcwd())
+
+    # Migrate old .session/ files to new home-directory storage
+    migrated = migrate_old_sessions(resolved_cwd)
+    if migrated:
+        console.print(f"  📦 Migrated {migrated} session(s) from .session/ to ~/.nano_claude/sessions/")
 
     registry = _build_registry()
 

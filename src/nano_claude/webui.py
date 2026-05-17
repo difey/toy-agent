@@ -13,7 +13,7 @@ from fastapi.responses import StreamingResponse, HTMLResponse
 from pydantic import BaseModel
 
 from nano_claude.agent import Agent
-from nano_claude.session import Session, list_sessions, save_current, session_info, session_path
+from nano_claude.session import Session, get_session_dir, list_sessions, save_current, session_info, session_path
 from nano_claude.message import ToolCall, UserMessage
 
 
@@ -496,7 +496,7 @@ async def api_plan_doc():
     from pathlib import Path
     import os
     cwd = _state.cwd
-    session_dir = Path(cwd) / ".session"
+    session_dir = Path(get_session_dir(cwd))
     if not session_dir.is_dir():
         return {"exists": False, "filename": None, "content": None, "modified": None}
     md_files = sorted(session_dir.glob("*.md"), key=lambda f: os.path.getmtime(f))
@@ -634,10 +634,10 @@ def _get_plan_view_html() -> str:
 
 
 def _resolve_latest_plan(cwd: str) -> None:
-    """Rename the latest .md file in .session/ to .md.resolved."""
+    """Rename the latest .md file in the session directory to .md.resolved."""
     from pathlib import Path
     import os
-    session_dir = Path(cwd) / ".session"
+    session_dir = Path(get_session_dir(cwd))
     if not session_dir.is_dir():
         return
     md_files = sorted(session_dir.glob("*.md"), key=lambda f: os.path.getmtime(f))

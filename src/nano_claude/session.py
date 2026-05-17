@@ -1,6 +1,8 @@
 import glob
+import hashlib
 import json
 import os
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Awaitable, Callable
@@ -260,16 +262,83 @@ def _deserialize_message(item: dict) -> Message:
     raise TypeError(f"Unknown message type: {msg_type}")
 
 
+SESSION_DIR = os.path.join(os.path.expanduser("~"), ".nano_claude", "sessions")
+INDEX_FILE = os.path.join(SESSION_DIR, "index.json")
+
+
+def _cwd_hash(cwd: str) -> str:
+    return hashlib.sha256(cwd.encode()).hexdigest()[:16]
+
+
+def _load_index() -> dict[str, str]:
+    if os.path.exists(INDEX_FILE):
+        try:
+            return json.loads(Path(INDEX_FILE).read_text())
+        except (json.JSONDecodeError, OSError):
+            return {}
+    return {}
+
+
+def _save_index(index: dict[str, str]) -> None:
+    os.makedirs(SESSION_DIR, exist_ok=True)
+    Path(INDEX_FILE).write_text(json.dumps(index, indent=2, ensure_ascii=False))
+
+
+def _ensure_session_dir(cwd: str) -> str:
+    """Get or create the session directory for a given cwd.
+
+    Uses an index file (~/.nano_claude/sessions/index.json) to map
+    resolved cwd paths to stable hash-based folder names.
+    """
+    resolved_cwd = str(Path(cwd).resolve())
+    index = _load_index()
+    if resolved_cwd in index:
+        h = index[resolved_cwd]
+    else:
+        h = _cwd_hash(resolved_cwd)
+        index[resolved_cwd] = h
+        _save_index(index)
+    dir_path = os.path.join(SESSION_DIR, h)
+    os.makedirs(dir_path, exist_ok=True)
+    return dir_path
+
+
 def session_path(cwd: str) -> str:
     ts = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
-    directory = os.path.join(cwd, ".session")
-    os.makedirs(directory, exist_ok=True)
-    return os.path.join(directory, f"{ts}.json")
+    session_dir = _ensure_session_dir(cwd)
+    return os.path.join(session_dir, f"{ts}.json")
 
 
 def list_sessions(cwd: str) -> list[str]:
-    pattern = os.path.join(cwd, ".session", "*.json")
+    session_dir = _ensure_session_dir(cwd)
+    pattern = os.path.join(session_dir, "*.json")
     return sorted(glob.glob(pattern))
+
+
+def get_session_dir(cwd: str) -> str:
+    """Return the session directory path for a given cwd (for plan files, etc.)."""
+    return _ensure_session_dir(cwd)
+
+
+def migrate_old_sessions(cwd: str) -> int:
+    """Migrate session files from <cwd>/.session/ to the new home-directory location.
+
+    Returns the number of files migrated.
+    """
+    old_dir = os.path.join(cwd, ".session")
+    if not os.path.isdir(old_dir):
+        return 0
+    old_files = sorted(glob.glob(os.path.join(old_dir, "*.json")))
+    if not old_files:
+        return 0
+    new_dir = _ensure_session_dir(cwd)
+    count = 0
+    for f in old_files:
+        new_path = os.path.join(new_dir, os.path.basename(f))
+        if not os.path.exists(new_path):
+            shutil.copy2(f, new_path)
+            count += 1
+    return count
 
 
 def session_info(filepath: str) -> dict:
