@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from nano_claude.agent import Agent
 from nano_claude.session import Session, get_session_dir, list_sessions, save_current, session_info, session_path
 from nano_claude.message import ToolCall, UserMessage
+from nano_claude.setup import has_user_config, save_user_config, load_user_config
 
 
 # ── Pydantic models ──────────────────────────────────────────────────────
@@ -140,6 +141,7 @@ class WebAppState:
         info["index"] = self._get_current_idx() or 1
         info["messages"] = _serialize_messages_for_api(self.session.messages)
         info["mode"] = self.agent.mode if self.agent else "build"
+        info["setup_needed"] = self.agent is None
         return info
 
     # ── SSE helpers ─────────────────────────────────────────────────────
@@ -370,10 +372,23 @@ async def _execute_chat(message: str, response_id: str) -> None:
 
 # ── API Routes ──────────────────────────────────────────────────────────
 
+def _needs_setup() -> bool:
+    """Check if the user has a saved config file (~/.nano_claude/config.toml)."""
+    return not has_user_config()
+
+
 @app.get("/")
 async def index() -> HTMLResponse:
-    """Serve the single-page app."""
+    """Serve the single-page app. Redirect to setup if not configured."""
+    if _needs_setup():
+        return HTMLResponse(content=_get_setup_html())
     return HTMLResponse(content=_get_index_html())
+
+
+@app.get("/setup")
+async def setup_page() -> HTMLResponse:
+    """Serve the setup wizard page."""
+    return HTMLResponse(content=_get_setup_html())
 
 
 @app.get("/plan-view")
@@ -397,6 +412,8 @@ async def api_set_mode(body: dict):
     mode = body.get("mode", "build")
     if mode not in ("plan", "build"):
         raise HTTPException(status_code=400, detail="Mode must be 'plan' or 'build'")
+    if _state.agent is None:
+        raise HTTPException(status_code=400, detail="请先完成配置")
     if _state.agent and _state.session:
         # When switching from build → plan, mark the latest plan as resolved
         if mode == "plan" and _state.agent.mode == "build":
@@ -517,8 +534,108 @@ async def api_current():
     return _state.current_info()
 
 
+# ── Setup routes ────────────────────────────────────────────────────────
+
+@app.get("/api/setup-status")
+async def api_setup_status():
+    """Check if the user has saved config (~/.nano_claude/config.toml)."""
+    configured = has_user_config()
+    model = None
+    if configured:
+        cfg = load_user_config()
+        if cfg:
+            model = cfg.get("model")
+    return {
+        "configured": configured,
+        "model": model,
+    }
+
+
+class SetupRequest(BaseModel):
+    model: str
+    api_key: str | None = None
+
+
+@app.post("/api/setup")
+async def api_setup(body: SetupRequest):
+    """Save user configuration from the web setup wizard."""
+    import os
+    model = body.model.strip()
+    if not model:
+        raise HTTPException(status_code=400, detail="模型名称不能为空")
+
+    api_key = body.api_key
+    if api_key is None:
+        # Try to find an existing API key from env vars
+        for env_var in ("DEEPSEEK_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "NANO_CLAUDE_API_KEY"):
+            val = os.environ.get(env_var)
+            if val:
+                api_key = val
+                break
+
+    if not api_key:
+        raise HTTPException(status_code=400, detail="API Key 不能为空，请在表单中输入或设置环境变量")
+
+    try:
+        save_user_config(model, api_key)
+
+        # Create or update the agent with the new config
+        from nano_claude.config import resolve_config
+        from nano_claude.tool import ToolRegistry
+        from nano_claude.tools import (
+            ApplyPatchTool, BashTool, CodeSearchTool, DelegateTool,
+            EditTool, GlobTool, GrepTool, QuestionTool,
+            ReadTool, SkillTool, TodoWriteTool,
+            WebFetchTool, WebSearchTool, WriteTool,
+        )
+        from nano_claude.tools.skill import SkillStore
+
+        cfg = resolve_config(model)
+
+        if _state.agent is None:
+            # Create a brand new agent
+            registry = ToolRegistry()
+            for tool_cls in (BashTool, ReadTool, WriteTool, EditTool, GlobTool, GrepTool,
+                             WebFetchTool, WebSearchTool, CodeSearchTool, DelegateTool,
+                             TodoWriteTool, QuestionTool, ApplyPatchTool, SkillTool):
+                registry.register(tool_cls())
+            skill_store = SkillStore()
+            skill_store.discover([
+                _state.cwd,
+                os.path.expanduser("~/.nano_claude/skills"),
+            ])
+
+            _state.agent = Agent(
+                model=model,
+                tools=registry,
+                skill_store=skill_store,
+                api_key=cfg.api_key,
+                base_url=cfg.base_url,
+            )
+            # Re-initialize the session
+            _state.session.messages.clear()
+            _state.session.title = ""
+        else:
+            # Update existing agent
+            _state.agent.model = model
+            if cfg.api_key:
+                _state.agent.api_key = cfg.api_key
+            if cfg.base_url:
+                _state.agent.base_url = cfg.base_url
+            _state.agent._client = None  # Force re-create LLM client
+
+        return {"ok": True, "model": model}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"保存配置失败: {e}")
+
+
 @app.post("/api/chat")
 async def api_chat(req: ChatRequest):
+    if _state.agent is None:
+        raise HTTPException(status_code=400, detail="请先完成配置（模型和 API Key）后再开始对话")
+
     message = req.message.strip()
     if not message:
         raise HTTPException(status_code=400, detail="Message is required")
@@ -627,6 +744,12 @@ def _get_index_html() -> str:
     return (files("nano_claude") / "index.html").read_text(encoding="utf-8")
 
 
+def _get_setup_html() -> str:
+    """Read the setup.html bundled with the package."""
+    from importlib.resources import files
+    return (files("nano_claude") / "setup.html").read_text(encoding="utf-8")
+
+
 def _get_plan_view_html() -> str:
     """Read the plan-view.html bundled with the package."""
     from importlib.resources import files
@@ -652,7 +775,7 @@ def _resolve_latest_plan(cwd: str) -> None:
 # ── Server startup ──────────────────────────────────────────────────────
 
 def start_web_ui(
-    agent: Agent,
+    agent: Agent | None,
     cwd: str,
     session: Session,
     session_file: str,
@@ -670,7 +793,10 @@ def start_web_ui(
     import webbrowser
 
     url = f"http://{host}:{port}"
-    print(f"\n  🌐 Web UI started at {url}")
+    if agent:
+        print(f"\n  🌐 Web UI started at {url}")
+    else:
+        print(f"\n  🌐 Web UI started at {url} (setup mode — configure via browser)")
     if open_browser:
         webbrowser.open(url)
     print(f"  Press Ctrl+C to stop.\n")

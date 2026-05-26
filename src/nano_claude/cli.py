@@ -64,7 +64,7 @@ def _run_interactive(agent: Agent, cwd: str, session: Session, session_file_ref:
     ui.run()
 
 
-def _run_web(agent: Agent, cwd: str, session: Session, session_file: str, port: int) -> None:
+def _run_web(agent: Agent | None, cwd: str, session: Session, session_file: str, port: int) -> None:
     """Run the web UI server using FastAPI + Uvicorn."""
     from nano_claude.webui import start_web_ui
 
@@ -101,10 +101,14 @@ def main(message: str | None, model: str | None, cwd: str | None, force_setup: b
     """
 
     if force_setup or not has_user_config():
-        run_wizard(console)
+        if web_mode:
+            # In web mode, skip CLI wizard — the web UI handles setup
+            pass
+        else:
+            run_wizard(console)
 
     config = resolve_config(model)
-    if not config.api_key:
+    if not config.api_key and not web_mode:
         console.print(f"[bold red]Error:[/bold red] No API key found for provider '{config.name}'.")
         console.print(f"  Set {config.name.upper()}_API_KEY or NANO_CLAUDE_API_KEY environment variable,")
         console.print(f"  or run `nano-claude --setup` to configure.")
@@ -130,19 +134,23 @@ def main(message: str | None, model: str | None, cwd: str | None, force_setup: b
         names = ", ".join(s.name for s in skill_store.list_all())
         console.print(f"  📚 Discovered {skill_store.count} skills: {names}")
 
-    agent = Agent(
-        model=resolved_model,
-        tools=registry,
-        skill_store=skill_store,
-        api_key=config.api_key,
-        base_url=config.base_url,
-        permission_callback=None,  # Will be overridden in interactive mode
-        ask_user_callback=None,     # Will be overridden in interactive mode
-        on_text_delta=None,         # Will be overridden in interactive mode
-        on_tool_start=None,
-        on_tool_end=None,           # Will be overridden in interactive mode
-        mode="plan" if plan_mode else "build",
-    )
+    if web_mode and not config.api_key:
+        # Web mode without API key: start server in setup-only mode
+        agent = None
+    else:
+        agent = Agent(
+            model=resolved_model,
+            tools=registry,
+            skill_store=skill_store,
+            api_key=config.api_key,
+            base_url=config.base_url,
+            permission_callback=None,  # Will be overridden in interactive mode
+            ask_user_callback=None,     # Will be overridden in interactive mode
+            on_text_delta=None,         # Will be overridden in interactive mode
+            on_tool_start=None,
+            on_tool_end=None,           # Will be overridden in interactive mode
+            mode="plan" if plan_mode else "build",
+        )
 
     # 启动时自动接续最近一次的 session，避免每次启动都产生新文件
     existing = list_sessions(resolved_cwd)
