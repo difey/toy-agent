@@ -5,6 +5,12 @@ import shlex
 from typing import Optional
 
 from nano_claude.tool import Tool, ToolContext, ToolExecResult, resolve_safe_path
+from nano_claude.tools.bash_review import (
+    BashReviewResult,
+    detect_external_dir_operation,
+    is_harmless_command,
+    run_bash_review,
+)
 
 
 DANGEROUS_PATTERNS = [
@@ -66,6 +72,9 @@ HEAVY_DIRS_TO_EXCLUDE = [
     ".ipynb_checkpoints",
 ]
 
+# Timeout for sub-agent semantic review of bash commands (seconds)
+REVIEW_TIMEOUT = 15
+
 # Shorter timeout for file-search-type commands (seconds)
 SEARCH_COMMAND_TIMEOUT = 30
 
@@ -123,6 +132,34 @@ class BashTool(Tool):
                     output=f"Blocked by user: {danger_reason}",
                     title="bash [denied]",
                 )
+
+        # --- Layer 2: Sub-agent semantic review ---
+        review_result = await self._run_review(command, workdir, ctx.cwd, desc, ctx)
+        if review_result is not None and review_result.verdict != "safe":
+            reason = self._format_review_reason(review_result)
+            if ctx.permission_callback:
+                permission = await ctx.permission_callback(
+                    "bash_review", command, reason
+                )
+                if permission == "deny":
+                    return ToolExecResult(
+                        output=(
+                            f"Blocked by security review: {review_result.summary}\n"
+                            f"Risk: {review_result.risk_description}"
+                        ),
+                        title="bash [denied by review]",
+                    )
+            else:
+                # No permission callback — rely on review verdict directly
+                if review_result.verdict == "dangerous":
+                    return ToolExecResult(
+                        output=(
+                            f"Blocked by security review: {review_result.summary}\n"
+                            f"Risk: {review_result.risk_description}"
+                        ),
+                        title="bash [blocked by review]",
+                    )
+                # suspicious without callback → still execute, just show warning
 
         if not os.path.isdir(workdir):
             return ToolExecResult(
@@ -208,8 +245,80 @@ class BashTool(Tool):
             tokens = command.split()
         if tokens and tokens[0] in interactive_commands:
             return f"interactive command: {tokens[0]}"
-
         return ""
+
+    def _needs_review(self, command: str, workdir: str, cwd: str) -> bool:
+        """Determine whether this command should undergo sub-agent review.
+
+        Review is needed when:
+        - The command operates on a directory outside ``cwd`` (always review)
+        - The command is not trivially harmless
+        """
+        # Trivially harmless commands (ls, echo, pwd, etc.) — skip review
+        if is_harmless_command(command):
+            return False
+        # Commands targeting external directories — always review
+        if detect_external_dir_operation(command, cwd, workdir):
+            return True
+        # All remaining commands get reviewed
+        return True
+
+    async def _run_review(
+        self, command: str, workdir: str, cwd: str,
+        desc: str, ctx: ToolContext,
+    ) -> BashReviewResult | None:
+        """Run the sub-agent semantic review if the command needs it.
+
+        Returns ``None`` if no review is needed, otherwise a
+        ``BashReviewResult`` (which may indicate a safe/acceptable command
+        even after review).
+        """
+        if not self._needs_review(command, workdir, cwd):
+            return None
+
+        # Need access to an LLM client for the review sub-agent
+        parent = ctx.parent_agent
+        if parent is None or not hasattr(parent, "llm") or parent.llm is None:
+            # No LLM available — can't review.  Fall through to execute.
+            # In a headless / non-interactive scenario this is acceptable.
+            return None
+
+        llm = parent.llm
+        try:
+            result = await asyncio.wait_for(
+                run_bash_review(command, workdir, cwd, desc, llm),
+                timeout=REVIEW_TIMEOUT,
+            )
+            return result
+        except asyncio.TimeoutError:
+            return BashReviewResult(
+                verdict="suspicious",
+                summary="Review timed out",
+                risk_description=(
+                    f"The review sub-agent did not respond within "
+                    f"{REVIEW_TIMEOUT}s. The command may or may not be safe."
+                ),
+                affected_paths=[],
+                recommendation="Review the command manually before proceeding.",
+            )
+
+    def _format_review_reason(self, result: BashReviewResult) -> str:
+        """Format a review result into a human-readable reason string
+        that will be displayed to the user via the permission callback.
+        """
+        parts = [
+            f"[{result.verdict.upper()}] {result.summary}",
+        ]
+        if result.risk_description:
+            parts.append(result.risk_description)
+        if result.affected_paths:
+            paths = ", ".join(result.affected_paths[:8])
+            if len(result.affected_paths) > 8:
+                paths += f" (+{len(result.affected_paths) - 8} more)"
+            parts.append(f"Affected paths: {paths}")
+        if result.recommendation:
+            parts.append(f"Recommendation: {result.recommendation}")
+        return " | ".join(parts)
 
     def _detect_search_command(self, command: str) -> tuple[str, Optional[int]]:
         """Detect if the command is a file-search type command.
