@@ -7,7 +7,7 @@ from nano_claude.tool import (
     check_file_permission,
     resolve_safe_path,
 )
-
+from nano_claude.session import get_session_dir
 
 class WriteTool(Tool):
     @property
@@ -46,9 +46,9 @@ class WriteTool(Tool):
         # Resolve path with hallucination correction
         resolved_path = resolve_safe_path(file_path, ctx)
 
-        # In plan mode, only allow writing .md files under .session/
+        # In plan mode, only allow writing .md files under session directory
         if ctx.mode == "plan":
-            session_dir = os.path.join(ctx.cwd, ".session")
+            session_dir = get_session_dir(ctx.cwd)
             resolved_lower = resolved_path.lower()
             if not resolved_lower.endswith(".md"):
                 return ToolExecResult(
@@ -58,7 +58,7 @@ class WriteTool(Tool):
             if not resolved_path.startswith(session_dir):
                 return ToolExecResult(
                     output=(
-                        f"Plan mode: .md files can only be written to the .session/ directory. "
+                        f"Plan mode: .md files can only be written to the session directory. "
                         f"Refused to write '{resolved_path}'. "
                         f"Please use a path under '{session_dir}/'."
                     ),
