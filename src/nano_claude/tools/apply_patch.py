@@ -9,7 +9,7 @@ from nano_claude.tool import Tool, ToolContext, ToolExecResult
 class Hunk:
     type: str          # "add" | "update" | "delete"
     path: str          # file path
-    contents: str      # content for "add"
+    contents: str      # content for "add", or old content for "update"
     chunks: str = ""   # diff chunks for "update"
     move_path: str = ""  # optional rename target for "update"
 
@@ -245,62 +245,113 @@ class ApplyPatchTool(Tool):
         summary = []
         errors = []
 
+        # Pre-pass: validate and read files before applying any changes
         for hunk in hunks:
             resolved_path = _resolve_patch_path(hunk.path, ctx.cwd)
 
             if hunk.type == "add":
+                allowed, reason = ctx.file_read_registry.check_modification_allowed(resolved_path)
+                if not allowed:
+                    errors.append(f"Failed to create {hunk.path}: {reason}")
+
+            elif hunk.type == "delete":
+                allowed, reason = ctx.file_read_registry.check_modification_allowed(resolved_path)
+                if not allowed:
+                    errors.append(f"Failed to delete {hunk.path}: {reason}")
+
+            elif hunk.type == "update":
+                if not os.path.exists(resolved_path):
+                    errors.append(f"File not found: {hunk.path}")
+                else:
+                    try:
+                        # Check staleness before recording internal read
+                        stale_msg = ctx.file_read_registry.get_stale_check_message(resolved_path)
+                        if stale_msg:
+                            errors.append(f"Failed to update {hunk.path}: {stale_msg}")
+                            continue
+                        with open(resolved_path, "r", encoding="utf-8") as f:
+                            hunk.contents = f.read()
+                        mtime = os.path.getmtime(resolved_path)
+                        ctx.file_read_registry.record_read(resolved_path, mtime)
+                    except OSError as e:
+                        errors.append(f"Failed to read {hunk.path}: {e}")
+
+        if errors:
+            return ToolExecResult(
+                title="apply_patch [error]",
+                output="Pre-validation failed:\n" + "\n".join(errors),
+            )
+
+        # Second pass: apply all changes
+        for hunk in hunks:
+            resolved_path = _resolve_patch_path(hunk.path, ctx.cwd)
+
+            if hunk.type == "add":
+                # Re-check staleness (file might have been created by another agent)
+                allowed, reason = ctx.file_read_registry.check_modification_allowed(resolved_path)
+                if not allowed:
+                    errors.append(f"Failed to create {hunk.path}: {reason}")
+                    continue
                 parent = os.path.dirname(resolved_path)
                 if parent:
                     os.makedirs(parent, exist_ok=True)
                 try:
                     with open(resolved_path, "w", encoding="utf-8") as f:
                         f.write(hunk.contents)
+                    ctx.file_read_registry.record_modification(resolved_path)
                     summary.append(f"A {hunk.path}")
                 except OSError as e:
                     errors.append(f"Failed to create {hunk.path}: {e}")
 
             elif hunk.type == "delete":
+                allowed, reason = ctx.file_read_registry.check_modification_allowed(resolved_path)
+                if not allowed:
+                    errors.append(f"Failed to delete {hunk.path}: {reason}")
+                    continue
                 if not os.path.exists(resolved_path):
                     errors.append(f"File not found: {hunk.path}")
                     continue
                 try:
                     os.remove(resolved_path)
+                    ctx.file_read_registry.record_modification(resolved_path)
                     summary.append(f"D {hunk.path}")
                 except OSError as e:
                     errors.append(f"Failed to delete {hunk.path}: {e}")
 
             elif hunk.type == "update":
-                if not os.path.exists(resolved_path):
-                    errors.append(f"File not found: {hunk.path}")
+                # Check staleness before writing
+                allowed, reason = ctx.file_read_registry.check_modification_allowed(resolved_path)
+                if not allowed:
+                    errors.append(f"Failed to update {hunk.path}: {reason}")
                     continue
+
+                new_content = _apply_unified_diff(hunk.contents, hunk.chunks)
+
+                target_path = resolved_path
+                if hunk.move_path:
+                    target_path = _resolve_patch_path(hunk.move_path, ctx.cwd)
+                    parent = os.path.dirname(target_path)
+                    if parent:
+                        os.makedirs(parent, exist_ok=True)
+
                 try:
-                    with open(resolved_path, "r", encoding="utf-8") as f:
-                        old_content = f.read()
-
-                    new_content = _apply_unified_diff(old_content, hunk.chunks)
-
-                    target_path = resolved_path
-                    if hunk.move_path:
-                        target_path = _resolve_patch_path(hunk.move_path, ctx.cwd)
-                        parent = os.path.dirname(target_path)
-                        if parent:
-                            os.makedirs(parent, exist_ok=True)
-
                     with open(target_path, "w", encoding="utf-8") as f:
                         f.write(new_content)
-
-                    if hunk.move_path and hunk.move_path != hunk.path:
-                        if os.path.exists(resolved_path) and resolved_path != target_path:
-                            try:
-                                os.remove(resolved_path)
-                            except OSError:
-                                pass
-                        summary.append(f"M {hunk.path} → {hunk.move_path}")
-                    else:
-                        summary.append(f"M {hunk.path}")
-
                 except OSError as e:
                     errors.append(f"Failed to update {hunk.path}: {e}")
+                    continue
+
+                ctx.file_read_registry.record_modification(target_path)
+
+                if hunk.move_path and hunk.move_path != hunk.path:
+                    if os.path.exists(resolved_path) and resolved_path != target_path:
+                        try:
+                            os.remove(resolved_path)
+                        except OSError:
+                            pass
+                    summary.append(f"M {hunk.path} → {hunk.move_path}")
+                else:
+                    summary.append(f"M {hunk.path}")
 
         output_parts = []
         if summary:

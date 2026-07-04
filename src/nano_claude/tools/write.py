@@ -79,6 +79,14 @@ class WriteTool(Tool):
                 f"(cwd is '{ctx.cwd}')."
             )
 
+        # Check staleness: file must have been read and not modified since
+        allowed, reason = ctx.file_read_registry.check_modification_allowed(resolved_path)
+        if not allowed:
+            return ToolExecResult(
+                output=f"Write denied: {reason}",
+                title="write [stale]",
+            )
+
         parent = os.path.dirname(resolved_path)
         if parent:
             os.makedirs(parent, exist_ok=True)
@@ -91,6 +99,9 @@ class WriteTool(Tool):
                 output=f"Error writing file '{resolved_path}': {e}",
                 title="write [error]",
             )
+
+        # Update registry after successful write
+        ctx.file_read_registry.record_modification(resolved_path)
 
         fname = os.path.basename(resolved_path)
         return ToolExecResult(

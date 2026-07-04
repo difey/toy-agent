@@ -59,6 +59,18 @@ class ReadTool(Tool):
                 title="read [denied]",
             )
 
+        # Record read attempt in the staleness registry
+        file_exists = os.path.isfile(resolved_path)
+        if file_exists:
+            try:
+                mtime = os.path.getmtime(resolved_path)
+                ctx.file_read_registry.record_read(resolved_path, mtime)
+            except OSError:
+                pass
+        else:
+            # Record that the file was verified as non-existent
+            ctx.file_read_registry.record_read(resolved_path, None)
+
         if not os.path.isfile(resolved_path):
             hint = ""
             # Provide hints for common hallucinated paths

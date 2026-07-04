@@ -104,6 +104,21 @@ class EditTool(Tool):
                 title="edit [error]",
             )
 
+        # Check staleness before treating internal read as a valid read
+        stale_msg = ctx.file_read_registry.get_stale_check_message(resolved_path)
+        if stale_msg:
+            return ToolExecResult(
+                output=f"Edit denied: {stale_msg}",
+                title="edit [stale]",
+            )
+
+        # Record internal read for staleness tracking
+        try:
+            mtime = os.path.getmtime(resolved_path)
+            ctx.file_read_registry.record_read(resolved_path, mtime)
+        except OSError:
+            pass
+
         count = content.count(old_string)
         if count == 0:
             return ToolExecResult(
@@ -127,6 +142,9 @@ class EditTool(Tool):
                 output=f"Error writing file '{resolved_path}': {e}",
                 title="edit [error]",
             )
+
+        # Update registry after successful write
+        ctx.file_read_registry.record_modification(resolved_path)
 
         num = count if replace_all else 1
         fname = os.path.basename(resolved_path)

@@ -1,5 +1,7 @@
 # nanoClaude
 
+> **Caution:** This project is used to do some experiments. And it is not a very serious project. Bad coding structure and some unreviewed commits exist, or maybe even some bugs. No plan to fix.
+
 A Python CLI coding assistant that uses LLM-powered tools to complete coding tasks from natural language input.
 
 ```bash
