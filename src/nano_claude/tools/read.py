@@ -1,12 +1,11 @@
 import os
 
-from nano_claude.tool import (
-    Tool,
+from nano_claude.core.tool_contracts import (
     ToolContext,
     ToolExecResult,
-    check_file_permission,
-    resolve_safe_path,
 )
+from nano_claude.core.tool_registry import Tool
+from nano_claude.core.path_utils import check_file_permission, resolve_safe_path
 
 
 class ReadTool(Tool):

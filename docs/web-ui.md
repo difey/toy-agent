@@ -7,7 +7,7 @@
 
 The Web UI is a **FastAPI server** with **SSE streaming** and a bundled single-page HTML frontend (`index.html`). It provides a browser-based alternative to the TUI, with session management, mode switching, and real-time AI response streaming.
 
-Located in `src/nano_claude/webui.py`, frontend bundled in `src/nano_claude/index.html`.
+Located in `src/nano_claude/interfaces/webui.py`, frontend bundled in `src/nano_claude/interfaces/web/static/index.html`.
 
 ## Server Architecture
 

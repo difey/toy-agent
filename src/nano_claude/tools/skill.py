@@ -4,7 +4,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from nano_claude.tool import Tool, ToolContext, ToolExecResult
+from nano_claude.core.tool_contracts import ToolContext, ToolExecResult
+from nano_claude.core.tool_registry import Tool
 
 
 # ── YAML frontmatter parser (lightweight, no dependency) ────────────────

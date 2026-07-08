@@ -1,6 +1,7 @@
 from datetime import datetime
 
-from nano_claude.tool import Tool, ToolContext, ToolExecResult
+from nano_claude.core.tool_contracts import ToolContext, ToolExecResult
+from nano_claude.core.tool_registry import Tool
 from nano_claude.tools.exa_client import call_exa_tool
 
 

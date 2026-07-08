@@ -6,11 +6,12 @@ from pathlib import Path
 import click
 from rich.console import Console
 
-from nano_claude.agent import Agent
-from nano_claude.config import resolve_config
-from nano_claude.session import Session, list_sessions, migrate_old_sessions, save_current, session_path
-from nano_claude.setup import has_user_config, run_wizard
-from nano_claude.tool import ToolRegistry
+from nano_claude.core.agent import Agent
+from nano_claude.core.tool_registry import ToolRegistry
+from nano_claude.infra.config import resolve_config
+from nano_claude.infra.session import Session, migrate_old_sessions, save_current
+from nano_claude.infra.session_service import resume_or_create_session
+from nano_claude.infra.setup import has_user_config, run_wizard
 from nano_claude.tools import (
     ApplyPatchTool,
     BashTool,
@@ -28,7 +29,7 @@ from nano_claude.tools import (
     WriteTool,
 )
 from nano_claude.tools.skill import SkillStore
-from nano_claude.ui import InteractiveUI
+from nano_claude.interfaces.ui import InteractiveUI
 
 console = Console()
 
@@ -66,7 +67,7 @@ def _run_interactive(agent: Agent, cwd: str, session: Session, session_file_ref:
 
 def _run_web(agent: Agent | None, cwd: str, session: Session, session_file: str, port: int) -> None:
     """Run the web UI server using FastAPI + Uvicorn."""
-    from nano_claude.webui import start_web_ui
+    from nano_claude.interfaces.webui import start_web_ui
 
     try:
         start_web_ui(agent, cwd, session, session_file, port=port)
@@ -153,18 +154,7 @@ def main(message: str | None, model: str | None, cwd: str | None, force_setup: b
         )
 
     # 启动时自动接续最近一次的 session，避免每次启动都产生新文件
-    existing = list_sessions(resolved_cwd)
-    if existing:
-        last_path = existing[-1]  # sorted 后最后一个就是最新的
-        try:
-            session = Session.load(last_path)
-            session_file = last_path
-        except Exception:
-            session = Session()
-            session_file = session_path(resolved_cwd)
-    else:
-        session = Session()
-        session_file = session_path(resolved_cwd)
+    session, session_file = resume_or_create_session(resolved_cwd)
     session_file_ref = [session_file]
 
     try:

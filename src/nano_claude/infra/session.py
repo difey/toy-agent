@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Awaitable, Callable
 
-from nano_claude.message import (
+from nano_claude.core.message import (
     AssistantMessage,
     Message,
     SystemMessage,

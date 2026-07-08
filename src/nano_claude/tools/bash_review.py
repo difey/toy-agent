@@ -4,8 +4,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional
 
-from nano_claude.llm import LLMClient
-from nano_claude.message import UserMessage
+from nano_claude.infra.llm import LLMClient
+from nano_claude.core.message import UserMessage
 
 
 @dataclass

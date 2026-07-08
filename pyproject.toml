@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
-nano-claude = "nano_claude.cli:main"
+nano-claude = "nano_claude.interfaces.cli:main"
 
 [build-system]
 requires = ["setuptools>=64"]
@@ -25,33 +25,10 @@ build-backend = "setuptools.build_meta"
 package = true
 
 [tool.setuptools.package-data]
-nano_claude = ["*.html"]
+nano_claude = ["interfaces/web/static/*.html", "infra/*.toml", "tools/*.txt"]
 
 [dependency-groups]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
 ]
-
-[tool.nano-claude]
-model = "gpt-4o"
-timeout = 120
-max_token_limit = 100000
-
-[tool.nano-claude.providers.deepseek]
-api_key_env = "DEEPSEEK_API_KEY"
-base_url = "https://api.deepseek.com/v1"
-default_model = "deepseek-chat"
-
-[tool.nano-claude.providers.openai]
-api_key_env = "OPENAI_API_KEY"
-default_model = "gpt-4o"
-
-[tool.nano-claude.providers.anthropic]
-api_key_env = "ANTHROPIC_API_KEY"
-base_url = "https://api.anthropic.com/v1"
-default_model = "claude-sonnet-4-20250514"
-
-[tool.nano-claude.providers.ollama]
-base_url = "http://localhost:11434/v1"
-default_model = "llama3"

@@ -1,0 +1,20 @@
+# Default provider configuration for nanoClaude.
+#
+# These are the built-in defaults used to resolve model/provider settings when
+# nothing more specific is provided via environment variables or the user
+# config file (~/.nano_claude/config.toml). See `nano_claude.infra.config`.
+
+[providers.openai]
+default_model = "gpt-4o"
+
+[providers.deepseek]
+base_url = "https://api.deepseek.com/v1"
+default_model = "deepseek-v4-flash"
+
+[providers.anthropic]
+base_url = "https://api.anthropic.com/v1"
+default_model = "claude-sonnet-4-20250514"
+
+[providers.ollama]
+base_url = "http://localhost:11434/v1"
+default_model = "llama3"

@@ -12,10 +12,10 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse, HTMLResponse
 from pydantic import BaseModel
 
-from nano_claude.agent import Agent
-from nano_claude.session import Session, get_session_dir, list_sessions, save_current, session_info, session_path
-from nano_claude.message import ToolCall, UserMessage
-from nano_claude.setup import has_user_config, save_user_config, load_user_config
+from nano_claude.core.agent import Agent
+from nano_claude.infra.session import Session, get_session_dir, list_sessions, save_current, session_info, session_path
+from nano_claude.core.message import ToolCall, UserMessage
+from nano_claude.infra.setup import has_user_config, save_user_config, load_user_config
 
 
 # ── Pydantic models ──────────────────────────────────────────────────────
@@ -580,8 +580,8 @@ async def api_setup(body: SetupRequest):
         save_user_config(model, api_key)
 
         # Create or update the agent with the new config
-        from nano_claude.config import resolve_config
-        from nano_claude.tool import ToolRegistry
+        from nano_claude.infra.config import resolve_config
+        from nano_claude.core.tool_registry import ToolRegistry
         from nano_claude.tools import (
             ApplyPatchTool, BashTool, CodeSearchTool, DelegateTool,
             EditTool, GlobTool, GrepTool, QuestionTool,
@@ -707,7 +707,7 @@ def _serialize_messages_for_api(messages) -> list[dict]:
     """Convert session messages to a format suitable for the web frontend."""
     result = []
     for msg in messages:
-        from nano_claude.message import SystemMessage, UserMessage, AssistantMessage, ToolResult
+        from nano_claude.core.message import SystemMessage, UserMessage, AssistantMessage, ToolResult
         if isinstance(msg, SystemMessage):
             continue  # skip system messages in display
         elif isinstance(msg, UserMessage):
@@ -741,19 +741,19 @@ def _serialize_messages_for_api(messages) -> list[dict]:
 def _get_index_html() -> str:
     """Read the index.html bundled with the package."""
     from importlib.resources import files
-    return (files("nano_claude") / "index.html").read_text(encoding="utf-8")
+    return (files("nano_claude.interfaces.web.static") / "index.html").read_text(encoding="utf-8")
 
 
 def _get_setup_html() -> str:
     """Read the setup.html bundled with the package."""
     from importlib.resources import files
-    return (files("nano_claude") / "setup.html").read_text(encoding="utf-8")
+    return (files("nano_claude.interfaces.web.static") / "setup.html").read_text(encoding="utf-8")
 
 
 def _get_plan_view_html() -> str:
     """Read the plan-view.html bundled with the package."""
     from importlib.resources import files
-    return (files("nano_claude") / "plan-view.html").read_text(encoding="utf-8")
+    return (files("nano_claude.interfaces.web.static") / "plan-view.html").read_text(encoding="utf-8")
 
 
 def _resolve_latest_plan(cwd: str) -> None:

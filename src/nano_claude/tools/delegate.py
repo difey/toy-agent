@@ -4,8 +4,9 @@ from pathlib import Path
 
 _delegate_counter = 0
 
-from nano_claude.sub_agent import SubAgentCallbacks, SubAgentConfig, SubAgentManager, SubAgentResult
-from nano_claude.tool import Tool, ToolContext, ToolExecResult
+from nano_claude.core.sub_agent import SubAgentCallbacks, SubAgentConfig, SubAgentManager, SubAgentResult
+from nano_claude.core.tool_contracts import ToolContext, ToolExecResult
+from nano_claude.core.tool_registry import Tool
 
 
 class DelegateTool(Tool):

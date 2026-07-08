@@ -4,7 +4,7 @@ from typing import AsyncIterator
 
 from openai import AsyncOpenAI, OpenAIError
 
-from nano_claude.message import (
+from nano_claude.core.message import (
     AssistantMessage,
     Message,
     ReasoningDelta,

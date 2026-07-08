@@ -16,9 +16,9 @@ from prompt_toolkit.layout.controls import BufferControl
 from prompt_toolkit.layout.menus import CompletionsMenu
 from prompt_toolkit.styles import Style
 
-from nano_claude.agent import Agent
-from nano_claude.message import ToolCall, UserMessage
-from nano_claude.session import Session, get_session_dir, list_sessions, save_current, session_info, session_path
+from nano_claude.core.agent import Agent
+from nano_claude.core.message import ToolCall, UserMessage
+from nano_claude.infra.session import Session, get_session_dir, list_sessions, save_current, session_info, session_path
 
 _STYLE = Style.from_dict({
     "status": "bg:#222222 #ffffff",

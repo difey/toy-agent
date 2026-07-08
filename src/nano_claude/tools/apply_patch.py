@@ -2,7 +2,8 @@ import os
 import re
 from dataclasses import dataclass, field
 
-from nano_claude.tool import Tool, ToolContext, ToolExecResult
+from nano_claude.core.tool_contracts import ToolContext, ToolExecResult
+from nano_claude.core.tool_registry import Tool
 
 
 @dataclass

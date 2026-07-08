@@ -1,7 +1,9 @@
 import os
+import tomllib
 from dataclasses import dataclass, field
+from importlib.resources import files
 
-from nano_claude.setup import load_user_config
+from nano_claude.infra.setup import load_user_config
 
 
 @dataclass
@@ -12,27 +14,20 @@ class ProviderConfig:
     default_model: str = ""
 
 
-PROVIDERS: dict[str, ProviderConfig] = {
-    "openai": ProviderConfig(
-        name="openai",
-        default_model="gpt-4o",
-    ),
-    "deepseek": ProviderConfig(
-        name="deepseek",
-        base_url="https://api.deepseek.com/v1",
-        default_model="deepseek-v4-flash",
-    ),
-    "anthropic": ProviderConfig(
-        name="anthropic",
-        base_url="https://api.anthropic.com/v1",
-        default_model="claude-sonnet-4-20250514",
-    ),
-    "ollama": ProviderConfig(
-        name="ollama",
-        base_url="http://localhost:11434/v1",
-        default_model="llama3",
-    ),
-}
+def _load_default_providers() -> dict[str, ProviderConfig]:
+    """Load built-in provider defaults from the packaged default_config.toml."""
+    data = tomllib.loads(files("nano_claude.infra").joinpath("default_config.toml").read_text())
+    providers = {}
+    for name, values in data.get("providers", {}).items():
+        providers[name] = ProviderConfig(
+            name=name,
+            base_url=values.get("base_url"),
+            default_model=values.get("default_model", ""),
+        )
+    return providers
+
+
+PROVIDERS: dict[str, ProviderConfig] = _load_default_providers()
 
 MODEL_PROVIDER_PREFIX: dict[str, str] = {
     "gpt-": "openai",

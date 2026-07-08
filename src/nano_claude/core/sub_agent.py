@@ -7,9 +7,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Awaitable, Callable, Literal
 
-from nano_claude.agent import SYSTEM_PROMPT
-from nano_claude.llm import LLMClient
-from nano_claude.message import (
+from nano_claude.core.prompts import SYSTEM_PROMPT
+from nano_claude.infra.llm import LLMClient
+from nano_claude.core.message import (
     AssistantMessage,
     ReasoningDelta,
     StreamChunk,
@@ -20,8 +20,9 @@ from nano_claude.message import (
     ToolResult,
     UserMessage,
 )
-from nano_claude.session import Session
-from nano_claude.tool import ToolContext, ToolExecResult, ToolRegistry
+from nano_claude.infra.session import Session
+from nano_claude.core.tool_contracts import ToolContext, ToolExecResult
+from nano_claude.core.tool_registry import ToolRegistry
 
 
 @dataclass

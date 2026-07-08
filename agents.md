@@ -16,17 +16,27 @@ nano-claude --plan                          # Plan mode (discuss before coding)
 
 ```
 src/nano_claude/
-├── cli.py       # CLI entrypoint, session init (auto-resume last session)
-├── ui.py        # Interactive TUI (prompt_toolkit), mode switching, "执行" workflow
-├── webui.py     # Web UI server (FastAPI + SSE)
-├── index.html   # Web UI frontend (single-page app)
-├── agent.py     # Core Agent class — LLM loop, plan/build mode system prompts
-├── session.py   # Session management, auto-compact, auto-title, persistence
-├── message.py   # Message data classes
-├── config.py    # Provider config detection (OpenAI/DeepSeek/Anthropic/Ollama)
-├── setup.py     # First-run setup wizard
-├── tool.py      # ToolRegistry, BaseTool, ToolContext, ToolExecResult
-└── tools/       # 14 tool implementations + .txt descriptions
+├── core/                 # Domain logic (no side effects beyond LLM/tool I/O)
+│   ├── agent.py          # Core Agent class — LLM loop
+│   ├── prompts.py        # Plan/build mode system prompt templates
+│   ├── message.py        # Message data classes
+│   ├── tool_contracts.py # ToolContext, ToolExecResult, callback types
+│   ├── tool_registry.py  # ToolRegistry, BaseTool
+│   ├── path_utils.py     # Hallucinated-path correction, safe path resolution
+│   └── sub_agent.py      # Sub-agent manager (used by the delegate tool)
+├── infra/                # External integrations
+│   ├── llm.py            # LLM client (OpenAI-compatible)
+│   ├── config.py         # Provider config detection (OpenAI/DeepSeek/Anthropic/Ollama)
+│   ├── session.py        # Session management, auto-compact, auto-title, persistence
+│   ├── session_service.py # Shared resume-or-create-session helper
+│   ├── setup.py          # First-run setup wizard
+│   └── default_config.toml # Built-in provider defaults
+├── interfaces/           # Presentation layers
+│   ├── cli.py            # CLI entrypoint, session init (auto-resume last session)
+│   ├── ui.py              # Interactive TUI (prompt_toolkit), mode switching, "执行" workflow
+│   ├── webui.py           # Web UI server (FastAPI + SSE)
+│   └── web/static/        # Web UI frontend assets (index.html, setup.html, plan-view.html)
+└── tools/                # 14 tool implementations + .txt descriptions
 ```
 
 ## Plan Mode & Build Mode

@@ -4,7 +4,8 @@ import os
 import re
 import subprocess
 
-from nano_claude.tool import Tool, ToolContext, ToolExecResult
+from nano_claude.core.tool_contracts import ToolContext, ToolExecResult
+from nano_claude.core.tool_registry import Tool
 
 
 class GrepTool(Tool):

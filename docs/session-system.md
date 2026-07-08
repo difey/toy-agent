@@ -7,7 +7,7 @@
 
 Sessions manage the conversation history across turns. Each session maintains a list of `Message` objects, handles auto-compaction when token limits are exceeded, and persists to JSON files.
 
-Located in `src/nano_claude/session.py`.
+Located in `src/nano_claude/infra/session.py`.
 
 ## Session Class
 
@@ -82,14 +82,14 @@ def session_path(cwd: str) -> str:
 ### Auto-Save
 
 Session is saved to `~/.nano_claude/sessions/<hash>/<timestamp>.json`:
-- On program exit (`cli.py` finally block)
+- On program exit (`interfaces/cli.py` finally block)
 - On `/sessions new` command
 - On switching to another session (`/sessions <n>`)
-- After each chat round in Web UI (`webui.py` _execute_chat finally)
+- After each chat round in Web UI (`interfaces/webui.py` _execute_chat finally)
 
 ### Auto-Resume
 
-On startup (`cli.py`), the program checks for existing session files:
+On startup (`interfaces/cli.py`), the program checks for existing session files:
 
 ```python
 existing = list_sessions(resolved_cwd)
