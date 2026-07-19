@@ -113,7 +113,7 @@ async def on_tool_end(name, title, output):
 Single-page HTML application with:
 
 - **Left sidebar** — lists all saved sessions; click to switch, ✕ to delete, "+ New Session" to start fresh
-- **Waterfall chat** — user messages (right-aligned, blue), assistant responses with Markdown rendering (code blocks, lists, bold/italic, links), tool calls and results shown as cards
+- **Waterfall chat** — user messages (right-aligned, blue), assistant responses with Markdown rendering (via [`marked`](https://github.com/markedjs/marked) + [`DOMPurify`](https://github.com/cure53/DOMPurify) sanitization, loaded from CDN), tool calls and results shown as cards
 - **Real-time streaming** — AI responses and tool outputs stream in via SSE
 - **Send shortcut** — `⌘+Enter` (Mac) or `Ctrl+Enter` (Windows/Linux); plain `Enter` inserts a newline
 - **Dark/Light theme** — auto-detects system preference, toggle with ☀️/🌙 button

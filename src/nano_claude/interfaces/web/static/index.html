@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>nanoClaude</title>
 <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<script src="https://unpkg.com/marked@13.0.2/marked.min.js"></script>
+<script src="https://unpkg.com/dompurify@3.4.12/dist/purify.min.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root, [data-theme="dark"] {
@@ -115,8 +117,8 @@
   .bubble pre code { background: none; padding: 0; border-radius: 0; color: var(--text); }
   .bubble blockquote { border-left: 3px solid var(--accent); padding-left: 12px;
     margin: 8px 0; color: var(--text-dim); }
-  .bubble .table-wrap { overflow-x: auto; margin: 8px 0; }
-  .bubble .table-wrap table { border-collapse: collapse; font-size: 13px; width: 100%; }
+  .bubble table { border-collapse: collapse; font-size: 13px; width: 100%;
+    display: block; overflow-x: auto; margin: 8px 0; }
   .bubble th, .bubble td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
   .bubble th { background: var(--bg3); color: var(--text-bright); font-weight: 600; }
   .bubble a { color: var(--accent); text-decoration: none; }
@@ -813,124 +815,20 @@ createApp({
       }
     }
 
-    // ── Markdown renderer ────────────────────────────
-    function esc(str) {
-      const d = document.createElement('div');
-      d.textContent = str;
-      return d.innerHTML;
-    }
+    // ── Markdown renderer (via marked + DOMPurify) ──────
+    marked.setOptions({ breaks: true, gfm: true });
+    // Open rendered links in a new tab, matching the previous renderer's behavior.
+    DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+      if (node.tagName === 'A') {
+        node.setAttribute('target', '_blank');
+        node.setAttribute('rel', 'noopener');
+      }
+    });
 
     function renderMarkdown(text) {
       if (!text) return '';
-      // Escape HTML first
-      let h = esc(text);
-
-      // ── Block elements (process first to protect from paragraph wrapping) ──
-
-      // Fenced code blocks
-      h = h.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
-        const l = lang || 'code';
-        return '<pre><code class="language-' + l + '">' + code + '</code></pre>';
-      });
-
-      // ── Tables (GFM table syntax) ──
-      h = h.replace(/((?:^\|.*(?:\n|$)){2,})/gm, (block) => {
-        const lines = block.trim().split('\n').map(l => l.trim());
-        if (lines.length < 2) return block;
-        // Second line must be a delimiter row (| --- | --- |)
-        if (!/^\|[\s:|-]+\|$/.test(lines[1])) return block;
-        // Parse alignment from delimiter row
-        const delimCells = lines[1].split('|').slice(1, -1);
-        const alignments = delimCells.map(cell => {
-          const t = cell.trim();
-          if (/^:---+:$/.test(t)) return 'center';
-          if (/^:---+$/.test(t)) return 'left';
-          if (/^---+:$/.test(t)) return 'right';
-          return null;
-        });
-        // Parse header row (first line)
-        const headerCells = lines[0].split('|').slice(1, -1);
-        const numCols = Math.max(headerCells.length, alignments.length);
-        let html = '<div class="table-wrap">\n<table>\n<thead>\n<tr>';
-        for (let i = 0; i < numCols; i++) {
-          const align = alignments[i] ? ' align="' + alignments[i] + '"' : '';
-          const content = i < headerCells.length ? headerCells[i].trim() : '';
-          html += '<th' + align + '>' + content + '</th>';
-        }
-        html += '</tr>\n</thead>\n<tbody>\n';
-        // Data rows (skip header at 0 and delimiter at 1)
-        for (let ri = 2; ri < lines.length; ri++) {
-          const dataCells = lines[ri].split('|').slice(1, -1);
-          html += '<tr>';
-          for (let ci = 0; ci < numCols; ci++) {
-            const align = alignments[ci] ? ' align="' + alignments[ci] + '"' : '';
-            const content = ci < dataCells.length ? dataCells[ci].trim() : '';
-            html += '<td' + align + '>' + content + '</td>';
-          }
-          html += '</tr>\n';
-        }
-        html += '</tbody>\n</table>\n</div>';
-        return html;
-      });
-
-      // Headers
-      h = h.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-      h = h.replace(/^## (.+)$/gm, '<h2>$1</h2>');
-      h = h.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-
-      // Horizontal rules
-      h = h.replace(/^---$/gm, '<hr>');
-
-      // Blockquotes
-      h = h.replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>');
-
-      // Unordered lists
-      h = h.replace(/(?:^|\n)[ \t]*[-*+] (.+(?:\n[ \t]*[-*+] .+)*)/g, (match) => {
-        const items = match.trim().split('\n').map(line => {
-          const item = line.replace(/^[ \t]*[-*+] /, '');
-          return '<li>' + item + '</li>';
-        }).join('\n');
-        return '<ul>\n' + items + '\n</ul>';
-      });
-
-      // Ordered lists
-      h = h.replace(/(?:^|\n)[ \t]*\d+\. (.+(?:\n[ \t]*\d+\. .+)*)/g, (match) => {
-        const items = match.trim().split('\n').map(line => {
-          const item = line.replace(/^[ \t]*\d+\. /, '');
-          return '<li>' + item + '</li>';
-        }).join('\n');
-        return '<ol>\n' + items + '\n</ol>';
-      });
-
-      // ── Inline formatting ──
-
-      // Inline code
-      h = h.replace(/`([^`]+)`/g, '<code>$1</code>');
-
-      // Bold and italic (order matters: *** before ** before *)
-      h = h.replace(/\*\*\*([^*]+)\*\*\*/g, '<strong><em>$1</em></strong>');
-      h = h.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-      h = h.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-
-      // Links
-      h = h.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
-
-      // ── Paragraph wrapping (only wrap text not already in block elements) ──
-
-      const blockTag = /^<(p|h[1-6]|pre|ul|ol|li|blockquote|hr|div|table)[\s>]/;
-      // Split by blank lines (double newlines or more)
-      const blocks = h.split(/\n{2,}/);
-      h = blocks.map(block => {
-        const t = block.trim();
-        if (!t) return '';
-        // If this block is already a block-level HTML element, leave it alone
-        if (blockTag.test(t)) return t;
-        // Replace single newlines with <br> inside paragraph text
-        const withBreaks = t.replace(/\n/g, '<br>');
-        return '<p>' + withBreaks + '</p>';
-      }).join('\n');
-
-      return h;
+      const html = marked.parse(text);
+      return DOMPurify.sanitize(html);
     }
 
     // ── Send message ─────────────────────────────────

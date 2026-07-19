@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Plan Document - nanoClaude</title>
+<script src="https://unpkg.com/marked@13.0.2/marked.min.js"></script>
+<script src="https://unpkg.com/dompurify@3.4.12/dist/purify.min.js"></script>
 <style>
   :root { --bg: #ffffff; --bg2: #f6f8fa; --text: #24292f; --text-dim: #656d76;
     --border: #d0d7de; --accent: #0969da; --mono: "SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
@@ -37,7 +39,8 @@
   #content pre code { background: none; padding: 0; }
   #content blockquote { border-left: 3px solid var(--accent); padding-left: 12px;
     margin: 8px 0; color: var(--text-dim); }
-  #content table { border-collapse: collapse; margin: 10px 0; font-size: 14px; width: 100%; }
+  #content table { border-collapse: collapse; margin: 10px 0; font-size: 14px; width: 100%;
+    display: block; overflow-x: auto; }
   #content th, #content td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
   #content th { background: var(--bg2); font-weight: 600; }
   #content a { color: var(--accent); text-decoration: none; }
@@ -71,44 +74,16 @@
 <script>
   let _docContent = '';
   let _docFilename = '';
-  function esc(str) {
-    const d = document.createElement('div'); d.textContent = str; return d.innerHTML;
-  }
+  marked.setOptions({ breaks: true, gfm: true });
+  DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+    if (node.tagName === 'A') {
+      node.setAttribute('target', '_blank');
+      node.setAttribute('rel', 'noopener');
+    }
+  });
   function renderMarkdown(text) {
     if (!text) return '';
-    let h = esc(text);
-    h = h.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
-      return '<pre><code class="language-'+lang+'">'+code+'</code></pre>';
-    });
-    h = h.replace(/((?:^\|.*(?:\n|$)){2,})/gm, block => {
-      const lines = block.trim().split('\n').map(l=>l.trim());
-      if (lines.length<2||!/^\|[\s:|-]+\|$/.test(lines[1])) return block;
-      const a = lines[1].split('|').slice(1,-1).map(c=>{const t=c.trim();return /^:---+:$/.test(t)?'center':/^:---+$/.test(t)?'left':/^---+:$/.test(t)?'right':null});
-      const hd = lines[0].split('|').slice(1,-1);
-      const nc = Math.max(hd.length,a.length);
-      let x='<table>\n<thead>\n<tr>';
-      for(let i=0;i<nc;i++){const al=a[i]?' align="'+a[i]+'"':'';x+='<th'+al+'>'+(i<hd.length?hd[i].trim():'')+'</th>';}
-      x+='</tr>\n</thead>\n<tbody>\n';
-      for(let ri=2;ri<lines.length;ri++){const d=lines[ri].split('|').slice(1,-1);x+='<tr>';
-        for(let ci=0;ci<nc;ci++){const al=a[ci]?' align="'+a[ci]+'"':'';x+='<td'+al+'>'+(ci<d.length?d[ci].trim():'')+'</td>';}
-        x+='</tr>\n';}
-      x+='</tbody>\n</table>';return x;
-    });
-    h = h.replace(/^### (.+)$/gm,'<h3>$1</h3>');
-    h = h.replace(/^## (.+)$/gm,'<h2>$1</h2>');
-    h = h.replace(/^# (.+)$/gm,'<h1>$1</h1>');
-    h = h.replace(/^---$/gm,'<hr>');
-    h = h.replace(/^> (.+)$/gm,'<blockquote>$1</blockquote>');
-    h = h.replace(/(?:^|\n)[ \t]*[-*+] (.+(?:\n[ \t]*[-*+] .+)*)/g,m=>{const i=m.trim().split('\n').map(l=>'<li>'+l.replace(/^[ \t]*[-*+] /,'')+'</li>').join('\n');return '<ul>\n'+i+'\n</ul>'});
-    h = h.replace(/(?:^|\n)[ \t]*\d+\. (.+(?:\n[ \t]*\d+\. .+)*)/g,m=>{const i=m.trim().split('\n').map(l=>'<li>'+l.replace(/^[ \t]*\d+\. /,'')+'</li>').join('\n');return '<ol>\n'+i+'\n</ol>'});
-    h = h.replace(/`([^`]+)`/g,'<code>$1</code>');
-    h = h.replace(/\*\*\*([^*]+)\*\*\*/g,'<strong><em>$1</em></strong>');
-    h = h.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>');
-    h = h.replace(/\*([^*]+)\*/g,'<em>$1</em>');
-    h = h.replace(/\[([^\]]+)\]\(([^)]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>');
-    const blockTag=/^<(p|h[1-6]|pre|ul|ol|li|blockquote|hr|div|table)[\s>]/;
-    h = h.split(/\n{2,}/).map(b=>{const t=b.trim();if(!t)return'';if(blockTag.test(t))return t;return'<p>'+t.replace(/\n/g,'<br>')+'</p>';}).join('\n');
-    return h;
+    return DOMPurify.sanitize(marked.parse(text));
   }
   async function loadPlan() {
     try {
