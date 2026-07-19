@@ -16,7 +16,9 @@ class ProviderConfig:
 
 def _load_default_providers() -> dict[str, ProviderConfig]:
     """Load built-in provider defaults from the packaged default_config.toml."""
-    data = tomllib.loads(files("nano_claude.infra").joinpath("default_config.toml").read_text())
+    data = tomllib.loads(
+        files("nano_claude.infra").joinpath("config", "default_config.toml").read_text()
+    )
     providers = {}
     for name, values in data.get("providers", {}).items():
         providers[name] = ProviderConfig(

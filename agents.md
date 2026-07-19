@@ -30,7 +30,8 @@ src/nano_claude/
 │   ├── session.py        # Session management, auto-compact, auto-title, persistence
 │   ├── session_service.py # Shared resume-or-create-session helper
 │   ├── setup.py          # First-run setup wizard
-│   └── default_config.toml # Built-in provider defaults
+│   └── config/
+│       └── default_config.toml # Built-in provider defaults
 ├── interfaces/           # Presentation layers
 │   ├── cli.py            # CLI entrypoint, session init (auto-resume last session)
 │   ├── ui.py              # Interactive TUI (prompt_toolkit), mode switching, "执行" workflow
