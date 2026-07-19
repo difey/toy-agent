@@ -82,14 +82,14 @@ def session_path(cwd: str) -> str:
 ### Auto-Save
 
 Session is saved to `~/.nano_claude/sessions/<hash>/<timestamp>.json`:
-- On program exit (`interfaces/cli.py` finally block)
+- On program exit (`interfaces/cli/cli.py` finally block)
 - On `/sessions new` command
 - On switching to another session (`/sessions <n>`)
-- After each chat round in Web UI (`interfaces/webui.py` _execute_chat finally)
+- After each chat round in Web UI (`interfaces/web/services/chat_service.py` _execute_chat finally)
 
 ### Auto-Resume
 
-On startup (`interfaces/cli.py`), the program checks for existing session files:
+On startup (`interfaces/cli/cli.py`), the program checks for existing session files:
 
 ```python
 existing = list_sessions(resolved_cwd)

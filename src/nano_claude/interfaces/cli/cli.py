@@ -29,7 +29,7 @@ from nano_claude.tools import (
     WriteTool,
 )
 from nano_claude.tools.skill import SkillStore
-from nano_claude.interfaces.ui import InteractiveUI
+from nano_claude.interfaces.cli.ui import InteractiveUI
 
 console = Console()
 
@@ -67,7 +67,7 @@ def _run_interactive(agent: Agent, cwd: str, session: Session, session_file_ref:
 
 def _run_web(agent: Agent | None, cwd: str, session: Session, session_file: str, port: int) -> None:
     """Run the web UI server using FastAPI + Uvicorn."""
-    from nano_claude.interfaces.webui import start_web_ui
+    from nano_claude.interfaces.web.app import start_web_ui
 
     try:
         start_web_ui(agent, cwd, session, session_file, port=port)

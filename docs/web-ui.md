@@ -7,9 +7,31 @@
 
 The Web UI is a **FastAPI server** with **SSE streaming** and a bundled single-page HTML frontend (`index.html`). It provides a browser-based alternative to the TUI, with session management, mode switching, and real-time AI response streaming.
 
-Located in `src/nano_claude/interfaces/webui.py`, frontend bundled in `src/nano_claude/interfaces/web/static/index.html`.
+Located in `src/nano_claude/interfaces/web/` (`app.py` + `routers/` + `services/`), frontend bundled in `src/nano_claude/interfaces/web/static/index.html`.
 
 ## Server Architecture
+
+### Module Layout
+
+```
+interfaces/web/
+├── app.py               ← FastAPI app factory (create_app), start_web_ui()
+├── state.py              ← WebAppState class + shared `state` singleton
+├── models.py              ← Pydantic request/response models
+├── serializers.py         ← core message → API dict conversion
+├── routers/
+│   ├── pages.py           ← GET /, /setup, /plan-view (HTML pages)
+│   ├── system.py          ← health, mode, vscode, plan-doc, current
+│   ├── sessions.py        ← session CRUD
+│   ├── setup.py           ← setup wizard endpoints
+│   └── chat.py            ← chat, stop, events (SSE), question/permission responses
+└── services/
+    ├── chat_service.py    ← wires core Agent callbacks to SSE events
+    ├── setup_service.py   ← builds/updates the core Agent from config
+    └── plan_service.py    ← reads/resolves the latest plan markdown
+```
+
+Routers only handle HTTP concerns (request parsing, status codes) and delegate business logic to `services/`, which in turn drive the `core.Agent` and `infra` session helpers.
 
 ### WebAppState
 
@@ -71,16 +93,16 @@ Shared mutable state (`WebAppState` class) holds:
 
 ```python
 async def on_text(text: str):
-    await _state.push_event("message", {"role": "assistant", "type": "text", "content": text})
+    await state.push_event("message", {"role": "assistant", "type": "text", "content": text})
 
 async def on_tool_start(call: ToolCall):
-    await _state.push_event("message", {
+    await state.push_event("message", {
         "role": "assistant", "type": "tool_start",
         "name": call.name, "arguments": call.arguments,
     })
 
 async def on_tool_end(name, title, output):
-    await _state.push_event("message", {
+    await state.push_event("message", {
         "role": "tool", "type": "tool_result",
         "name": name, "content": output,
     })
@@ -104,7 +126,7 @@ Session is saved to disk after each chat round:
 
 ```python
 # In _execute_chat() finally block:
-save_current(session, _state.session_file_ref[0])
+save_current(session, state.session_file_ref[0])
 ```
 
 This ensures the session is always up-to-date even if the server is stopped abruptly.

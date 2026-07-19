@@ -29,7 +29,7 @@ The interactive mode uses `prompt_toolkit`'s `Application` framework to build a 
 
 ## Key Class: `InteractiveUI`
 
-Located in `src/nano_claude/interfaces/ui.py`, `InteractiveUI` encapsulates the entire TUI. It was extracted from `interfaces/cli.py` as a separate module to keep the codebase organized.
+Located in `src/nano_claude/interfaces/cli/ui.py`, `InteractiveUI` encapsulates the entire TUI. It was extracted from `interfaces/cli/cli.py` as a separate module to keep the codebase organized.
 
 ### Layout Structure
 
@@ -106,9 +106,14 @@ Each conversation turn (after the first) is separated by a `───` horizonta
 ```
 src/nano_claude/
 ├── interfaces/
-│   ├── ui.py       ← InteractiveUI class, SlashCompleter, _STYLE, _COMMANDS
-│   ├── cli.py      ← CLI entrypoint (click), session helpers, main()
-│   └── webui.py    ← Web UI server
+│   ├── cli/
+│   │   ├── cli.py  ← CLI entrypoint (click), session helpers, main()
+│   │   └── ui.py   ← InteractiveUI class, SlashCompleter, _STYLE, _COMMANDS
+│   └── web/
+│       ├── app.py       ← FastAPI app factory + Uvicorn startup
+│       ├── state.py     ← WebAppState (shared in-memory state)
+│       ├── routers/     ← FastAPI routers (pages, system, sessions, setup, chat)
+│       └── services/    ← Business logic (chat_service, setup_service, plan_service)
 ├── infra/
 │   └── session.py  ← Session class + utility functions (session_path, list_sessions, etc.)
 ├── core/
@@ -117,8 +122,8 @@ src/nano_claude/
 ```
 
 Key dependencies:
-- `interfaces/cli.py` imports `InteractiveUI` from `interfaces/ui.py`
-- `interfaces/ui.py` imports session helpers (`list_sessions`, `save_current`, `session_info`, `session_path`) from `infra/session.py`
+- `interfaces/cli/cli.py` imports `InteractiveUI` from `interfaces/cli/ui.py`
+- `interfaces/cli/ui.py` imports session helpers (`list_sessions`, `save_current`, `session_info`, `session_path`) from `infra/session.py`
 - `infra/session.py` provides shared utility functions used by both modules
 
 ## Integration with Agent

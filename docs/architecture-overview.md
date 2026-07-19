@@ -68,7 +68,7 @@ Mode switching preserves the full conversation history. When switching from plan
 
 ### "执行" Workflow
 
-Located in `interfaces/ui.py` — `_handle_submit()`:
+Located in `interfaces/cli/ui.py` — `_handle_submit()`:
 
 1. After each plan mode agent response, `_find_latest_plan()` scans `cwd` for `.md` files (excluding README.md, agents.md, etc.)
 2. The newest `.md` plan content is auto-appended to the output
@@ -80,14 +80,14 @@ Located in `interfaces/ui.py` — `_handle_submit()`:
 
 ### Mode Switching (TUI)
 
-Commands in `interfaces/ui.py`:
+Commands in `interfaces/cli/ui.py`:
 
 - `/plan` → `Agent.set_mode("plan")` + insert transition message
 - `/build` → `Agent.set_mode("build")` + insert transition message
 
 ### Mode Switching (Web UI)
 
-API endpoint `POST /api/mode` in `interfaces/webui.py`:
+API endpoint `POST /api/mode` in `interfaces/web/routers/system.py`:
 
 ```python
 _state.agent.set_mode(mode)

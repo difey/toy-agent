@@ -82,7 +82,7 @@ The year parameter in `get_tools_prompt(year)` is used for date-sensitive descri
 
 ## Registration
 
-Tools are registered in `interfaces/cli.py`:
+Tools are registered in `interfaces/cli/cli.py`:
 
 ```python
 def _build_registry() -> ToolRegistry:
@@ -109,6 +109,6 @@ When the LLM returns tool calls:
 
 1. Create `<name>.py` in `src/nano_claude/tools/` with a class extending `BaseTool`
 2. Create `<name>.txt` with the tool description (for system prompt)
-3. Register in `interfaces/cli.py` → `_build_registry()`
+3. Register in `interfaces/cli/cli.py` → `_build_registry()`
 4. Add to `tools/__init__.py`
 5. Add tests in `tests/tools/`
