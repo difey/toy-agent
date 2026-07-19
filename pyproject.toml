@@ -25,7 +25,7 @@ build-backend = "setuptools.build_meta"
 package = true
 
 [tool.setuptools.package-data]
-nano_claude = ["interfaces/web/static/*.html", "infra/config/*.toml", "tools/*.txt"]
+nano_claude = ["interfaces/web/static/dist/*.html", "interfaces/web/static/dist/assets/*", "infra/config/*.toml", "tools/*.txt"]
 
 [dependency-groups]
 dev = [

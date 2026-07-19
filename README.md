@@ -35,10 +35,14 @@ uv tool list
 
 ### Upgrade
 
-> ⚠️ **Note**: When upgrading, the tool is reinstalled from source. If you've pulled the latest code (e.g. via `git pull`), make sure to rebuild so that any web UI changes are correctly applied.
+> ⚠️ **Note**: When upgrading, the tool is reinstalled from source. If you've pulled the latest code (e.g. via `git pull`), rebuild the React web UI first so the packaged frontend assets stay in sync.
 
 ```bash
-cd nanoClaude/
+cd nanoClaude/frontend
+npm install
+npm run build
+
+cd ..
 uv build
 uv tool install --reinstall .
 ```

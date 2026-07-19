@@ -1,0 +1,43 @@
+:root {
+  --bg: #ffffff; --bg2: #f6f8fa; --text: #24292f; --text-dim: #656d76;
+  --border: #d0d7de; --accent: #0969da; --danger: #cf222e;
+  --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0d1117; --bg2: #161b22; --text: #c9d1d9; --text-dim: #6e7a8a; --border: #30363d; --accent: #58a6ff; }
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font: 15px/1.7 var(--font); background: var(--bg); color: var(--text); margin: 0; }
+#header { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 12px; padding: 12px 24px; background: var(--bg2); border-bottom: 1px solid var(--border); font-size: 13px; }
+#header .name { font-weight: 600; color: var(--text); }
+#header .meta { color: var(--text-dim); }
+#header .spacer { flex: 1; }
+#download-btn { padding: 5px 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); cursor: pointer; font-size: 13px; }
+#download-btn:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+#download-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+#content { max-width: 800px; margin: 0 auto; padding: 32px 24px; }
+#content h1 { font-size: 1.6em; margin: 1em 0 0.5em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
+#content h2 { font-size: 1.3em; margin: 1em 0 0.4em; }
+#content h3 { font-size: 1.1em; margin: 0.8em 0 0.3em; }
+#content p { margin: 0.6em 0; }
+#content ul, #content ol { padding-left: 22px; margin: 0.5em 0; }
+#content li { margin: 0.25em 0; }
+#content pre { background: var(--bg2); padding: 14px; border-radius: 6px; overflow-x: auto; margin: 10px 0; font-size: 13px; line-height: 1.5; border: 1px solid var(--border); }
+#content code { background: var(--bg2); padding: 2px 6px; border-radius: 4px; font-family: var(--mono); font-size: 0.9em; }
+#content pre code { background: none; padding: 0; }
+#content blockquote { border-left: 3px solid var(--accent); padding-left: 12px; margin: 8px 0; color: var(--text-dim); }
+#content table { border-collapse: collapse; margin: 10px 0; font-size: 14px; width: 100%; display: block; overflow-x: auto; }
+#content th, #content td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+#content th { background: var(--bg2); font-weight: 600; }
+#content a { color: var(--accent); text-decoration: none; }
+#content a:hover { text-decoration: underline; }
+#content hr { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+#content img { max-width: 100%; }
+#empty-state { max-width: 500px; margin: 80px auto; text-align: center; color: var(--text-dim); }
+#empty-state .icon { font-size: 48px; margin-bottom: 16px; opacity: 0.5; }
+#empty-state h2 { font-size: 20px; color: var(--text); margin-bottom: 8px; }
+#empty-state p { font-size: 14px; line-height: 1.6; }
+#loading { text-align: center; padding: 80px; color: var(--text-dim); }
+.spinner { display: inline-block; width: 20px; height: 20px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }

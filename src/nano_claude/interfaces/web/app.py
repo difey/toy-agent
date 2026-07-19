@@ -1,14 +1,18 @@
 """Web UI server for nanoClaude — FastAPI app factory + Uvicorn startup."""
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from nano_claude.core.agent import Agent
 from nano_claude.infra.session import Session
 
 from nano_claude.interfaces.web.routers import chat, pages, sessions, setup, system
 from nano_claude.interfaces.web.state import state
+
+_DIST_ASSETS_DIR = Path(__file__).resolve().parent / "static" / "dist" / "assets"
 
 
 @asynccontextmanager
@@ -24,6 +28,7 @@ def create_app() -> FastAPI:
         version="0.2.0",
         lifespan=lifespan,
     )
+    app.mount("/static/dist/assets", StaticFiles(directory=_DIST_ASSETS_DIR, check_dir=False), name="web-dist-assets")
     app.include_router(pages.router)
     app.include_router(system.router)
     app.include_router(sessions.router)
@@ -62,7 +67,7 @@ def start_web_ui(
         print(f"\n  🌐 Web UI started at {url} (setup mode — configure via browser)")
     if open_browser:
         webbrowser.open(url)
-    print(f"  Press Ctrl+C to stop.\n")
+    print("  Press Ctrl+C to stop.\n")
 
     import uvicorn
     uvicorn.run(

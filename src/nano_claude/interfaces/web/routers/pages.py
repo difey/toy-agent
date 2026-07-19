@@ -1,6 +1,6 @@
-"""HTML page routes — serves the bundled single-page app and static pages."""
+"""HTML page routes — serves the built React frontend pages."""
 
-from importlib.resources import files
+from pathlib import Path
 
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
@@ -9,37 +9,29 @@ from nano_claude.interfaces.web.services.setup_service import needs_setup
 
 router = APIRouter()
 
-
-def _get_index_html() -> str:
-    """Read the index.html bundled with the package."""
-    return (files("nano_claude.interfaces.web.static") / "index.html").read_text(encoding="utf-8")
+_DIST_DIR = Path(__file__).resolve().parent.parent / "static" / "dist"
 
 
-def _get_setup_html() -> str:
-    """Read the setup.html bundled with the package."""
-    return (files("nano_claude.interfaces.web.static") / "setup.html").read_text(encoding="utf-8")
-
-
-def _get_plan_view_html() -> str:
-    """Read the plan-view.html bundled with the package."""
-    return (files("nano_claude.interfaces.web.static") / "plan-view.html").read_text(encoding="utf-8")
+def _read_dist_html(filename: str) -> str:
+    """Read a built HTML page from the bundled Vite dist output."""
+    return (_DIST_DIR / filename).read_text(encoding="utf-8")
 
 
 @router.get("/")
 async def index() -> HTMLResponse:
-    """Serve the single-page app. Redirect to setup if not configured."""
+    """Serve the main app. Redirect to setup content if not configured."""
     if needs_setup():
-        return HTMLResponse(content=_get_setup_html())
-    return HTMLResponse(content=_get_index_html())
+        return HTMLResponse(content=_read_dist_html("setup.html"))
+    return HTMLResponse(content=_read_dist_html("index.html"))
 
 
 @router.get("/setup")
 async def setup_page() -> HTMLResponse:
     """Serve the setup wizard page."""
-    return HTMLResponse(content=_get_setup_html())
+    return HTMLResponse(content=_read_dist_html("setup.html"))
 
 
 @router.get("/plan-view")
 async def plan_view() -> HTMLResponse:
-    """Serve a standalone page that displays the latest plan document."""
-    return HTMLResponse(content=_get_plan_view_html())
+    """Serve the standalone plan document viewer."""
+    return HTMLResponse(content=_read_dist_html("plan-view.html"))

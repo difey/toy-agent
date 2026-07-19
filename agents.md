@@ -36,7 +36,7 @@ src/nano_claude/
 │   ├── cli.py            # CLI entrypoint, session init (auto-resume last session)
 │   ├── ui.py              # Interactive TUI (prompt_toolkit), mode switching, "执行" workflow
 │   ├── webui.py           # Web UI server (FastAPI + SSE)
-│   └── web/static/        # Web UI frontend assets (index.html, setup.html, plan-view.html)
+│   └── web/static/        # Built web UI assets (served from static/dist/)
 └── tools/                # 14 tool implementations + .txt descriptions
 ```
 
