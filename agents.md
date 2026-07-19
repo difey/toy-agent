@@ -25,7 +25,7 @@ src/nano_claude/
 │   ├── path_utils.py     # Hallucinated-path correction, safe path resolution
 │   └── sub_agent.py      # Sub-agent manager (used by the delegate tool)
 ├── infra/                # External integrations
-│   ├── llm.py            # LLM client (OpenAI-compatible)
+│   ├── llm.py            # LLM client (multi-provider via litellm)
 │   ├── config.py         # Provider config detection (OpenAI/DeepSeek/Anthropic/Ollama)
 │   ├── session.py        # Session management, auto-compact, auto-title, persistence
 │   ├── session_service.py # Shared resume-or-create-session helper
@@ -75,6 +75,6 @@ prompt_toolkit full-screen TUI with state machine (INPUT → RUNNING → AWAITIN
 ## Development
 
 - Python 3.11+, [uv](https://docs.astral.sh/uv/) package manager
-- Key deps: `openai`, `click`, `rich`, `prompt-toolkit`, `httpx`, `markdownify`, `beautifulsoup4`, `fastapi`, `uvicorn`
+- Key deps: `litellm`, `click`, `rich`, `prompt-toolkit`, `httpx`, `markdownify`, `beautifulsoup4`, `fastapi`, `uvicorn`
 - Tests: `uv run -m pytest tests/ -v`
 - Build: `uv build`

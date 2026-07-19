@@ -1,8 +1,7 @@
-import asyncio
 import json
 from typing import AsyncIterator
 
-from openai import AsyncOpenAI, OpenAIError
+import litellm
 
 from nano_claude.core.message import (
     AssistantMessage,
@@ -18,6 +17,11 @@ from nano_claude.core.message import (
     UserMessage,
 )
 
+# litellm mirrors provider quirks (e.g. thinking-model reasoning traces) as
+# extra/unsupported params. Drop them instead of raising so any provider it
+# supports "just works" without per-provider special-casing here.
+litellm.drop_params = True
+
 
 def _get_reasoning(obj) -> str:
     if hasattr(obj, "reasoning_content") and obj.reasoning_content:
@@ -29,6 +33,14 @@ def _get_reasoning(obj) -> str:
 
 
 class LLMClient:
+    """Unified multi-provider LLM client built on top of the litellm SDK.
+
+    litellm dispatches `model` (optionally provider-prefixed, e.g.
+    "anthropic/claude-3-5-sonnet") to the right provider backend and
+    normalizes the request/response shape to the OpenAI chat completions
+    format, so provider-specific handling no longer needs to live here.
+    """
+
     def __init__(
         self,
         model: str = "gpt-4o",
@@ -37,27 +49,31 @@ class LLMClient:
         timeout: float = 60.0,
         max_retries: int = 2,
     ):
-        self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
         self.model = model
+        self.api_key = api_key
+        self.base_url = base_url
         self.timeout = timeout
         self.max_retries = max_retries
 
-    async def _call_with_timeout_and_retry(self, coro_fn, *args, **kwargs):
-        last_exc = None
-        for attempt in range(1, self.max_retries + 2):
-            try:
-                return await asyncio.wait_for(coro_fn(*args, **kwargs), timeout=self.timeout)
-            except asyncio.TimeoutError as exc:
-                last_exc = exc
-                if attempt > self.max_retries:
-                    raise
-                await asyncio.sleep(1 * attempt)
-            except OpenAIError as exc:
-                last_exc = exc
-                if attempt > self.max_retries:
-                    raise
-                await asyncio.sleep(1 * attempt)
-        raise last_exc
+    def _completion_kwargs(self, formatted: list[dict], tools: list[dict], **extra) -> dict:
+        kwargs: dict = dict(
+            model=self.model,
+            messages=formatted,
+            tools=tools,
+            tool_choice="auto",
+            temperature=0.0,
+            api_key=self.api_key,
+            timeout=self.timeout,
+            num_retries=self.max_retries,
+            **extra,
+        )
+        if self.base_url:
+            # Custom endpoints (self-hosted proxies, Ollama, OpenAI-compatible
+            # gateways, etc.) are addressed as OpenAI-compatible chat
+            # completions APIs.
+            kwargs["api_base"] = self.base_url
+            kwargs["custom_llm_provider"] = "openai"
+        return kwargs
 
     async def chat(
         self,
@@ -65,14 +81,7 @@ class LLMClient:
         tools: list[dict],
     ) -> AssistantMessage:
         formatted = self._format_messages(messages)
-        response = await self._call_with_timeout_and_retry(
-            self.client.chat.completions.create,
-            model=self.model,
-            messages=formatted, # type: ignore
-            tools=tools, # type: ignore
-            tool_choice="auto",
-            temperature=0.0,
-        )
+        response = await litellm.acompletion(**self._completion_kwargs(formatted, tools))
         choice = response.choices[0]
         reasoning = _get_reasoning(choice.message)
         return AssistantMessage(
@@ -88,31 +97,21 @@ class LLMClient:
             ],
         )
 
-    async def _aiter_with_timeout(self, stream):
-        while True:
-            try:
-                event = await asyncio.wait_for(stream.__anext__(), timeout=self.timeout)
-            except StopAsyncIteration:
-                return
-            yield event
-
     async def chat_stream(
         self,
         messages: list[Message],
         tools: list[dict],
     ) -> AsyncIterator[StreamChunk]:
         formatted = self._format_messages(messages)
-        stream = await self._call_with_timeout_and_retry(
-            self.client.chat.completions.create,
-            model=self.model,
-            messages=formatted, # type: ignore
-            tools=tools, # type: ignore
-            tool_choice="auto",
-            temperature=0.0,
-            stream=True,
-            stream_options={"include_usage": False},
-        ) # type: ignore
-        async for event in self._aiter_with_timeout(stream):
+        stream = await litellm.acompletion(
+            **self._completion_kwargs(
+                formatted,
+                tools,
+                stream=True,
+                stream_options={"include_usage": False},
+            )
+        )
+        async for event in stream:
             delta = event.choices[0].delta if event.choices else None
             if delta is None:
                 continue
