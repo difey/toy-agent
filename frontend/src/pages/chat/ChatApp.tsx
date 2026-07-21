@@ -92,6 +92,7 @@ export function ChatApp() {
   const chatContainerRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const customInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const newSessionRef = useRef<() => Promise<void>>(async () => {});
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -708,13 +709,23 @@ export function ChatApp() {
   }, [darkMode]);
 
   useEffect(() => {
+    newSessionRef.current = newSession;
+  }, [newSession]);
+
+  // Mount-only bootstrap. `newSession` is intentionally accessed via a ref
+  // instead of being listed as a dependency: its identity changes whenever
+  // `isStreaming` toggles, which previously caused this effect to tear down
+  // and re-run on every AI turn (closing the SSE connection and reloading
+  // messages from the last saved session), producing a visible flicker and
+  // dropping the just-sent user message until the turn finished.
+  useEffect(() => {
     void loadSessions();
     void loadCurrent();
 
     const handleGlobalKeydown = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && (event.key === 'k' || event.key === 'n')) {
         event.preventDefault();
-        void newSession();
+        void newSessionRef.current();
       }
     };
 
@@ -726,7 +737,7 @@ export function ChatApp() {
         window.clearTimeout(toastTimerRef.current);
       }
     };
-  }, [closeEventSource, loadCurrent, loadSessions, newSession]);
+  }, [closeEventSource, loadCurrent, loadSessions]);
 
   useEffect(() => {
     const element = inputRef.current;
