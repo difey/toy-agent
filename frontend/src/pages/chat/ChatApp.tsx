@@ -18,6 +18,19 @@ interface ChatResponse {
   response_id: string;
 }
 
+const SIDEBAR_WIDTH_STORAGE_KEY = 'sidebar-width';
+const MIN_SIDEBAR_WIDTH = 200;
+const MAX_SIDEBAR_WIDTH = 520;
+const DEFAULT_SIDEBAR_WIDTH = 280;
+
+function readStoredSidebarWidth(): number {
+  const stored = Number(localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY));
+  if (Number.isFinite(stored) && stored >= MIN_SIDEBAR_WIDTH && stored <= MAX_SIDEBAR_WIDTH) {
+    return stored;
+  }
+  return DEFAULT_SIDEBAR_WIDTH;
+}
+
 function detectSystemDark(): boolean {
   return window.matchMedia('(prefers-color-scheme: dark)').matches;
 }
@@ -54,6 +67,9 @@ export function ChatApp() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [inputText, setInputText] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(readStoredSidebarWidth);
+  const [isResizing, setIsResizing] = useState(false);
+  const resizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const [sessionTitle, setSessionTitle] = useState('nanoClaude');
   const [mode, setMode] = useState<Mode>('build');
   const [hasPlanDoc, setHasPlanDoc] = useState(false);
@@ -191,6 +207,49 @@ export function ChatApp() {
   const openPlanDoc = useCallback(() => {
     window.open('/plan-view', '_blank');
   }, []);
+
+  const handleResizeMove = useCallback((event: MouseEvent) => {
+    const state = resizeStateRef.current;
+    if (!state) {
+      return;
+    }
+    const delta = event.clientX - state.startX;
+    const nextWidth = Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, state.startWidth + delta));
+    setSidebarWidth(nextWidth);
+  }, []);
+
+  const handleResizeEnd = useCallback(() => {
+    resizeStateRef.current = null;
+    setIsResizing(false);
+    document.body.style.removeProperty('cursor');
+    document.body.style.removeProperty('user-select');
+    window.removeEventListener('mousemove', handleResizeMove);
+    window.removeEventListener('mouseup', handleResizeEnd);
+    setSidebarWidth((current) => {
+      localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(current));
+      return current;
+    });
+  }, [handleResizeMove]);
+
+  const handleResizeStart = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      resizeStateRef.current = { startX: event.clientX, startWidth: sidebarWidth };
+      setIsResizing(true);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      window.addEventListener('mousemove', handleResizeMove);
+      window.addEventListener('mouseup', handleResizeEnd);
+    },
+    [handleResizeEnd, handleResizeMove, sidebarWidth],
+  );
+
+  useEffect(() => {
+    return () => {
+      window.removeEventListener('mousemove', handleResizeMove);
+      window.removeEventListener('mouseup', handleResizeEnd);
+    };
+  }, [handleResizeEnd, handleResizeMove]);
 
   const openVSCode = useCallback(async () => {
     try {
@@ -688,7 +747,7 @@ export function ChatApp() {
     <div id="app">
       <div id="overlay" className={sidebarOpen ? 'show' : ''} onClick={() => setSidebarOpen(false)} />
 
-      <aside id="sidebar" className={sidebarOpen ? 'open' : ''}>
+      <aside id="sidebar" className={sidebarOpen ? 'open' : ''} style={{ width: sidebarWidth, minWidth: sidebarWidth }}>
         <div id="sidebar-header">
           <div className="top">
             <div>
@@ -752,6 +811,20 @@ export function ChatApp() {
           </button>
         </div>
       </aside>
+
+      <div
+        id="sidebar-resizer"
+        className={isResizing ? 'resizing' : ''}
+        onMouseDown={handleResizeStart}
+        onDoubleClick={() => {
+          setSidebarWidth(DEFAULT_SIDEBAR_WIDTH);
+          localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(DEFAULT_SIDEBAR_WIDTH));
+        }}
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize sidebar"
+        title="Drag to resize, double-click to reset"
+      />
 
       <div id="main">
         <div id="chat-header" className="visible">
