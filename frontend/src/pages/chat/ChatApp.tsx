@@ -25,6 +25,10 @@ const SIDEBAR_WIDTH_STORAGE_KEY = 'sidebar-width';
 const MIN_SIDEBAR_WIDTH = 200;
 const MAX_SIDEBAR_WIDTH = 520;
 const DEFAULT_SIDEBAR_WIDTH = 280;
+const WORKSPACE_WIDTH_STORAGE_KEY = 'workspace-width';
+const MIN_WORKSPACE_WIDTH = 240;
+const MAX_WORKSPACE_WIDTH = 560;
+const DEFAULT_WORKSPACE_WIDTH = 320;
 const TREE_INDENT_PER_LEVEL = 16;
 const TREE_FOLDER_BASE_INDENT = 12;
 const TREE_FILE_BASE_INDENT = 36;
@@ -36,12 +40,20 @@ const TIMESTAMP_FORMATTER = new Intl.DateTimeFormat(undefined, {
   minute: '2-digit',
   hour12: false,
 });
-function readStoredSidebarWidth(): number {
-  const stored = Number(localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY));
-  if (Number.isFinite(stored) && stored >= MIN_SIDEBAR_WIDTH && stored <= MAX_SIDEBAR_WIDTH) {
+function readStoredWidth(storageKey: string, minWidth: number, maxWidth: number, defaultWidth: number): number {
+  const stored = Number(localStorage.getItem(storageKey));
+  if (Number.isFinite(stored) && stored >= minWidth && stored <= maxWidth) {
     return stored;
   }
-  return DEFAULT_SIDEBAR_WIDTH;
+  return defaultWidth;
+}
+
+function readStoredSidebarWidth(): number {
+  return readStoredWidth(SIDEBAR_WIDTH_STORAGE_KEY, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH, DEFAULT_SIDEBAR_WIDTH);
+}
+
+function readStoredWorkspaceWidth(): number {
+  return readStoredWidth(WORKSPACE_WIDTH_STORAGE_KEY, MIN_WORKSPACE_WIDTH, MAX_WORKSPACE_WIDTH, DEFAULT_WORKSPACE_WIDTH);
 }
 
 function detectSystemDark(): boolean {
@@ -156,6 +168,9 @@ export function ChatApp() {
   const [sidebarWidth, setSidebarWidth] = useState(readStoredSidebarWidth);
   const [isResizing, setIsResizing] = useState(false);
   const resizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const [workspaceWidth, setWorkspaceWidth] = useState(readStoredWorkspaceWidth);
+  const [isWorkspaceResizing, setIsWorkspaceResizing] = useState(false);
+  const workspaceResizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const [sessionTitle, setSessionTitle] = useState('nanoClaude');
   const [mode, setMode] = useState<Mode>('build');
   const [planDocs, setPlanDocs] = useState<PlanDocListItem[]>([]);
@@ -329,12 +344,50 @@ export function ChatApp() {
     [handleResizeEnd, handleResizeMove, sidebarWidth],
   );
 
+  const handleWorkspaceResizeMove = useCallback((event: MouseEvent) => {
+    const state = workspaceResizeStateRef.current;
+    if (!state) {
+      return;
+    }
+    const delta = event.clientX - state.startX;
+    const nextWidth = Math.min(MAX_WORKSPACE_WIDTH, Math.max(MIN_WORKSPACE_WIDTH, state.startWidth - delta));
+    setWorkspaceWidth(nextWidth);
+  }, []);
+
+  const handleWorkspaceResizeEnd = useCallback(() => {
+    workspaceResizeStateRef.current = null;
+    setIsWorkspaceResizing(false);
+    document.body.style.removeProperty('cursor');
+    document.body.style.removeProperty('user-select');
+    window.removeEventListener('mousemove', handleWorkspaceResizeMove);
+    window.removeEventListener('mouseup', handleWorkspaceResizeEnd);
+    setWorkspaceWidth((current) => {
+      localStorage.setItem(WORKSPACE_WIDTH_STORAGE_KEY, String(current));
+      return current;
+    });
+  }, [handleWorkspaceResizeMove]);
+
+  const handleWorkspaceResizeStart = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      workspaceResizeStateRef.current = { startX: event.clientX, startWidth: workspaceWidth };
+      setIsWorkspaceResizing(true);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      window.addEventListener('mousemove', handleWorkspaceResizeMove);
+      window.addEventListener('mouseup', handleWorkspaceResizeEnd);
+    },
+    [handleWorkspaceResizeEnd, handleWorkspaceResizeMove, workspaceWidth],
+  );
+
   useEffect(() => {
     return () => {
       window.removeEventListener('mousemove', handleResizeMove);
       window.removeEventListener('mouseup', handleResizeEnd);
+      window.removeEventListener('mousemove', handleWorkspaceResizeMove);
+      window.removeEventListener('mouseup', handleWorkspaceResizeEnd);
     };
-  }, [handleResizeEnd, handleResizeMove]);
+  }, [handleResizeEnd, handleResizeMove, handleWorkspaceResizeEnd, handleWorkspaceResizeMove]);
 
   const openVSCode = useCallback(async () => {
     try {
@@ -1154,7 +1207,21 @@ export function ChatApp() {
         </div>
       </div>
 
-      <aside id="workspace-panel">
+      <div
+        id="workspace-resizer"
+        className={isWorkspaceResizing ? 'resizing' : ''}
+        onMouseDown={handleWorkspaceResizeStart}
+        onDoubleClick={() => {
+          setWorkspaceWidth(DEFAULT_WORKSPACE_WIDTH);
+          localStorage.setItem(WORKSPACE_WIDTH_STORAGE_KEY, String(DEFAULT_WORKSPACE_WIDTH));
+        }}
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize workspace panel"
+        title="Drag to resize, double-click to reset"
+      />
+
+      <aside id="workspace-panel" style={{ width: workspaceWidth, minWidth: workspaceWidth }}>
         <div className="workspace-panel-section">
           <div className="workspace-panel-header">Modified Files</div>
           <div className="workspace-panel-body">
