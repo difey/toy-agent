@@ -760,12 +760,7 @@ export function ChatApp() {
     });
   }, [commitMessages]);
 
-  const sendMessage = useCallback(async () => {
-    const text = inputText.trim();
-    if (!text || isStreaming) {
-      return;
-    }
-
+  const startChatStream = useCallback(async (text: string) => {
     resetFlowState();
     setInputText('');
     setIsStreaming(true);
@@ -1006,7 +1001,30 @@ export function ChatApp() {
       setIsStreaming(false);
       showToast(error instanceof Error ? error.message : 'Failed to send message');
     }
-  }, [closeEventSource, commitMessages, inputText, isStreaming, loadSessions, loadWorkspacePanel, resetFlowState, scheduleScrollBottom, showToast, updateLastAssistantMessage]);
+  }, [closeEventSource, commitMessages, loadSessions, loadWorkspacePanel, resetFlowState, scheduleScrollBottom, showToast, updateLastAssistantMessage]);
+
+  const sendMessage = useCallback(async () => {
+    const text = inputText.trim();
+    if (!text || isStreaming) {
+      return;
+    }
+    await startChatStream(text);
+  }, [inputText, isStreaming, startChatStream]);
+
+  const executePlan = useCallback(async (_planFilename: string) => {
+    if (isStreaming) return;
+
+    try {
+      const modeResult = await api<{ mode: Mode }>('POST', '/api/mode', { mode: 'build' });
+      setMode(modeResult.mode);
+      await loadCurrent();
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to switch mode');
+      return;
+    }
+
+    await startChatStream('请执行当前plan');
+  }, [isStreaming, loadCurrent, showToast, startChatStream]);
 
   const stopResponse = useCallback(async () => {
     try {
@@ -1068,6 +1086,15 @@ export function ChatApp() {
 
   const flowEntries = useMemo(() => Object.entries(subAgentFlows), [subAgentFlows]);
   const modifiedFileTree = useMemo(() => buildModifiedFileTree(modifiedFiles), [modifiedFiles]);
+
+  const unexecutedPlans = useMemo(() => {
+    return planDocs
+      .filter((doc) => doc.filename.endsWith('.md') && !doc.filename.endsWith('.md.resolved'))
+      .sort((a, b) => b.modified - a.modified);
+  }, [planDocs]);
+
+  const latestUnexecutedPlan = unexecutedPlans[0] ?? null;
+  const showBuildButton = mode === 'plan' && latestUnexecutedPlan !== null && inputText.trim() === '' && !isStreaming;
 
   useEffect(() => {
     setExpandedFolders((prev) => {
@@ -1387,9 +1414,15 @@ export function ChatApp() {
             </div>
 
             {!isStreaming ? (
-              <button id="send-btn" onClick={() => void sendMessage()} disabled={!inputText.trim()}>
-                发送
-              </button>
+              showBuildButton ? (
+                <button id="send-btn" onClick={() => void executePlan(latestUnexecutedPlan!.filename)} title={latestUnexecutedPlan!.filename}>
+                  ▶ 执行计划
+                </button>
+              ) : (
+                <button id="send-btn" onClick={() => void sendMessage()} disabled={!inputText.trim()}>
+                  发送
+                </button>
+              )
             ) : (
               <button id="stop-btn" onClick={() => void stopResponse()}>
                 ⏹ 停止
