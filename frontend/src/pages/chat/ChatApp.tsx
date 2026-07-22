@@ -39,7 +39,8 @@ const MIN_INPUT_AREA_HEIGHT = 180;
 const DEFAULT_INPUT_AREA_HEIGHT = 200;
 const INPUT_AREA_RESIZER_SIZE = 6;
 const MIN_CHAT_HEIGHT = 180;
-const BYTES_PER_KIB = 1024;
+const MAX_STORED_PANEL_HEIGHT = 2000;
+const BYTES_IN_KIBIBYTE = 1024;
 const TREE_INDENT_PER_LEVEL = 16;
 const TREE_FOLDER_BASE_INDENT = 12;
 const TREE_FILE_BASE_INDENT = 36;
@@ -68,11 +69,11 @@ function readStoredWorkspaceWidth(): number {
 }
 
 function readStoredPlanDocsHeight(): number {
-  return readStoredDimension(PLAN_DOCS_HEIGHT_STORAGE_KEY, MIN_PLAN_DOCS_HEIGHT, Number.MAX_SAFE_INTEGER, DEFAULT_PLAN_DOCS_HEIGHT);
+  return readStoredDimension(PLAN_DOCS_HEIGHT_STORAGE_KEY, MIN_PLAN_DOCS_HEIGHT, MAX_STORED_PANEL_HEIGHT, DEFAULT_PLAN_DOCS_HEIGHT);
 }
 
 function readStoredInputAreaHeight(): number {
-  return readStoredDimension(INPUT_AREA_HEIGHT_STORAGE_KEY, MIN_INPUT_AREA_HEIGHT, Number.MAX_SAFE_INTEGER, DEFAULT_INPUT_AREA_HEIGHT);
+  return readStoredDimension(INPUT_AREA_HEIGHT_STORAGE_KEY, MIN_INPUT_AREA_HEIGHT, MAX_STORED_PANEL_HEIGHT, DEFAULT_INPUT_AREA_HEIGHT);
 }
 
 function detectSystemDark(): boolean {
@@ -1326,7 +1327,7 @@ export function ChatApp() {
           title="Drag to resize, double-click to reset"
         />
 
-        <div id="input-area" style={{ flex: '0 0 auto', height: inputAreaHeight, minHeight: inputAreaHeight }}>
+        <div id="input-area" style={{ flex: '0 0 auto', height: inputAreaHeight }}>
           <div id="input-row">
             <textarea
               id="msg-input"
@@ -1416,7 +1417,7 @@ export function ChatApp() {
                 <button key={doc.filename} className="plan-doc-item" onClick={() => openPlanDoc(doc.filename)} type="button">
                   <div className="plan-doc-name">{doc.filename}</div>
                   <div className="plan-doc-meta">
-                    {formatModifiedTimestamp(doc.modified)} · {(doc.size / BYTES_PER_KIB).toFixed(1)} KiB
+                    {formatModifiedTimestamp(doc.modified)} · {(doc.size / BYTES_IN_KIBIBYTE).toFixed(1)} KiB
                   </div>
                 </button>
               ))
