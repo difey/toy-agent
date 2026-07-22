@@ -567,12 +567,9 @@ export function ChatApp() {
 
     const nextMode: Mode = mode === 'plan' ? 'build' : 'plan';
     try {
-      const result = await api<{ mode: Mode; collapsed_count?: number }>('POST', '/api/mode', { mode: nextMode });
+      const result = await api<{ mode: Mode }>('POST', '/api/mode', { mode: nextMode });
       setMode(result.mode);
       await loadCurrent();
-      if (result.collapsed_count && result.collapsed_count > 0) {
-        showToast(`🔄 已折叠 ${result.collapsed_count} 条重复的模式切换消息`);
-      }
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Failed to switch mode');
     }
