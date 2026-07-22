@@ -66,7 +66,11 @@ body { margin: 0; }
 #workspace-section-resizer { height: 6px; flex-shrink: 0; cursor: row-resize; background: transparent; position: relative; }
 #workspace-section-resizer::after { content: ''; position: absolute; left: 0; right: 0; top: 2px; height: 2px; background: transparent; transition: background 0.15s; }
 #workspace-section-resizer:hover::after, #workspace-section-resizer.resizing::after { background: var(--accent); }
-.workspace-panel-header { padding: 12px 14px; border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 700; color: var(--text-bright); text-transform: uppercase; letter-spacing: 0.04em; }
+.workspace-panel-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 700; color: var(--text-bright); text-transform: uppercase; letter-spacing: 0.04em; }
+.workspace-refresh-btn { background: none; border: 1px solid var(--border); border-radius: 4px; color: var(--text-dim); cursor: pointer; font-size: 14px; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; transition: all 0.15s; line-height: 1; padding: 0; flex-shrink: 0; }
+.workspace-refresh-btn:hover { background: var(--bg3); border-color: var(--accent); color: var(--accent); }
+.workspace-refresh-btn.spinning { animation: workspaceSpin 0.6s linear infinite; }
+@keyframes workspaceSpin { to { transform: rotate(360deg); } }
 .workspace-panel-body { flex: 1; overflow: auto; padding: 8px; }
 .workspace-panel-empty { padding: 12px; color: var(--text-dim); font-size: 12px; }
 .workspace-tree-row { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 30px; padding: 6px 8px; border: none; border-radius: var(--radius-sm); background: transparent; color: var(--text); font: inherit; text-align: left; }

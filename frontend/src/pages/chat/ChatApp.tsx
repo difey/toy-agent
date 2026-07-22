@@ -211,6 +211,7 @@ export function ChatApp() {
   const [questionAnswers, setQuestionAnswers] = useState<string[]>([]);
   const [customAnswer, setCustomAnswer] = useState('');
   const [activePermission, setActivePermission] = useState<PermissionRequest | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const messagesRef = useRef(messages);
   const activeQuestionRef = useRef(activeQuestion);
@@ -294,6 +295,20 @@ export function ChatApp() {
       showToast('Failed to load sessions');
     }
   }, [showToast]);
+
+  const refreshWorkspace = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      const data = await api<WorkspacePanelResponse>('GET', '/api/workspace-panel');
+      setPlanDocs(data.plan_docs ?? []);
+      setModifiedFiles(data.modified_files ?? []);
+    } catch {
+      setPlanDocs([]);
+      setModifiedFiles([]);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, []);
 
   const loadWorkspacePanel = useCallback(async () => {
     try {
@@ -1400,7 +1415,17 @@ export function ChatApp() {
 
       <aside id="workspace-panel" ref={workspacePanelRef} style={{ width: workspaceWidth, minWidth: workspaceWidth }}>
         <div className="workspace-panel-section">
-          <div className="workspace-panel-header">Modified Files</div>
+          <div className="workspace-panel-header">
+            <span>Modified Files</span>
+            <button
+              className={`workspace-refresh-btn ${isRefreshing ? 'spinning' : ''}`}
+              onClick={() => void refreshWorkspace()}
+              title="Refresh modified files and plan docs"
+              type="button"
+            >
+              ↻
+            </button>
+          </div>
           <div className="workspace-panel-body">
             {modifiedFileTree.length > 0 ? (
               renderedModifiedTree
@@ -1429,7 +1454,17 @@ export function ChatApp() {
           className="workspace-panel-section workspace-panel-plan-section"
           style={{ flex: '0 0 auto', height: planDocsHeight, minHeight: planDocsHeight }}
         >
-          <div className="workspace-panel-header">Plan Docs</div>
+          <div className="workspace-panel-header">
+            <span>Plan Docs</span>
+            <button
+              className={`workspace-refresh-btn ${isRefreshing ? 'spinning' : ''}`}
+              onClick={() => void refreshWorkspace()}
+              title="Refresh modified files and plan docs"
+              type="button"
+            >
+              ↻
+            </button>
+          </div>
           <div className="workspace-panel-body">
             {planDocs.length > 0 ? (
               planDocs.map((doc) => (
