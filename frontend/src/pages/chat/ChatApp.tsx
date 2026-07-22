@@ -472,9 +472,8 @@ export function ChatApp() {
     if (!state) {
       return;
     }
-    // The input area sits at the bottom of the middle panel, so dragging downward should increase its height.
     const delta = event.clientY - state.startY;
-    setInputAreaHeight(clampInputAreaHeight(state.startHeight + delta));
+    setInputAreaHeight(clampInputAreaHeight(state.startHeight - delta));
   }, [clampInputAreaHeight]);
 
   const handleInputAreaResizeEnd = useCallback(() => {
