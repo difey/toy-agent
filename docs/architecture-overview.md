@@ -3,7 +3,7 @@
 > Agent loop, plan/build modes, system prompts, and mode switching.
 > Last updated: 2026-04-30
 
-## Agent Loop (`agent.py`)
+## Agent Loop (`core/agent.py`)
 
 `Agent.run()` / `Agent.run_stream()` implement the core loop:
 
@@ -46,7 +46,7 @@ The agent supports two operational modes:
 
 ### Plan Mode Restrictions
 
-Defined in `agent.py`:
+Defined in `core/agent.py`:
 
 ```python
 PLAN_MODE_TOOLS = {"read", "write", "edit", "glob", "grep", "question", "todowrite"}
@@ -68,7 +68,7 @@ Mode switching preserves the full conversation history. When switching from plan
 
 ### "执行" Workflow
 
-Located in `ui.py` — `_handle_submit()`:
+Located in `interfaces/cli/ui.py` — `_handle_submit()`:
 
 1. After each plan mode agent response, `_find_latest_plan()` scans `cwd` for `.md` files (excluding README.md, agents.md, etc.)
 2. The newest `.md` plan content is auto-appended to the output
@@ -80,14 +80,14 @@ Located in `ui.py` — `_handle_submit()`:
 
 ### Mode Switching (TUI)
 
-Commands in `ui.py`:
+Commands in `interfaces/cli/ui.py`:
 
 - `/plan` → `Agent.set_mode("plan")` + insert transition message
 - `/build` → `Agent.set_mode("build")` + insert transition message
 
 ### Mode Switching (Web UI)
 
-API endpoint `POST /api/mode` in `webui.py`:
+API endpoint `POST /api/mode` in `interfaces/web/routers/system.py`:
 
 ```python
 _state.agent.set_mode(mode)

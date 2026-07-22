@@ -4,7 +4,9 @@ import re
 import shlex
 from typing import Optional
 
-from nano_claude.tool import Tool, ToolContext, ToolExecResult, resolve_safe_path
+from nano_claude.core.tool_contracts import ToolContext, ToolExecResult
+from nano_claude.core.tool_registry import Tool
+from nano_claude.core.path_utils import resolve_safe_path
 from nano_claude.tools.bash_review import (
     BashReviewResult,
     detect_external_dir_operation,

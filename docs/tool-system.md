@@ -5,7 +5,7 @@
 
 ## Overview
 
-The tool system is defined in `src/nano_claude/tool.py` with individual tool implementations in `src/nano_claude/tools/`.
+The tool system is defined in `src/nano_claude/core/tool_contracts.py` & `src/nano_claude/core/tool_registry.py` with individual tool implementations in `src/nano_claude/tools/`.
 
 ## Architecture
 
@@ -82,7 +82,7 @@ The year parameter in `get_tools_prompt(year)` is used for date-sensitive descri
 
 ## Registration
 
-Tools are registered in `cli.py`:
+Tools are registered in `interfaces/cli/cli.py`:
 
 ```python
 def _build_registry() -> ToolRegistry:
@@ -109,6 +109,6 @@ When the LLM returns tool calls:
 
 1. Create `<name>.py` in `src/nano_claude/tools/` with a class extending `BaseTool`
 2. Create `<name>.txt` with the tool description (for system prompt)
-3. Register in `cli.py` → `_build_registry()`
+3. Register in `interfaces/cli/cli.py` → `_build_registry()`
 4. Add to `tools/__init__.py`
-5. Add tests in `tests/test_agent.py`
+5. Add tests in `tests/tools/`

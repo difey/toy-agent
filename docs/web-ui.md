@@ -1,15 +1,58 @@
 # Web UI
 
-> FastAPI server, SSE streaming, and bundled single-page frontend.
-> Last updated: 2026-04-30
+> FastAPI server, SSE streaming, and a bundled React frontend.
+> Last updated: 2026-07-19
 
 ## Overview
 
-The Web UI is a **FastAPI server** with **SSE streaming** and a bundled single-page HTML frontend (`index.html`). It provides a browser-based alternative to the TUI, with session management, mode switching, and real-time AI response streaming.
+The Web UI is a **FastAPI server** with **SSE streaming** and a **React + Vite multi-page frontend**. It provides a browser-based alternative to the TUI, with session management, mode switching, setup flow, and real-time AI response streaming.
 
-Located in `src/nano_claude/webui.py`, frontend bundled in `src/nano_claude/index.html`.
+Source code lives in `src/nano_claude/interfaces/web/` for the backend and `frontend/` for the React app. Production assets are built into `src/nano_claude/interfaces/web/static/dist/`, and FastAPI serves those built files directly.
 
 ## Server Architecture
+
+### Module Layout
+
+```
+frontend/
+├── index.html                 ← Vite entry for the main chat app
+├── setup.html                 ← Vite entry for the setup wizard
+├── plan-view.html             ← Vite entry for the plan viewer
+├── vite.config.ts             ← multi-page Vite build config
+└── src/
+    ├── pages/
+    │   ├── chat/              ← main chat page React entry + components
+    │   ├── setup/             ← setup wizard React entry + components
+    │   └── plan-view/         ← plan viewer React entry + components
+    ├── shared/                ← API helpers, shared types, markdown renderer
+    └── styles/                ← ported page styles
+
+src/nano_claude/interfaces/web/
+├── app.py                     ← FastAPI app factory; mounts built asset chunks
+├── state.py                   ← WebAppState class + shared `state` singleton
+├── models.py                  ← Pydantic request/response models
+├── serializers.py             ← core message → API dict conversion
+├── routers/
+│   ├── pages.py               ← GET /, /setup, /plan-view (serves built HTML)
+│   ├── system.py              ← health, mode, vscode, plan-doc, current
+│   ├── sessions.py            ← session CRUD
+│   ├── setup.py               ← setup wizard endpoints
+│   └── chat.py                ← chat, stop, events (SSE), question/permission responses
+└── services/
+    ├── chat_service.py        ← wires core Agent callbacks to SSE events
+    ├── setup_service.py       ← builds/updates the core Agent from config
+    └── plan_service.py        ← reads/resolves the latest plan markdown
+```
+
+Routers only handle HTTP concerns (request parsing, status codes) and delegate business logic to `services/`, which in turn drive the `core.Agent` and `infra` session helpers.
+
+### Built asset serving
+
+- `frontend/` is the editable source for the web UI.
+- `npm run build` emits static files into `src/nano_claude/interfaces/web/static/dist/`.
+- `app.py` mounts `static/dist/assets/` for JS/CSS chunks.
+- `pages.py` reads and returns the built `index.html`, `setup.html`, and `plan-view.html`.
+- The `/` route still preserves the existing `needs_setup()` behavior by serving setup content when the user has not configured nanoClaude yet.
 
 ### WebAppState
 
@@ -28,7 +71,9 @@ Shared mutable state (`WebAppState` class) holds:
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/` | Serve the single-page app (`index.html`) |
+| `GET` | `/` | Serve the main chat app, or setup if configuration is still required |
+| `GET` | `/setup` | Serve the setup wizard |
+| `GET` | `/plan-view` | Serve the standalone plan viewer |
 | `GET` | `/api/health` | Health check |
 | `GET` | `/api/mode` | Get current mode (plan/build) |
 | `POST` | `/api/mode` | Set mode (plan/build) |
@@ -71,32 +116,45 @@ Shared mutable state (`WebAppState` class) holds:
 
 ```python
 async def on_text(text: str):
-    await _state.push_event("message", {"role": "assistant", "type": "text", "content": text})
+    await state.push_event("message", {"role": "assistant", "type": "text", "content": text})
 
 async def on_tool_start(call: ToolCall):
-    await _state.push_event("message", {
+    await state.push_event("message", {
         "role": "assistant", "type": "tool_start",
         "name": call.name, "arguments": call.arguments,
     })
 
 async def on_tool_end(name, title, output):
-    await _state.push_event("message", {
+    await state.push_event("message", {
         "role": "tool", "type": "tool_result",
         "name": name, "content": output,
     })
 ```
 
-## Frontend (`index.html`)
+## Frontend
 
-Single-page HTML application with:
+The React frontend preserves the existing UX and API contract while moving the implementation into typed modules:
 
-- **Left sidebar** — lists all saved sessions; click to switch, ✕ to delete, "+ New Session" to start fresh
-- **Waterfall chat** — user messages (right-aligned, blue), assistant responses with Markdown rendering (code blocks, lists, bold/italic, links), tool calls and results shown as cards
-- **Real-time streaming** — AI responses and tool outputs stream in via SSE
-- **Send shortcut** — `⌘+Enter` (Mac) or `Ctrl+Enter` (Windows/Linux); plain `Enter` inserts a newline
-- **Dark/Light theme** — auto-detects system preference, toggle with ☀️/🌙 button
-- **Mode toggle** — plan/build mode switch button in header
-- **Stop button** — while AI is responding, the send button changes to a red stop button (⏹ 停止). Clicking it sends `POST /api/stop`, which cancels the background asyncio Task. The `CancelledError` is caught in `_execute_chat()`, a `done` event is pushed, and the session is saved — preserving all content (text + completed tool results) that was generated before cancellation.
+- **Main chat app** — sidebar session management, waterfall chat, markdown-rendered assistant replies, tool cards, sub-agent flow panels, stop button, theme toggle, mobile sidebar, toast notifications, question dialogs, permission dialogs, and keyboard shortcuts
+- **Setup wizard** — 3-step model/API key flow backed by `/api/setup-status` and `/api/setup`
+- **Plan viewer** — standalone markdown page backed by `/api/plan-doc`, including download support
+- **Markdown rendering** — uses npm packages [`marked`](https://github.com/markedjs/marked) and [`DOMPurify`](https://github.com/cure53/DOMPurify), bundled by Vite instead of loaded from CDNs
+
+## Building the frontend
+
+```bash
+cd frontend
+npm install
+npm run build
+```
+
+This writes the production bundle to:
+
+```text
+src/nano_claude/interfaces/web/static/dist/
+```
+
+Because Python packaging does not run a frontend build automatically, the built `static/dist/` output must remain checked into the repository for releases and installs.
 
 ## Session Persistence
 
@@ -104,7 +162,7 @@ Session is saved to disk after each chat round:
 
 ```python
 # In _execute_chat() finally block:
-save_current(session, _state.session_file_ref[0])
+save_current(session, state.session_file_ref[0])
 ```
 
 This ensures the session is always up-to-date even if the server is stopped abruptly.

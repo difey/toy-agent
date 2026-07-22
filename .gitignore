@@ -12,3 +12,7 @@ build/
 uv.lock
 
 .session/
+frontend/node_modules/
+frontend/dist/
+!src/nano_claude/interfaces/web/static/dist/
+!src/nano_claude/interfaces/web/static/dist/**

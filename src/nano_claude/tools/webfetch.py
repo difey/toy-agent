@@ -4,7 +4,8 @@ import httpx
 from bs4 import BeautifulSoup
 from markdownify import markdownify
 
-from nano_claude.tool import Tool, ToolContext, ToolExecResult
+from nano_claude.core.tool_contracts import ToolContext, ToolExecResult
+from nano_claude.core.tool_registry import Tool
 
 MAX_SIZE = 5 * 1024 * 1024
 DEFAULT_TIMEOUT = 30.0

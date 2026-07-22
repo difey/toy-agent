@@ -1,7 +1,8 @@
 import json
 import os
 
-from nano_claude.tool import Tool, ToolContext, ToolExecResult
+from nano_claude.core.tool_contracts import ToolContext, ToolExecResult
+from nano_claude.core.tool_registry import Tool
 
 
 TODO_STORE_FILE = os.path.join(
