@@ -162,6 +162,17 @@ button.workspace-tree-row { cursor: pointer; }
 .sub-agent-placeholder { padding: 10px; color: var(--text-dim); font-size: 11px; text-align: center; }
 .sub-agent-section-label { font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
 
+.msg-group { margin-bottom: 16px; }
+.thinking-bubble { margin: 12px 0; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--tool-bg); width: 100%; border-left: 3px solid var(--accent3); }
+.thinking-bubble-header { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: var(--bg3); font-size: 13px; cursor: pointer; user-select: none; color: var(--text-dim); transition: background 0.12s; }
+.thinking-bubble-header:hover { background: var(--bg2); color: var(--text-bright); }
+.thinking-bubble-header .collapse-arrow { font-size: 10px; color: var(--text-dim); transition: transform 0.15s; flex-shrink: 0; width: 14px; text-align: center; }
+.thinking-bubble-icon { flex-shrink: 0; font-size: 14px; }
+.thinking-bubble-label { font-weight: 600; color: var(--accent3); }
+.thinking-bubble-count { font-weight: 400; font-size: 11px; color: var(--text-dim); font-family: var(--mono); }
+.thinking-bubble-body { padding: 6px 14px 14px; max-height: 60vh; overflow-y: auto; }
+.thinking-bubble-body .msg:last-child { margin-bottom: 0; }
+
 .code-header { display: flex; justify-content: flex-end; padding: 4px 8px; background: var(--bg3); border-bottom: 1px solid var(--border); }
 .copy-btn { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 11px; padding: 2px 8px; border-radius: 3px; font-family: var(--font); }
 .copy-btn:hover { background: var(--bg2); color: var(--text); }

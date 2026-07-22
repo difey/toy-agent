@@ -178,6 +178,56 @@ function collectFolderPaths(nodes: FileTreeNode[]): string[] {
   ));
 }
 
+interface MessageSegment {
+  key: string;
+  userMessage: { message: ChatMessage; index: number } | null;
+  foldingMessages: { message: ChatMessage; index: number }[];
+  lastMessage: { message: ChatMessage; index: number } | null;
+}
+
+function buildMessageSegments(messages: ChatMessage[]): MessageSegment[] {
+  if (messages.length === 0) return [];
+
+  const segments: MessageSegment[] = [];
+  const finalize = (key: string, userMsg: ChatMessage | null, msgs: ChatMessage[], startIdx: number) => {
+    const mapped = msgs.map((m, i) => ({ message: m, index: startIdx + i }));
+    if (mapped.length <= 1) {
+      segments.push({ key, userMessage: userMsg ? { message: userMsg, index: startIdx - 1 } : null, foldingMessages: [], lastMessage: mapped[0] ?? null });
+    } else {
+      segments.push({
+        key,
+        userMessage: userMsg ? { message: userMsg, index: startIdx - 1 } : null,
+        foldingMessages: mapped.slice(0, -1),
+        lastMessage: mapped[mapped.length - 1],
+      });
+    }
+  };
+
+  let segUser: ChatMessage | null = null;
+  let segMsgs: ChatMessage[] = [];
+  let segStartIdx = 0;
+  let segCount = 0;
+
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    if (msg.role === 'user' && msg.type === 'text') {
+      if (segUser !== null || segMsgs.length > 0) {
+        finalize(`seg-${segCount++}`, segUser, segMsgs, segStartIdx);
+      }
+      segUser = msg;
+      segMsgs = [];
+      segStartIdx = i + 1;
+    } else {
+      segMsgs.push(msg);
+    }
+  }
+  if (segUser !== null || segMsgs.length > 0) {
+    finalize(`seg-${segCount}`, segUser, segMsgs, segStartIdx);
+  }
+
+  return segments;
+}
+
 export function ChatApp() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -205,6 +255,7 @@ export function ChatApp() {
   const [darkMode, setDarkMode] = useState(readStoredTheme);
   const [toast, setToast] = useState({ visible: false, message: '' });
   const [collapsedCards, setCollapsedCards] = useState<Record<number, boolean>>({});
+  const [collapsedThinkingSections, setCollapsedThinkingSections] = useState<Record<string, boolean>>({});
   const [subAgentFlows, setSubAgentFlows] = useState<Record<string, SubAgentFlow>>({});
   const [delegateFlowMap, setDelegateFlowMap] = useState<Record<number, string>>({});
   const [activeQuestion, setActiveQuestion] = useState<QuestionDialog | null>(null);
@@ -268,6 +319,7 @@ export function ChatApp() {
   const resetFlowState = useCallback(() => {
     setSubAgentFlows({});
     setDelegateFlowMap({});
+    setCollapsedThinkingSections({});
     delegateFlowCounterRef.current = 0;
   }, []);
 
@@ -595,6 +647,13 @@ export function ChatApp() {
       const current = prev[index];
       return { ...prev, [index]: current === undefined ? false : !current };
     });
+  }, []);
+
+  const toggleThinkingSection = useCallback((key: string) => {
+    setCollapsedThinkingSections((prev) => ({
+      ...prev,
+      [key]: prev[key] === undefined ? false : !prev[key],
+    }));
   }, []);
 
   const newSession = useCallback(async () => {
@@ -1085,6 +1144,7 @@ export function ChatApp() {
   }, [messages, subAgentFlows, isStreaming, activeQuestion, activePermission, scheduleScrollBottom]);
 
   const flowEntries = useMemo(() => Object.entries(subAgentFlows), [subAgentFlows]);
+  const segments = useMemo(() => buildMessageSegments(messages), [messages]);
   const modifiedFileTree = useMemo(() => buildModifiedFileTree(modifiedFiles), [modifiedFiles]);
 
   const unexecutedPlans = useMemo(() => {
@@ -1143,6 +1203,76 @@ export function ChatApp() {
     })
   ), [expandedFolders, toggleFolder]);
   const renderedModifiedTree = useMemo(() => renderTreeNodes(modifiedFileTree), [modifiedFileTree, renderTreeNodes]);
+
+  const renderMessageNode = useCallback(
+    (message: ChatMessage, index: number): ReactNode => {
+      const flowId = delegateFlowMap[index] || null;
+      const flowVisible = flowId ? subAgentFlows[flowId]?.visible : false;
+
+      return (
+        <div key={`${message.role}-${message.type}-${index}`} className={`msg ${message.role || 'assistant'}`}>
+          {message.role === 'user' && message.type === 'text' ? (
+            <div className="bubble">{message.content}</div>
+          ) : null}
+
+          {message.role === 'assistant' && message.type === 'text' ? (
+            <div className="bubble" dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }} />
+          ) : null}
+
+          {message.type === 'tool_start' ? (
+            <div className="tool-card args">
+              <div className="tool-card-header" onClick={() => toggleCard(index)}>
+                <span className="collapse-arrow">{collapsedCards[index] !== false ? '▸' : '▾'}</span>
+                <span className="badge run">▶ {message.name}</span>
+                <span style={{ color: 'var(--text-dim)' }}>tool call</span>
+              </div>
+              {collapsedCards[index] !== false ? null : (
+                <div className="tool-card-body">{JSON.stringify(message.arguments ?? {}, null, 2)}</div>
+              )}
+            </div>
+          ) : null}
+
+          {message.type === 'tool_result' ? (
+            <div className="tool-card result">
+              <div className="tool-card-header" onClick={() => toggleCard(index)}>
+                <span className="collapse-arrow">{collapsedCards[index] !== false ? '▸' : '▾'}</span>
+                <span className="badge done">✔ {message.name || message.title || 'done'}</span>
+                <span style={{ color: 'var(--text-dim)' }}>result</span>
+                {message.name === 'delegate' ? (
+                  <button
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      toggleSubAgentFlow(flowId);
+                    }}
+                    style={{
+                      marginLeft: 'auto',
+                      background: 'none',
+                      border: '1px solid var(--border)',
+                      borderRadius: 4,
+                      color: flowVisible ? 'var(--accent)' : 'var(--text-dim)',
+                      borderColor: flowVisible ? 'var(--accent)' : 'var(--border)',
+                      cursor: 'pointer',
+                      fontSize: 11,
+                      padding: '2px 8px',
+                      transition: 'all 0.12s',
+                      whiteSpace: 'nowrap',
+                    }}
+                    title={flowVisible ? 'Hide sub-agent execution flow' : 'Show sub-agent execution flow'}
+                  >
+                    {flowVisible ? '▲ Hide Agents' : '▼ Show Agents'}
+                  </button>
+                ) : null}
+              </div>
+              {collapsedCards[index] !== false ? null : (
+                <div className="tool-card-body">{truncate(message.content || '', 2000)}</div>
+              )}
+            </div>
+          ) : null}
+        </div>
+      );
+    },
+    [collapsedCards, delegateFlowMap, subAgentFlows, toggleCard, toggleSubAgentFlow],
+  );
 
   return (
     <div id="app">
@@ -1247,72 +1377,26 @@ export function ChatApp() {
               </div>
             </div>
           ) : (
-            messages.map((message, index) => {
-              const flowId = delegateFlowMap[index] || null;
-              const flowVisible = flowId ? subAgentFlows[flowId]?.visible : false;
-
-              return (
-                <div key={`${message.role}-${message.type}-${index}`} className={`msg ${message.role || 'assistant'}`}>
-                  {message.role === 'user' && message.type === 'text' ? (
-                    <div className="bubble">{message.content}</div>
-                  ) : null}
-
-                  {message.role === 'assistant' && message.type === 'text' ? (
-                    <div className="bubble" dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }} />
-                  ) : null}
-
-                  {message.type === 'tool_start' ? (
-                    <div className="tool-card args">
-                      <div className="tool-card-header" onClick={() => toggleCard(index)}>
-                        <span className="collapse-arrow">{collapsedCards[index] !== false ? '▸' : '▾'}</span>
-                        <span className="badge run">▶ {message.name}</span>
-                        <span style={{ color: 'var(--text-dim)' }}>tool call</span>
-                      </div>
-                      {collapsedCards[index] !== false ? null : (
-                        <div className="tool-card-body">{JSON.stringify(message.arguments ?? {}, null, 2)}</div>
-                      )}
-                    </div>
-                  ) : null}
-
-                  {message.type === 'tool_result' ? (
-                    <div className="tool-card result">
-                      <div className="tool-card-header" onClick={() => toggleCard(index)}>
-                        <span className="collapse-arrow">{collapsedCards[index] !== false ? '▸' : '▾'}</span>
-                        <span className="badge done">✔ {message.name || message.title || 'done'}</span>
-                        <span style={{ color: 'var(--text-dim)' }}>result</span>
-                        {message.name === 'delegate' ? (
-                          <button
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              toggleSubAgentFlow(flowId);
-                            }}
-                            style={{
-                              marginLeft: 'auto',
-                              background: 'none',
-                              border: '1px solid var(--border)',
-                              borderRadius: 4,
-                              color: flowVisible ? 'var(--accent)' : 'var(--text-dim)',
-                              borderColor: flowVisible ? 'var(--accent)' : 'var(--border)',
-                              cursor: 'pointer',
-                              fontSize: 11,
-                              padding: '2px 8px',
-                              transition: 'all 0.12s',
-                              whiteSpace: 'nowrap',
-                            }}
-                            title={flowVisible ? 'Hide sub-agent execution flow' : 'Show sub-agent execution flow'}
-                          >
-                            {flowVisible ? '▲ Hide Agents' : '▼ Show Agents'}
-                          </button>
-                        ) : null}
-                      </div>
-                      {collapsedCards[index] !== false ? null : (
-                        <div className="tool-card-body">{truncate(message.content || '', 2000)}</div>
-                      )}
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })
+            segments.map((seg) => (
+              <div key={seg.key} className="msg-group">
+                {seg.userMessage ? renderMessageNode(seg.userMessage.message, seg.userMessage.index) : null}
+                {seg.foldingMessages.length > 0 ? (
+                  <ThinkingBubble
+                    segmentKey={seg.key}
+                    messages={seg.foldingMessages}
+                    collapsed={collapsedThinkingSections[seg.key] !== false}
+                    onToggle={toggleThinkingSection}
+                    collapsedCards={collapsedCards}
+                    onToggleCard={toggleCard}
+                    delegateFlowMap={delegateFlowMap}
+                    subAgentFlows={subAgentFlows}
+                    onToggleSubAgentFlow={toggleSubAgentFlow}
+                    truncate={truncate}
+                  />
+                ) : null}
+                {seg.lastMessage ? renderMessageNode(seg.lastMessage.message, seg.lastMessage.index) : null}
+              </div>
+            ))
           )}
         </div>
 
@@ -1674,4 +1758,106 @@ function SubAgentEventCard({ event }: { event: SubAgentEvent }) {
   }
 
   return null;
+}
+
+function ThinkingBubble({
+  segmentKey,
+  messages,
+  collapsed,
+  onToggle,
+  collapsedCards,
+  onToggleCard,
+  delegateFlowMap,
+  subAgentFlows,
+  onToggleSubAgentFlow,
+  truncate,
+}: {
+  segmentKey: string;
+  messages: { message: ChatMessage; index: number }[];
+  collapsed: boolean;
+  onToggle: (key: string) => void;
+  collapsedCards: Record<number, boolean>;
+  onToggleCard: (index: number) => void;
+  delegateFlowMap: Record<number, string>;
+  subAgentFlows: Record<string, SubAgentFlow>;
+  onToggleSubAgentFlow: (flowId: string | null) => void;
+  truncate: (text: string, max: number) => string;
+}) {
+  const count = messages.length;
+
+  return (
+    <div className="thinking-bubble">
+      <div className="thinking-bubble-header" onClick={() => onToggle(segmentKey)}>
+        <span className="collapse-arrow">{collapsed ? '▸' : '▾'}</span>
+        <span className="thinking-bubble-icon">💭</span>
+        <span className="thinking-bubble-label">思考过程</span>
+        <span className="thinking-bubble-count">({count} 条消息)</span>
+      </div>
+      {!collapsed ? (
+        <div className="thinking-bubble-body">
+          {messages.map(({ message, index }) => (
+            <div key={`${message.role}-${message.type}-${index}`} className={`msg ${message.role || 'assistant'}`}>
+              {message.role === 'user' && message.type === 'text' ? (
+                <div className="bubble">{message.content}</div>
+              ) : null}
+
+              {message.role === 'assistant' && message.type === 'text' ? (
+                <div className="bubble" dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }} />
+              ) : null}
+
+              {message.type === 'tool_start' ? (
+                <div className="tool-card args">
+                  <div className="tool-card-header" onClick={() => onToggleCard(index)}>
+                    <span className="collapse-arrow">{collapsedCards[index] !== false ? '▸' : '▾'}</span>
+                    <span className="badge run">▶ {message.name}</span>
+                    <span style={{ color: 'var(--text-dim)' }}>tool call</span>
+                  </div>
+                  {collapsedCards[index] !== false ? null : (
+                    <div className="tool-card-body">{JSON.stringify(message.arguments ?? {}, null, 2)}</div>
+                  )}
+                </div>
+              ) : null}
+
+              {message.type === 'tool_result' ? (
+                <div className="tool-card result">
+                  <div className="tool-card-header" onClick={() => onToggleCard(index)}>
+                    <span className="collapse-arrow">{collapsedCards[index] !== false ? '▸' : '▾'}</span>
+                    <span className="badge done">✔ {message.name || message.title || 'done'}</span>
+                    <span style={{ color: 'var(--text-dim)' }}>result</span>
+                    {message.name === 'delegate' ? (
+                      <button
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onToggleSubAgentFlow(delegateFlowMap[index] || null);
+                        }}
+                        style={{
+                          marginLeft: 'auto',
+                          background: 'none',
+                          border: '1px solid var(--border)',
+                          borderRadius: 4,
+                          color: (delegateFlowMap[index] && subAgentFlows[delegateFlowMap[index]]?.visible) ? 'var(--accent)' : 'var(--text-dim)',
+                          borderColor: (delegateFlowMap[index] && subAgentFlows[delegateFlowMap[index]]?.visible) ? 'var(--accent)' : 'var(--border)',
+                          cursor: 'pointer',
+                          fontSize: 11,
+                          padding: '2px 8px',
+                          transition: 'all 0.12s',
+                          whiteSpace: 'nowrap',
+                        }}
+                        title={(delegateFlowMap[index] && subAgentFlows[delegateFlowMap[index]]?.visible) ? 'Hide sub-agent execution flow' : 'Show sub-agent execution flow'}
+                      >
+                        {(delegateFlowMap[index] && subAgentFlows[delegateFlowMap[index]]?.visible) ? '▲ Hide Agents' : '▼ Show Agents'}
+                      </button>
+                    ) : null}
+                  </div>
+                  {collapsedCards[index] !== false ? null : (
+                    <div className="tool-card-body">{truncate(message.content || '', 2000)}</div>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
 }
