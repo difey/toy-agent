@@ -16,6 +16,8 @@ from nano_claude.core.message import (
     UserMessage,
 )
 
+_MODE_SWITCH_PREFIX = "[Mode changed to"
+
 
 def estimate_tokens(text: str) -> int:
     return max(1, len(text) // 4)
@@ -96,18 +98,54 @@ class Session:
                 return line
         return content[:40]
 
-    async def add_user_message(self, content: str) -> None:
+    async def add_user_message(self, content: str) -> int:
+        """添加用户消息并自动折叠连续的模式切换消息。
+        返回被折叠的消息数量。"""
         if not self.title and content.strip():
             self.title = await self._generate_title(content)
         self.messages.append(UserMessage(content=content))
+        removed = self._collapse_mode_switches()
         await self._compact()
+        return removed
 
-    async def add_message(self, msg: Message) -> None:
+    async def add_message(self, msg: Message) -> int:
+        """添加消息并自动折叠连续的模式切换消息。
+        返回被折叠的消息数量。"""
         self.messages.append(msg)
+        removed = self._collapse_mode_switches()
         await self._compact()
+        return removed
 
     def total_tokens(self) -> int:
         return sum(message_tokens(m) for m in self.messages)
+
+    def _collapse_mode_switches(self) -> int:
+        """移除末尾连续的模式切换 UserMessage，仅保留最后一条。
+        返回被移除的消息数量。"""
+        # 从末尾向前扫描连续的模式切换消息
+        mode_switch_indices: list[int] = []
+        for i in range(len(self.messages) - 1, -1, -1):
+            msg = self.messages[i]
+            if (
+                isinstance(msg, UserMessage)
+                and isinstance(msg.content, str)
+                and msg.content.startswith(_MODE_SWITCH_PREFIX)
+            ):
+                mode_switch_indices.append(i)
+            else:
+                break
+
+        # 如果找到至少 2 条连续的，移除前面的，保留最后一条
+        removed = 0
+        if len(mode_switch_indices) >= 2:
+            # mode_switch_indices 是逆序的（从末尾到开头）
+            # 保留 mode_switch_indices[0]（最后一条），移除其他的
+            indices_to_remove = mode_switch_indices[1:]  # 除最后一条外的所有
+            for idx in sorted(indices_to_remove, reverse=True):
+                self.messages.pop(idx)
+            removed = len(indices_to_remove)
+
+        return removed
 
     async def _compact(self) -> None:
         if self.summarizer is None:

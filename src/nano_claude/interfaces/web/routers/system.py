@@ -45,7 +45,8 @@ async def api_set_mode(body: dict):
         else:
             msg = "[Mode changed to Build mode. All tools are now available. You can implement code, run commands, and make changes.]"
         state.session.messages.append(UserMessage(content=msg))
-    return {"mode": mode}
+        collapsed = state.session._collapse_mode_switches()
+    return {"mode": mode, "collapsed_count": collapsed}
 
 
 @router.post("/api/vscode")

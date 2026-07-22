@@ -381,6 +381,7 @@ class InteractiveUI:
             self.session.messages.append(
                 UserMessage(content="[Mode changed to Build mode. 以下为计划内容，请按照计划执行。]")
             )
+            self.session._collapse_mode_switches()
             text = f"请按照以下计划严格执行：\n\n{plan_content}"
             self._append_output(f"\n[📋 找到计划文件: {os.path.basename(plan_file)}，切换到 🔨 build mode...]\n")
 
@@ -577,6 +578,9 @@ class InteractiveUI:
                 self.session.messages.append(
                     UserMessage(content="[Mode changed to Plan mode. You can now only discuss requirements and write/edit .md files. Do NOT write any source code or run shell commands.]")
                 )
+                collapsed = self.session._collapse_mode_switches()
+                if collapsed > 0:
+                    self._append_output(f"\n  [🔄 已折叠 {collapsed} 条重复的模式切换消息]")
                 self._append_output("\n[Switched to 📋 plan mode. Session context preserved. Send a message to continue planning.]")
             return True
 
@@ -588,6 +592,9 @@ class InteractiveUI:
                 self.session.messages.append(
                     UserMessage(content="[Mode changed to Build mode. All tools are now available. You can implement code, run commands, and make changes.]")
                 )
+                collapsed = self.session._collapse_mode_switches()
+                if collapsed > 0:
+                    self._append_output(f"\n  [🔄 已折叠 {collapsed} 条重复的模式切换消息]")
                 self._append_output("\n[Switched to 🔨 build mode. Session context preserved. Send a message to continue building.]")
             return True
 
