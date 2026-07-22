@@ -379,7 +379,10 @@ export function ChatApp() {
       setCurrentSession(data);
       setSessionTitle(data.title || 'nanoClaude');
       setMode(data.mode || 'build');
-      commitMessages(() => data.messages || []);
+      commitMessages((prev) => {
+        const nextMessages = data.messages || [];
+        return JSON.stringify(prev) === JSON.stringify(nextMessages) ? prev : nextMessages;
+      });
       const initialCollapsed: Record<number, boolean> = {};
       (data.messages || []).forEach((msg, i) => {
         if (msg.type === 'tool_start' || msg.type === 'tool_result') {
