@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 
+import { api } from '../../shared/api';
 import { renderMarkdown } from '../../shared/markdown';
 import type { PlanDocResponse } from '../../shared/types';
 
@@ -20,8 +21,9 @@ export function PlanViewApp() {
   useEffect(() => {
     const loadPlan = async () => {
       try {
-        const response = await fetch('/api/plan-doc');
-        const data = (await response.json()) as PlanDocResponse;
+        const filename = new URLSearchParams(window.location.search).get('filename');
+        const path = filename ? `/api/plan-doc?filename=${encodeURIComponent(filename)}` : '/api/plan-doc';
+        const data = await api<PlanDocResponse>('GET', path);
         setPlanDoc(data);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Unknown error');

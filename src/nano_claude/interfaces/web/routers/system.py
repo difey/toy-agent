@@ -2,11 +2,15 @@
 
 import subprocess
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from nano_claude.core.message import UserMessage
 
-from nano_claude.interfaces.web.services.plan_service import get_plan_doc, resolve_latest_plan
+from nano_claude.interfaces.web.services.plan_service import (
+    get_plan_doc,
+    get_workspace_panel,
+    resolve_latest_plan,
+)
 from nano_claude.interfaces.web.state import state
 
 router = APIRouter()
@@ -66,9 +70,15 @@ async def api_open_vscode():
 
 
 @router.get("/api/plan-doc")
-async def api_plan_doc():
-    """Return the latest plan document from .session/ directory."""
-    return get_plan_doc(state.cwd)
+async def api_plan_doc(filename: str | None = Query(default=None)):
+    """Return a selected plan document from the session directory."""
+    return get_plan_doc(state.cwd, filename)
+
+
+@router.get("/api/workspace-panel")
+async def api_workspace_panel():
+    """Return plan-doc and modified-file metadata for the right-side panel."""
+    return get_workspace_panel(state.cwd)
 
 
 @router.get("/api/current")

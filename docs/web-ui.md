@@ -88,6 +88,7 @@ Shared mutable state (`WebAppState` class) holds:
 | `GET` | `/api/events` | SSE stream (consumes response_id) |
 | `GET` | `/api/current` | Get current session info + messages |
 | `POST` | `/api/vscode` | Open cwd in VS Code |
+| `GET` | `/api/workspace-panel` | Get right-panel data: modified files + all plan docs |
 
 ## SSE Streaming
 
@@ -135,7 +136,7 @@ async def on_tool_end(name, title, output):
 
 The React frontend preserves the existing UX and API contract while moving the implementation into typed modules:
 
-- **Main chat app** — sidebar session management, waterfall chat, markdown-rendered assistant replies, tool cards, sub-agent flow panels, stop button, theme toggle, mobile sidebar, toast notifications, question dialogs, permission dialogs, and keyboard shortcuts
+- **Main chat app** — sidebar session management, waterfall chat, markdown-rendered assistant replies, tool cards, sub-agent flow panels, right-side workspace panel (modified files tree + plan docs), stop button, theme toggle, mobile sidebar, toast notifications, question dialogs, permission dialogs, and keyboard shortcuts
 - **Setup wizard** — 3-step model/API key flow backed by `/api/setup-status` and `/api/setup`
 - **Plan viewer** — standalone markdown page backed by `/api/plan-doc`, including download support
 - **Markdown rendering** — uses npm packages [`marked`](https://github.com/markedjs/marked) and [`DOMPurify`](https://github.com/cure53/DOMPurify), bundled by Vite instead of loaded from CDNs

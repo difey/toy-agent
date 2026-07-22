@@ -79,3 +79,19 @@ export interface PlanDocResponse {
   modified: number | null;
   size?: number | null;
 }
+
+export interface PlanDocListItem {
+  filename: string;
+  modified: number;
+  size: number;
+}
+
+export interface ModifiedFileItem {
+  path: string;
+  status: string;
+}
+
+export interface WorkspacePanelResponse {
+  plan_docs: PlanDocListItem[];
+  modified_files: ModifiedFileItem[];
+}

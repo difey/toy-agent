@@ -1,17 +1,20 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import { api } from '../../shared/api';
 import { renderMarkdown } from '../../shared/markdown';
 import type {
   ChatMessage,
   CurrentInfo,
+  ModifiedFileItem,
   Mode,
   PermissionRequest,
+  PlanDocListItem,
   QuestionDialog,
   SessionSummary,
   SubAgent,
   SubAgentEvent,
   SubAgentFlow,
+  WorkspacePanelResponse,
 } from '../../shared/types';
 
 interface ChatResponse {
@@ -22,7 +25,6 @@ const SIDEBAR_WIDTH_STORAGE_KEY = 'sidebar-width';
 const MIN_SIDEBAR_WIDTH = 200;
 const MAX_SIDEBAR_WIDTH = 520;
 const DEFAULT_SIDEBAR_WIDTH = 280;
-
 function readStoredSidebarWidth(): number {
   const stored = Number(localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY));
   if (Number.isFinite(stored) && stored >= MIN_SIDEBAR_WIDTH && stored <= MAX_SIDEBAR_WIDTH) {
@@ -60,6 +62,81 @@ function cloneFlow(flow: SubAgentFlow): SubAgentFlow {
   };
 }
 
+interface FileTreeNode {
+  name: string;
+  path: string;
+  type: 'folder' | 'file';
+  status?: string;
+  children?: FileTreeNode[];
+}
+
+function formatModifiedTimestamp(value: number | null | undefined): string {
+  if (!value) {
+    return '';
+  }
+  const date = new Date(value * 1000);
+  const pad = (part: number) => String(part).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function buildModifiedFileTree(files: ModifiedFileItem[]): FileTreeNode[] {
+  const root: FileTreeNode[] = [];
+
+  for (const file of files) {
+    const segments = file.path.split('/').filter(Boolean);
+    if (segments.length === 0) {
+      continue;
+    }
+
+    let currentLevel = root;
+    let currentPath = '';
+    segments.forEach((segment, index) => {
+      currentPath = currentPath ? `${currentPath}/${segment}` : segment;
+      const isFile = index === segments.length - 1;
+      let existing = currentLevel.find((node) => node.name === segment && node.type === (isFile ? 'file' : 'folder'));
+
+      if (existing) {
+        if (!isFile && existing.children) {
+          currentLevel = existing.children;
+        }
+        return;
+      }
+
+      existing = isFile
+        ? { name: segment, path: currentPath, type: 'file', status: file.status }
+        : { name: segment, path: currentPath, type: 'folder', children: [] };
+      currentLevel.push(existing);
+      if (!isFile) {
+        currentLevel = existing.children ?? [];
+      }
+    });
+  }
+
+  const normalize = (nodes: FileTreeNode[]): FileTreeNode[] =>
+    nodes
+      .map((node) => (
+        node.type === 'folder'
+          ? { ...node, children: normalize(node.children ?? []) }
+          : node
+      ))
+      .sort((left, right) => {
+        if (left.type !== right.type) {
+          return left.type === 'folder' ? -1 : 1;
+        }
+        return left.name.localeCompare(right.name);
+      });
+
+  return normalize(root);
+}
+
+function collectFolderPaths(nodes: FileTreeNode[]): string[] {
+  return nodes.flatMap((node) => (
+    node.type === 'folder'
+      ? [node.path, ...collectFolderPaths(node.children ?? [])]
+      : []
+  ));
+}
+
 export function ChatApp() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -72,7 +149,9 @@ export function ChatApp() {
   const resizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const [sessionTitle, setSessionTitle] = useState('nanoClaude');
   const [mode, setMode] = useState<Mode>('build');
-  const [hasPlanDoc, setHasPlanDoc] = useState(false);
+  const [planDocs, setPlanDocs] = useState<PlanDocListItem[]>([]);
+  const [modifiedFiles, setModifiedFiles] = useState<ModifiedFileItem[]>([]);
+  const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
   const [darkMode, setDarkMode] = useState(readStoredTheme);
   const [toast, setToast] = useState({ visible: false, message: '' });
   const [subAgentFlows, setSubAgentFlows] = useState<Record<string, SubAgentFlow>>({});
@@ -83,7 +162,6 @@ export function ChatApp() {
   const [activePermission, setActivePermission] = useState<PermissionRequest | null>(null);
 
   const messagesRef = useRef(messages);
-  const modeRef = useRef(mode);
   const activeQuestionRef = useRef(activeQuestion);
   const eventSourceRef = useRef<EventSource | null>(null);
   const delegateFlowCounterRef = useRef(0);
@@ -97,10 +175,6 @@ export function ChatApp() {
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
-
-  useEffect(() => {
-    modeRef.current = mode;
-  }, [mode]);
 
   useEffect(() => {
     activeQuestionRef.current = activeQuestion;
@@ -166,18 +240,14 @@ export function ChatApp() {
     }
   }, [showToast]);
 
-  const checkPlanDoc = useCallback(async (nextMode?: Mode) => {
-    if ((nextMode ?? modeRef.current) !== 'plan') {
-      setHasPlanDoc(false);
-      return;
-    }
-
+  const loadWorkspacePanel = useCallback(async () => {
     try {
-      const response = await fetch('/api/plan-doc');
-      const data = (await response.json()) as { exists?: boolean };
-      setHasPlanDoc(Boolean(data.exists));
+      const data = await api<WorkspacePanelResponse>('GET', '/api/workspace-panel');
+      setPlanDocs(data.plan_docs ?? []);
+      setModifiedFiles(data.modified_files ?? []);
     } catch {
-      setHasPlanDoc(false);
+      setPlanDocs([]);
+      setModifiedFiles([]);
     }
   }, []);
 
@@ -190,12 +260,12 @@ export function ChatApp() {
       commitMessages(() => data.messages || []);
       resetFlowState();
       await loadSessions();
-      void checkPlanDoc(data.mode || 'build');
+      await loadWorkspacePanel();
       scheduleScrollBottom();
     } catch {
       showToast('Failed to load current session');
     }
-  }, [checkPlanDoc, commitMessages, loadSessions, resetFlowState, scheduleScrollBottom, showToast]);
+  }, [commitMessages, loadSessions, loadWorkspacePanel, resetFlowState, scheduleScrollBottom, showToast]);
 
   const toggleTheme = useCallback(() => {
     setDarkMode((prev) => {
@@ -205,8 +275,13 @@ export function ChatApp() {
     });
   }, []);
 
-  const openPlanDoc = useCallback(() => {
-    window.open('/plan-view', '_blank');
+  const openPlanDoc = useCallback((filename?: string | null) => {
+    const url = filename ? `/plan-view?filename=${encodeURIComponent(filename)}` : '/plan-view';
+    window.open(url, '_blank');
+  }, []);
+
+  const toggleFolder = useCallback((path: string) => {
+    setExpandedFolders((prev) => ({ ...prev, [path]: !prev[path] }));
   }, []);
 
   const handleResizeMove = useCallback((event: MouseEvent) => {
@@ -271,11 +346,10 @@ export function ChatApp() {
       const result = await api<{ mode: Mode }>('POST', '/api/mode', { mode: nextMode });
       setMode(result.mode);
       await loadCurrent();
-      void checkPlanDoc(result.mode);
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Failed to switch mode');
     }
-  }, [checkPlanDoc, isStreaming, loadCurrent, mode, showToast]);
+  }, [isStreaming, loadCurrent, mode, showToast]);
 
   const newSession = useCallback(async () => {
     if (isStreaming) {
@@ -656,7 +730,7 @@ export function ChatApp() {
         } catch {
           // loadSessions already handles errors.
         }
-        void checkPlanDoc();
+        void loadWorkspacePanel();
         scheduleScrollBottom();
       });
 
@@ -677,13 +751,14 @@ export function ChatApp() {
         } catch {
           // loadSessions already handles errors.
         }
+        void loadWorkspacePanel();
       });
     } catch (error) {
       updateLastAssistantMessage(() => ({ role: 'assistant', type: 'text', content: `Error: ${error instanceof Error ? error.message : 'Unknown error'}` }));
       setIsStreaming(false);
       showToast(error instanceof Error ? error.message : 'Failed to send message');
     }
-  }, [checkPlanDoc, closeEventSource, commitMessages, inputText, isStreaming, loadSessions, resetFlowState, scheduleScrollBottom, showToast, updateLastAssistantMessage]);
+  }, [closeEventSource, commitMessages, inputText, isStreaming, loadSessions, loadWorkspacePanel, resetFlowState, scheduleScrollBottom, showToast, updateLastAssistantMessage]);
 
   const stopResponse = useCallback(async () => {
     try {
@@ -753,6 +828,50 @@ export function ChatApp() {
   }, [messages, subAgentFlows, isStreaming, activeQuestion, activePermission, scheduleScrollBottom]);
 
   const flowEntries = useMemo(() => Object.entries(subAgentFlows), [subAgentFlows]);
+  const modifiedFileTree = useMemo(() => buildModifiedFileTree(modifiedFiles), [modifiedFiles]);
+
+  useEffect(() => {
+    setExpandedFolders((prev) => {
+      const next = { ...prev };
+      for (const path of collectFolderPaths(modifiedFileTree)) {
+        if (!(path in next)) {
+          next[path] = true;
+        }
+      }
+      return next;
+    });
+  }, [modifiedFileTree]);
+
+  const renderTreeNodes = useCallback((nodes: FileTreeNode[], depth = 0): ReactNode => (
+    nodes.map((node) => {
+      if (node.type === 'folder') {
+        const expanded = expandedFolders[node.path] ?? true;
+        return (
+          <div key={node.path}>
+            <button
+              className="workspace-tree-row workspace-tree-folder"
+              style={{ paddingLeft: 12 + depth * 16 }}
+              onClick={() => toggleFolder(node.path)}
+              type="button"
+            >
+              <span className="workspace-tree-caret">{expanded ? '▾' : '▸'}</span>
+              <span className="workspace-tree-icon">📁</span>
+              <span className="workspace-tree-name">{node.name}</span>
+            </button>
+            {expanded ? renderTreeNodes(node.children ?? [], depth + 1) : null}
+          </div>
+        );
+      }
+
+      return (
+        <div key={node.path} className="workspace-tree-row workspace-tree-file" style={{ paddingLeft: 36 + depth * 16 }}>
+          <span className="workspace-tree-icon">📄</span>
+          <span className="workspace-tree-name">{node.name}</span>
+          <span className="workspace-tree-status">{node.status}</span>
+        </div>
+      );
+    })
+  ), [expandedFolders, toggleFolder]);
 
   return (
     <div id="app">
@@ -1006,11 +1125,6 @@ export function ChatApp() {
                 <span className={`mode-opt plan ${mode === 'plan' ? 'active' : ''}`}>📋 Plan</span>
                 <span className={`mode-opt build ${mode === 'build' ? 'active' : ''}`}>🔨 Build</span>
               </div>
-              {mode === 'plan' ? (
-                <button id="review-plan-btn" onClick={openPlanDoc} disabled={isStreaming || !hasPlanDoc} title="Open the latest plan document in a new tab">
-                  📋 Review Plan Doc
-                </button>
-              ) : null}
             </div>
 
             {!isStreaming ? (
@@ -1025,6 +1139,37 @@ export function ChatApp() {
           </div>
         </div>
       </div>
+
+      <aside id="workspace-panel">
+        <div className="workspace-panel-section">
+          <div className="workspace-panel-header">Modified Files</div>
+          <div className="workspace-panel-body">
+            {modifiedFileTree.length > 0 ? (
+              renderTreeNodes(modifiedFileTree)
+            ) : (
+              <div className="workspace-panel-empty">No modified files</div>
+            )}
+          </div>
+        </div>
+
+        <div className="workspace-panel-section workspace-panel-plan-section">
+          <div className="workspace-panel-header">Plan Docs</div>
+          <div className="workspace-panel-body">
+            {planDocs.length > 0 ? (
+              planDocs.map((doc) => (
+                <button key={doc.filename} className="plan-doc-item" onClick={() => openPlanDoc(doc.filename)} type="button">
+                  <div className="plan-doc-name">{doc.filename}</div>
+                  <div className="plan-doc-meta">
+                    {formatModifiedTimestamp(doc.modified)} · {(doc.size / 1000).toFixed(1)} KB
+                  </div>
+                </button>
+              ))
+            ) : (
+              <div className="workspace-panel-empty">No plan docs</div>
+            )}
+          </div>
+        </div>
+      </aside>
 
       {activePermission ? (
         <div id="permission-overlay">
