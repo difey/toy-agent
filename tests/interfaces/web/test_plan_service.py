@@ -37,7 +37,12 @@ def test_list_modified_files_parses_git_status(monkeypatch):
         calls.append(args)
         if args[3] == "--show-toplevel":
             return Result("/repo\n")
-        return Result(" M frontend/src/pages/chat/ChatApp.tsx\n?? tests/interfaces/web/test_plan_service.py\nR  old.md -> new.md\n")
+        return Result(
+            " M frontend/src/pages/chat/ChatApp.tsx\n"
+            "?? tests/interfaces/web/test_plan_service.py\n"
+            "R  old.md -> new.md\n"
+            " M docs/space dir/file name.md\n"
+        )
 
     monkeypatch.setattr(plan_service.subprocess, "run", fake_run)
 
@@ -48,4 +53,5 @@ def test_list_modified_files_parses_git_status(monkeypatch):
         {"path": "frontend/src/pages/chat/ChatApp.tsx", "status": "M"},
         {"path": "tests/interfaces/web/test_plan_service.py", "status": "?"},
         {"path": "new.md", "status": "R"},
+        {"path": "docs/space dir/file name.md", "status": "M"},
     ]

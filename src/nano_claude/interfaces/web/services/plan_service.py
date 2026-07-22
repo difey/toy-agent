@@ -25,17 +25,16 @@ def _list_plan_files(cwd: str) -> list[Path]:
     return sorted(files, key=lambda f: os.path.getmtime(f), reverse=True)
 
 
-def _serialize_plan_doc(doc: Path) -> dict:
-    return {
-        "filename": doc.name,
-        "modified": os.path.getmtime(doc),
-        "size": doc.stat().st_size,
-    }
-
-
 def list_plan_docs(cwd: str) -> list[dict]:
     """Return all plan documents in reverse chronological order."""
-    return [_serialize_plan_doc(doc) for doc in _list_plan_files(cwd)]
+    return [
+        {
+            "filename": doc.name,
+            "modified": os.path.getmtime(doc),
+            "size": doc.stat().st_size,
+        }
+        for doc in _list_plan_files(cwd)
+    ]
 
 
 def _resolve_requested_plan(cwd: str, filename: str | None) -> Path | None:
@@ -46,11 +45,10 @@ def _resolve_requested_plan(cwd: str, filename: str | None) -> Path | None:
         all_docs = _list_plan_files(cwd)
         return all_docs[0] if all_docs else None
 
-    session_dir = Path(get_session_dir(cwd)).resolve()
-    candidate = (session_dir / filename).resolve()
-    if candidate.parent != session_dir or not candidate.is_file():
-        return None
-    return candidate
+    for doc in _list_plan_files(cwd):
+        if doc.name == filename:
+            return doc
+    return None
 
 
 def get_plan_doc(cwd: str, filename: str | None = None) -> dict:
@@ -62,7 +60,8 @@ def get_plan_doc(cwd: str, filename: str | None = None) -> dict:
         "exists": True,
         "filename": target.name,
         "content": target.read_text(encoding="utf-8"),
-        **_serialize_plan_doc(target),
+        "modified": os.path.getmtime(target),
+        "size": target.stat().st_size,
     }
 
 

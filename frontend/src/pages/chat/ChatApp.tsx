@@ -25,6 +25,9 @@ const SIDEBAR_WIDTH_STORAGE_KEY = 'sidebar-width';
 const MIN_SIDEBAR_WIDTH = 200;
 const MAX_SIDEBAR_WIDTH = 520;
 const DEFAULT_SIDEBAR_WIDTH = 280;
+const TREE_INDENT_PER_LEVEL = 16;
+const TREE_FOLDER_BASE_INDENT = 12;
+const TREE_FILE_BASE_INDENT = 36;
 function readStoredSidebarWidth(): number {
   const stored = Number(localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY));
   if (Number.isFinite(stored) && stored >= MIN_SIDEBAR_WIDTH && stored <= MAX_SIDEBAR_WIDTH) {
@@ -850,7 +853,7 @@ export function ChatApp() {
           <div key={node.path}>
             <button
               className="workspace-tree-row workspace-tree-folder"
-              style={{ paddingLeft: 12 + depth * 16 }}
+              style={{ paddingLeft: TREE_FOLDER_BASE_INDENT + depth * TREE_INDENT_PER_LEVEL }}
               onClick={() => toggleFolder(node.path)}
               type="button"
             >
@@ -864,7 +867,11 @@ export function ChatApp() {
       }
 
       return (
-        <div key={node.path} className="workspace-tree-row workspace-tree-file" style={{ paddingLeft: 36 + depth * 16 }}>
+        <div
+          key={node.path}
+          className="workspace-tree-row workspace-tree-file"
+          style={{ paddingLeft: TREE_FILE_BASE_INDENT + depth * TREE_INDENT_PER_LEVEL }}
+        >
           <span className="workspace-tree-icon">📄</span>
           <span className="workspace-tree-name">{node.name}</span>
           <span className="workspace-tree-status">{node.status}</span>
@@ -1160,7 +1167,7 @@ export function ChatApp() {
                 <button key={doc.filename} className="plan-doc-item" onClick={() => openPlanDoc(doc.filename)} type="button">
                   <div className="plan-doc-name">{doc.filename}</div>
                   <div className="plan-doc-meta">
-                    {formatModifiedTimestamp(doc.modified)} · {(doc.size / 1000).toFixed(1)} KB
+                    {formatModifiedTimestamp(doc.modified)} · {(doc.size / 1024).toFixed(1)} KB
                   </div>
                 </button>
               ))
