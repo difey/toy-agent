@@ -464,7 +464,7 @@ export function ChatApp() {
       window.addEventListener('mousemove', handlePlanDocsResizeMove);
       window.addEventListener('mouseup', handlePlanDocsResizeEnd);
     },
-    [clampPlanDocsHeight, handlePlanDocsResizeEnd, handlePlanDocsResizeMove, planDocsHeight],
+    [handlePlanDocsResizeEnd, handlePlanDocsResizeMove, planDocsHeight],
   );
 
   const handleInputAreaResizeMove = useCallback((event: MouseEvent) => {
@@ -472,6 +472,7 @@ export function ChatApp() {
     if (!state) {
       return;
     }
+    // The input area sits at the bottom of the middle panel, so dragging downward should increase its height.
     const delta = event.clientY - state.startY;
     setInputAreaHeight(clampInputAreaHeight(state.startHeight + delta));
   }, [clampInputAreaHeight]);
@@ -528,6 +529,10 @@ export function ChatApp() {
   }, [clampPlanDocsHeight]);
 
   useEffect(() => {
+    setInputAreaHeight((current) => clampInputAreaHeight(current));
+  }, [clampInputAreaHeight, isStreaming]);
+
+  useEffect(() => {
     const syncInputAreaHeight = () => {
       setInputAreaHeight((current) => clampInputAreaHeight(current));
     };
@@ -536,7 +541,7 @@ export function ChatApp() {
     return () => {
       window.removeEventListener('resize', syncInputAreaHeight);
     };
-  }, [clampInputAreaHeight, isStreaming]);
+  }, [clampInputAreaHeight]);
 
   const openVSCode = useCallback(async () => {
     try {
