@@ -1,7 +1,12 @@
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 
-marked.setOptions({ breaks: true, gfm: true });
+const renderer = new marked.Renderer();
+renderer.table = (header: string, body: string) => {
+  return `<div class="table-wrapper"><table>${header}${body}</table></div>`;
+};
+
+marked.setOptions({ breaks: true, gfm: true, renderer });
 
 let hookInstalled = false;
 
