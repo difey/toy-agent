@@ -28,6 +28,14 @@ const DEFAULT_SIDEBAR_WIDTH = 280;
 const TREE_INDENT_PER_LEVEL = 16;
 const TREE_FOLDER_BASE_INDENT = 12;
 const TREE_FILE_BASE_INDENT = 36;
+const TIMESTAMP_FORMATTER = new Intl.DateTimeFormat(undefined, {
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+});
 function readStoredSidebarWidth(): number {
   const stored = Number(localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY));
   if (Number.isFinite(stored) && stored >= MIN_SIDEBAR_WIDTH && stored <= MAX_SIDEBAR_WIDTH) {
@@ -77,9 +85,7 @@ function formatModifiedTimestamp(value: number | null | undefined): string {
   if (!value) {
     return '';
   }
-  const date = new Date(value * 1000);
-  const pad = (part: number) => String(part).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return TIMESTAMP_FORMATTER.format(new Date(value * 1000));
 }
 
 function buildModifiedFileTree(files: ModifiedFileItem[]): FileTreeNode[] {
@@ -879,6 +885,7 @@ export function ChatApp() {
       );
     })
   ), [expandedFolders, toggleFolder]);
+  const renderedModifiedTree = useMemo(() => renderTreeNodes(modifiedFileTree), [modifiedFileTree, renderTreeNodes]);
 
   return (
     <div id="app">
@@ -1152,7 +1159,7 @@ export function ChatApp() {
           <div className="workspace-panel-header">Modified Files</div>
           <div className="workspace-panel-body">
             {modifiedFileTree.length > 0 ? (
-              renderTreeNodes(modifiedFileTree)
+              renderedModifiedTree
             ) : (
               <div className="workspace-panel-empty">No modified files</div>
             )}

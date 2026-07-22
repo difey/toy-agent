@@ -6,6 +6,8 @@ from pathlib import Path
 
 from nano_claude.infra.session import get_session_dir
 
+MIN_GIT_STATUS_LINE_LENGTH = 4
+
 
 def _latest_plan_file(cwd: str) -> Path | None:
     session_dir = Path(get_session_dir(cwd))
@@ -78,14 +80,15 @@ def resolve_latest_plan(cwd: str) -> None:
 
 def list_modified_files(cwd: str) -> list[dict]:
     """Return modified/untracked files from git status for the current workspace."""
+    resolved_cwd = str(Path(cwd).resolve())
     try:
         root_proc = subprocess.run(
-            ["git", "-C", cwd, "rev-parse", "--show-toplevel"],
+            ["git", "-C", resolved_cwd, "rev-parse", "--show-toplevel"],
             capture_output=True,
             text=True,
             check=True,
         )
-        repo_root = root_proc.stdout.strip() or cwd
+        repo_root = str(Path(root_proc.stdout.strip() or resolved_cwd).resolve())
         status_proc = subprocess.run(
             ["git", "-C", repo_root, "status", "--short", "--untracked-files=all"],
             capture_output=True,
@@ -97,7 +100,7 @@ def list_modified_files(cwd: str) -> list[dict]:
 
     modified_files: list[dict] = []
     for line in status_proc.stdout.splitlines():
-        if len(line) < 4:
+        if len(line) < MIN_GIT_STATUS_LINE_LENGTH:
             continue
         code = line[:2]
         raw_path = line[3:]
