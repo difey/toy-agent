@@ -1071,15 +1071,6 @@ export function ChatApp() {
           )}
         </div>
 
-        <div id="sidebar-footer">
-          <button id="vscode-btn" onClick={() => void openVSCode()} title="Open current directory in VS Code">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M11.15 1.5L9.5 3.15L14.35 8L9.5 12.85L11.15 14.5L16 8L11.15 1.5Z" fill="currentColor" />
-              <path d="M4.85 1.5L0 8L4.85 14.5L6.5 12.85L1.65 8L6.5 3.15L4.85 1.5Z" fill="currentColor" />
-            </svg>
-            <span>Open in VS Code</span>
-          </button>
-        </div>
       </aside>
 
       <div
@@ -1102,6 +1093,13 @@ export function ChatApp() {
             ☰
           </button>
           <div className="title">{sessionTitle}</div>
+          <button id="vscode-btn" onClick={() => void openVSCode()} title="Open current directory in VS Code">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M11.15 1.5L9.5 3.15L14.35 8L9.5 12.85L11.15 14.5L16 8L11.15 1.5Z" fill="currentColor" />
+              <path d="M4.85 1.5L0 8L4.85 14.5L6.5 12.85L1.65 8L6.5 3.15L4.85 1.5Z" fill="currentColor" />
+            </svg>
+            <span>Open in VS Code</span>
+          </button>
         </div>
 
         <div id="chat" ref={chatContainerRef}>
