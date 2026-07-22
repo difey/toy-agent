@@ -39,7 +39,7 @@ const MIN_INPUT_AREA_HEIGHT = 180;
 const DEFAULT_INPUT_AREA_HEIGHT = 200;
 const INPUT_AREA_RESIZER_SIZE = 6;
 const MIN_CHAT_HEIGHT = 180;
-const BYTES_PER_KB = 1024;
+const BYTES_PER_KIB = 1024;
 const TREE_INDENT_PER_LEVEL = 16;
 const TREE_FOLDER_BASE_INDENT = 12;
 const TREE_FILE_BASE_INDENT = 36;
@@ -1416,7 +1416,7 @@ export function ChatApp() {
                 <button key={doc.filename} className="plan-doc-item" onClick={() => openPlanDoc(doc.filename)} type="button">
                   <div className="plan-doc-name">{doc.filename}</div>
                   <div className="plan-doc-meta">
-                    {formatModifiedTimestamp(doc.modified)} · {(doc.size / BYTES_PER_KB).toFixed(1)} KB
+                    {formatModifiedTimestamp(doc.modified)} · {(doc.size / BYTES_PER_KIB).toFixed(1)} KiB
                   </div>
                 </button>
               ))
