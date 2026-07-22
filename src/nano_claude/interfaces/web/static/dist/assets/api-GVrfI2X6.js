@@ -1,1 +1,0 @@
-async function r(o,i,t){const a=await fetch(i,{method:o,headers:t?{Accept:"application/json","Content-Type":"application/json"}:{Accept:"application/json"},body:t===void 0?void 0:JSON.stringify(t)});if(!a.ok){let e="Request failed";try{e=(await a.json()).detail??e}catch{}throw new Error(e)}return await a.json()}export{r as a};
