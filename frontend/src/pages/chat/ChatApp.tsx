@@ -429,7 +429,7 @@ export function ChatApp() {
   const handlePlanDocsResizeStart = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
       event.preventDefault();
-      planDocsResizeStateRef.current = { startY: event.clientY, startHeight: clampPlanDocsHeight(planDocsHeight) };
+      planDocsResizeStateRef.current = { startY: event.clientY, startHeight: planDocsHeight };
       setIsPlanDocsResizing(true);
       document.body.style.cursor = 'row-resize';
       document.body.style.userSelect = 'none';
