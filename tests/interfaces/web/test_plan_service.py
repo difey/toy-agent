@@ -33,7 +33,7 @@ def test_list_modified_files_parses_git_status(monkeypatch):
 
     calls: list[list[str]] = []
 
-    def fake_run(args, _capture_output, _text, _check):
+    def fake_run(args, **_kwargs):
         calls.append(args)
         if args[3] == "--show-toplevel":
             return Result("/repo\n")
