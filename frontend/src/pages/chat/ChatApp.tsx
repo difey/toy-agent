@@ -826,7 +826,7 @@ export function ChatApp() {
     resetFlowState();
     setInputText('');
     setIsStreaming(true);
-    commitMessages((prev) => [...prev, { role: 'user', type: 'text', content: text }, { role: 'assistant', type: 'text', content: '' }]);
+    commitMessages((prev) => [...prev, { role: 'user', type: 'text', content: text }]);
     scheduleScrollBottom();
 
     try {
