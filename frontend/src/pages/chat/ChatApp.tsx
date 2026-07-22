@@ -1220,56 +1220,52 @@ export function ChatApp() {
                   ) : null}
 
                   {message.type === 'tool_start' ? (
-                    <div>
-                      <div className="tool-card args">
-                        <div className="tool-card-header" onClick={() => toggleCard(index)}>
-                          <span className="collapse-arrow">{collapsedCards[index] !== false ? '▸' : '▾'}</span>
-                          <span className="badge run">▶ {message.name}</span>
-                          <span style={{ color: 'var(--text-dim)' }}>tool call</span>
-                        </div>
-                        {collapsedCards[index] !== false ? null : (
-                          <div className="tool-card-body">{JSON.stringify(message.arguments ?? {}, null, 2)}</div>
-                        )}
+                    <div className="tool-card args">
+                      <div className="tool-card-header" onClick={() => toggleCard(index)}>
+                        <span className="collapse-arrow">{collapsedCards[index] !== false ? '▸' : '▾'}</span>
+                        <span className="badge run">▶ {message.name}</span>
+                        <span style={{ color: 'var(--text-dim)' }}>tool call</span>
                       </div>
+                      {collapsedCards[index] !== false ? null : (
+                        <div className="tool-card-body">{JSON.stringify(message.arguments ?? {}, null, 2)}</div>
+                      )}
                     </div>
                   ) : null}
 
                   {message.type === 'tool_result' ? (
-                    <div>
-                      <div className="tool-card result">
-                        <div className="tool-card-header" onClick={() => toggleCard(index)}>
-                          <span className="collapse-arrow">{collapsedCards[index] !== false ? '▸' : '▾'}</span>
-                          <span className="badge done">✔ {message.name || message.title || 'done'}</span>
-                          <span style={{ color: 'var(--text-dim)' }}>result</span>
-                          {message.name === 'delegate' ? (
-                            <button
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                toggleSubAgentFlow(flowId);
-                              }}
-                              style={{
-                                marginLeft: 'auto',
-                                background: 'none',
-                                border: '1px solid var(--border)',
-                                borderRadius: 4,
-                                color: flowVisible ? 'var(--accent)' : 'var(--text-dim)',
-                                borderColor: flowVisible ? 'var(--accent)' : 'var(--border)',
-                                cursor: 'pointer',
-                                fontSize: 11,
-                                padding: '2px 8px',
-                                transition: 'all 0.12s',
-                                whiteSpace: 'nowrap',
-                              }}
-                              title={flowVisible ? 'Hide sub-agent execution flow' : 'Show sub-agent execution flow'}
-                            >
-                              {flowVisible ? '▲ Hide Agents' : '▼ Show Agents'}
-                            </button>
-                          ) : null}
-                        </div>
-                        {collapsedCards[index] !== false ? null : (
-                          <div className="tool-card-body">{truncate(message.content || '', 2000)}</div>
-                        )}
+                    <div className="tool-card result">
+                      <div className="tool-card-header" onClick={() => toggleCard(index)}>
+                        <span className="collapse-arrow">{collapsedCards[index] !== false ? '▸' : '▾'}</span>
+                        <span className="badge done">✔ {message.name || message.title || 'done'}</span>
+                        <span style={{ color: 'var(--text-dim)' }}>result</span>
+                        {message.name === 'delegate' ? (
+                          <button
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              toggleSubAgentFlow(flowId);
+                            }}
+                            style={{
+                              marginLeft: 'auto',
+                              background: 'none',
+                              border: '1px solid var(--border)',
+                              borderRadius: 4,
+                              color: flowVisible ? 'var(--accent)' : 'var(--text-dim)',
+                              borderColor: flowVisible ? 'var(--accent)' : 'var(--border)',
+                              cursor: 'pointer',
+                              fontSize: 11,
+                              padding: '2px 8px',
+                              transition: 'all 0.12s',
+                              whiteSpace: 'nowrap',
+                            }}
+                            title={flowVisible ? 'Hide sub-agent execution flow' : 'Show sub-agent execution flow'}
+                          >
+                            {flowVisible ? '▲ Hide Agents' : '▼ Show Agents'}
+                          </button>
+                        ) : null}
                       </div>
+                      {collapsedCards[index] !== false ? null : (
+                        <div className="tool-card-body">{truncate(message.content || '', 2000)}</div>
+                      )}
                     </div>
                   ) : null}
                 </div>

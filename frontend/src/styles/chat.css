@@ -123,7 +123,7 @@ button.workspace-tree-row { cursor: pointer; }
 .bubble hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
 .bubble img { max-width: 100%; border-radius: var(--radius-sm); }
 
-.tool-card { margin: 10px 0 6px 0; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--tool-bg); }
+.tool-card { margin: 10px 0 6px 0; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--tool-bg); width: 100%; }
 .tool-card-header { display: flex; align-items: center; gap: 6px; padding: 6px 10px; background: var(--bg3); font-size: 12px; font-family: var(--mono); cursor: pointer; user-select: none; }
 .tool-card-header:hover { background: var(--bg2); }
 .collapse-arrow { font-size: 10px; color: var(--text-dim); transition: transform 0.15s; flex-shrink: 0; width: 14px; text-align: center; }
