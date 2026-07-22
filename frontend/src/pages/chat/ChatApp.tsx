@@ -29,6 +29,11 @@ const WORKSPACE_WIDTH_STORAGE_KEY = 'workspace-width';
 const MIN_WORKSPACE_WIDTH = 240;
 const MAX_WORKSPACE_WIDTH = 560;
 const DEFAULT_WORKSPACE_WIDTH = 320;
+const PLAN_DOCS_HEIGHT_STORAGE_KEY = 'plan-docs-height';
+const MIN_PLAN_DOCS_HEIGHT = 120;
+const MIN_MODIFIED_FILES_HEIGHT = 140;
+const DEFAULT_PLAN_DOCS_HEIGHT = 220;
+const WORKSPACE_SECTION_RESIZER_SIZE = 6;
 const TREE_INDENT_PER_LEVEL = 16;
 const TREE_FOLDER_BASE_INDENT = 12;
 const TREE_FILE_BASE_INDENT = 36;
@@ -40,20 +45,24 @@ const TIMESTAMP_FORMATTER = new Intl.DateTimeFormat(undefined, {
   minute: '2-digit',
   hour12: false,
 });
-function readStoredWidth(storageKey: string, minWidth: number, maxWidth: number, defaultWidth: number): number {
+function readStoredDimension(storageKey: string, minValue: number, maxValue: number, defaultValue: number): number {
   const stored = Number(localStorage.getItem(storageKey));
-  if (Number.isFinite(stored) && stored >= minWidth && stored <= maxWidth) {
+  if (Number.isFinite(stored) && stored >= minValue && stored <= maxValue) {
     return stored;
   }
-  return defaultWidth;
+  return defaultValue;
 }
 
 function readStoredSidebarWidth(): number {
-  return readStoredWidth(SIDEBAR_WIDTH_STORAGE_KEY, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH, DEFAULT_SIDEBAR_WIDTH);
+  return readStoredDimension(SIDEBAR_WIDTH_STORAGE_KEY, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH, DEFAULT_SIDEBAR_WIDTH);
 }
 
 function readStoredWorkspaceWidth(): number {
-  return readStoredWidth(WORKSPACE_WIDTH_STORAGE_KEY, MIN_WORKSPACE_WIDTH, MAX_WORKSPACE_WIDTH, DEFAULT_WORKSPACE_WIDTH);
+  return readStoredDimension(WORKSPACE_WIDTH_STORAGE_KEY, MIN_WORKSPACE_WIDTH, MAX_WORKSPACE_WIDTH, DEFAULT_WORKSPACE_WIDTH);
+}
+
+function readStoredPlanDocsHeight(): number {
+  return readStoredDimension(PLAN_DOCS_HEIGHT_STORAGE_KEY, MIN_PLAN_DOCS_HEIGHT, Number.MAX_SAFE_INTEGER, DEFAULT_PLAN_DOCS_HEIGHT);
 }
 
 function detectSystemDark(): boolean {
@@ -171,6 +180,9 @@ export function ChatApp() {
   const [workspaceWidth, setWorkspaceWidth] = useState(readStoredWorkspaceWidth);
   const [isWorkspaceResizing, setIsWorkspaceResizing] = useState(false);
   const workspaceResizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const [planDocsHeight, setPlanDocsHeight] = useState(readStoredPlanDocsHeight);
+  const [isPlanDocsResizing, setIsPlanDocsResizing] = useState(false);
+  const planDocsResizeStateRef = useRef<{ startY: number; startHeight: number } | null>(null);
   const [sessionTitle, setSessionTitle] = useState('nanoClaude');
   const [mode, setMode] = useState<Mode>('build');
   const [planDocs, setPlanDocs] = useState<PlanDocListItem[]>([]);
@@ -195,6 +207,7 @@ export function ChatApp() {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const customInputRef = useRef<HTMLTextAreaElement | null>(null);
   const newSessionRef = useRef<() => Promise<void>>(async () => {});
+  const workspacePanelRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -308,6 +321,16 @@ export function ChatApp() {
     setExpandedFolders((prev) => ({ ...prev, [path]: !prev[path] }));
   }, []);
 
+  const clampPlanDocsHeight = useCallback((height: number) => {
+    const containerHeight = workspacePanelRef.current?.clientHeight;
+    if (!containerHeight) {
+      return Math.max(MIN_PLAN_DOCS_HEIGHT, height);
+    }
+    const maxHeight = Math.max(0, containerHeight - MIN_MODIFIED_FILES_HEIGHT - WORKSPACE_SECTION_RESIZER_SIZE);
+    const minHeight = Math.min(MIN_PLAN_DOCS_HEIGHT, maxHeight);
+    return Math.min(maxHeight, Math.max(minHeight, height));
+  }, []);
+
   const handleResizeMove = useCallback((event: MouseEvent) => {
     const state = resizeStateRef.current;
     if (!state) {
@@ -380,14 +403,63 @@ export function ChatApp() {
     [handleWorkspaceResizeEnd, handleWorkspaceResizeMove, workspaceWidth],
   );
 
+  const handlePlanDocsResizeMove = useCallback((event: MouseEvent) => {
+    const state = planDocsResizeStateRef.current;
+    if (!state) {
+      return;
+    }
+    const delta = event.clientY - state.startY;
+    setPlanDocsHeight(clampPlanDocsHeight(state.startHeight - delta));
+  }, [clampPlanDocsHeight]);
+
+  const handlePlanDocsResizeEnd = useCallback(() => {
+    planDocsResizeStateRef.current = null;
+    setIsPlanDocsResizing(false);
+    document.body.style.removeProperty('cursor');
+    document.body.style.removeProperty('user-select');
+    window.removeEventListener('mousemove', handlePlanDocsResizeMove);
+    window.removeEventListener('mouseup', handlePlanDocsResizeEnd);
+    setPlanDocsHeight((current) => {
+      const next = clampPlanDocsHeight(current);
+      localStorage.setItem(PLAN_DOCS_HEIGHT_STORAGE_KEY, String(next));
+      return next;
+    });
+  }, [clampPlanDocsHeight, handlePlanDocsResizeMove]);
+
+  const handlePlanDocsResizeStart = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      planDocsResizeStateRef.current = { startY: event.clientY, startHeight: clampPlanDocsHeight(planDocsHeight) };
+      setIsPlanDocsResizing(true);
+      document.body.style.cursor = 'row-resize';
+      document.body.style.userSelect = 'none';
+      window.addEventListener('mousemove', handlePlanDocsResizeMove);
+      window.addEventListener('mouseup', handlePlanDocsResizeEnd);
+    },
+    [clampPlanDocsHeight, handlePlanDocsResizeEnd, handlePlanDocsResizeMove, planDocsHeight],
+  );
+
   useEffect(() => {
     return () => {
       window.removeEventListener('mousemove', handleResizeMove);
       window.removeEventListener('mouseup', handleResizeEnd);
       window.removeEventListener('mousemove', handleWorkspaceResizeMove);
       window.removeEventListener('mouseup', handleWorkspaceResizeEnd);
+      window.removeEventListener('mousemove', handlePlanDocsResizeMove);
+      window.removeEventListener('mouseup', handlePlanDocsResizeEnd);
     };
-  }, [handleResizeEnd, handleResizeMove, handleWorkspaceResizeEnd, handleWorkspaceResizeMove]);
+  }, [handlePlanDocsResizeEnd, handlePlanDocsResizeMove, handleResizeEnd, handleResizeMove, handleWorkspaceResizeEnd, handleWorkspaceResizeMove]);
+
+  useEffect(() => {
+    const syncPlanDocsHeight = () => {
+      setPlanDocsHeight((current) => clampPlanDocsHeight(current));
+    };
+    syncPlanDocsHeight();
+    window.addEventListener('resize', syncPlanDocsHeight);
+    return () => {
+      window.removeEventListener('resize', syncPlanDocsHeight);
+    };
+  }, [clampPlanDocsHeight]);
 
   const openVSCode = useCallback(async () => {
     try {
@@ -1221,7 +1293,7 @@ export function ChatApp() {
         title="Drag to resize, double-click to reset"
       />
 
-      <aside id="workspace-panel" style={{ width: workspaceWidth, minWidth: workspaceWidth }}>
+      <aside id="workspace-panel" ref={workspacePanelRef} style={{ width: workspaceWidth, minWidth: workspaceWidth }}>
         <div className="workspace-panel-section">
           <div className="workspace-panel-header">Modified Files</div>
           <div className="workspace-panel-body">
@@ -1233,7 +1305,25 @@ export function ChatApp() {
           </div>
         </div>
 
-        <div className="workspace-panel-section workspace-panel-plan-section">
+        <div
+          id="workspace-section-resizer"
+          className={isPlanDocsResizing ? 'resizing' : ''}
+          onMouseDown={handlePlanDocsResizeStart}
+          onDoubleClick={() => {
+            const next = clampPlanDocsHeight(DEFAULT_PLAN_DOCS_HEIGHT);
+            setPlanDocsHeight(next);
+            localStorage.setItem(PLAN_DOCS_HEIGHT_STORAGE_KEY, String(next));
+          }}
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Resize plan docs panel"
+          title="Drag to resize, double-click to reset"
+        />
+
+        <div
+          className="workspace-panel-section workspace-panel-plan-section"
+          style={{ flex: '0 0 auto', height: planDocsHeight, minHeight: planDocsHeight }}
+        >
           <div className="workspace-panel-header">Plan Docs</div>
           <div className="workspace-panel-body">
             {planDocs.length > 0 ? (
