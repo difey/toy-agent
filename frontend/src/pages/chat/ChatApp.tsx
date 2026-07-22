@@ -34,6 +34,7 @@ const MIN_PLAN_DOCS_HEIGHT = 120;
 const MIN_MODIFIED_FILES_HEIGHT = 140;
 const DEFAULT_PLAN_DOCS_HEIGHT = 220;
 const WORKSPACE_SECTION_RESIZER_SIZE = 6;
+const BYTES_PER_KB = 1024;
 const TREE_INDENT_PER_LEVEL = 16;
 const TREE_FOLDER_BASE_INDENT = 12;
 const TREE_FILE_BASE_INDENT = 36;
@@ -1331,7 +1332,7 @@ export function ChatApp() {
                 <button key={doc.filename} className="plan-doc-item" onClick={() => openPlanDoc(doc.filename)} type="button">
                   <div className="plan-doc-name">{doc.filename}</div>
                   <div className="plan-doc-meta">
-                    {formatModifiedTimestamp(doc.modified)} · {(doc.size / 1024).toFixed(1)} KB
+                    {formatModifiedTimestamp(doc.modified)} · {(doc.size / BYTES_PER_KB).toFixed(1)} KB
                   </div>
                 </button>
               ))
