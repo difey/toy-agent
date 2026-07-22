@@ -204,6 +204,7 @@ export function ChatApp() {
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
   const [darkMode, setDarkMode] = useState(readStoredTheme);
   const [toast, setToast] = useState({ visible: false, message: '' });
+  const [collapsedCards, setCollapsedCards] = useState<Record<number, boolean>>({});
   const [subAgentFlows, setSubAgentFlows] = useState<Record<string, SubAgentFlow>>({});
   const [delegateFlowMap, setDelegateFlowMap] = useState<Record<number, string>>({});
   const [activeQuestion, setActiveQuestion] = useState<QuestionDialog | null>(null);
@@ -312,6 +313,13 @@ export function ChatApp() {
       setSessionTitle(data.title || 'nanoClaude');
       setMode(data.mode || 'build');
       commitMessages(() => data.messages || []);
+      const initialCollapsed: Record<number, boolean> = {};
+      (data.messages || []).forEach((msg, i) => {
+        if (msg.type === 'tool_start' || msg.type === 'tool_result') {
+          initialCollapsed[i] = true;
+        }
+      });
+      setCollapsedCards(initialCollapsed);
       resetFlowState();
       await loadSessions();
       await loadWorkspacePanel();
@@ -570,6 +578,13 @@ export function ChatApp() {
     }
   }, [isStreaming, loadCurrent, mode, showToast]);
 
+  const toggleCard = useCallback((index: number) => {
+    setCollapsedCards((prev) => {
+      const current = prev[index];
+      return { ...prev, [index]: current === undefined ? false : !current };
+    });
+  }, []);
+
   const newSession = useCallback(async () => {
     if (isStreaming) {
       return;
@@ -802,6 +817,7 @@ export function ChatApp() {
           };
           toolPlaceholder = messagesRef.current.length;
           commitMessages((prev) => [...prev, toolMessage]);
+          setCollapsedCards((prev) => ({ ...prev, [toolPlaceholder as number]: true }));
 
           if (toolMessage.name === 'delegate') {
             delegateFlowCounterRef.current += 1;
@@ -834,6 +850,7 @@ export function ChatApp() {
               next[placeholderIndex] = resultMessage;
               return next;
             });
+            setCollapsedCards((prev) => ({ ...prev, [placeholderIndex]: true }));
             if (resultMessage.flow_id) {
               setDelegateFlowMap((prev) => ({ ...prev, [placeholderIndex]: resultMessage.flow_id as string }));
             }
@@ -1208,11 +1225,14 @@ export function ChatApp() {
                   {message.type === 'tool_start' ? (
                     <div>
                       <div className="tool-card args">
-                        <div className="tool-card-header">
+                        <div className="tool-card-header" onClick={() => toggleCard(index)}>
+                          <span className="collapse-arrow">{collapsedCards[index] !== false ? '▸' : '▾'}</span>
                           <span className="badge run">▶ {message.name}</span>
                           <span style={{ color: 'var(--text-dim)' }}>tool call</span>
                         </div>
-                        <div className="tool-card-body">{JSON.stringify(message.arguments ?? {}, null, 2)}</div>
+                        {collapsedCards[index] !== false ? null : (
+                          <div className="tool-card-body">{JSON.stringify(message.arguments ?? {}, null, 2)}</div>
+                        )}
                       </div>
                     </div>
                   ) : null}
@@ -1220,7 +1240,8 @@ export function ChatApp() {
                   {message.type === 'tool_result' ? (
                     <div>
                       <div className="tool-card result">
-                        <div className="tool-card-header">
+                        <div className="tool-card-header" onClick={() => toggleCard(index)}>
+                          <span className="collapse-arrow">{collapsedCards[index] !== false ? '▸' : '▾'}</span>
                           <span className="badge done">✔ {message.name || message.title || 'done'}</span>
                           <span style={{ color: 'var(--text-dim)' }}>result</span>
                           {message.name === 'delegate' ? (
@@ -1248,7 +1269,9 @@ export function ChatApp() {
                             </button>
                           ) : null}
                         </div>
-                        <div className="tool-card-body">{truncate(message.content || '', 2000)}</div>
+                        {collapsedCards[index] !== false ? null : (
+                          <div className="tool-card-body">{truncate(message.content || '', 2000)}</div>
+                        )}
                       </div>
                     </div>
                   ) : null}
@@ -1542,6 +1565,9 @@ export function ChatApp() {
 }
 
 function SubAgentEventCard({ event }: { event: SubAgentEvent }) {
+  const [collapsed, setCollapsed] = useState(true);
+  const toggle = useCallback(() => setCollapsed((prev) => !prev), []);
+
   if (event.type === 'reasoning') {
     return <div className="sub-agent-reasoning">{event.content}</div>;
   }
@@ -1549,11 +1575,12 @@ function SubAgentEventCard({ event }: { event: SubAgentEvent }) {
   if (event.type === 'tool_start') {
     return (
       <div className="tool-card args" style={{ margin: '4px 0' }}>
-        <div className="tool-card-header">
+        <div className="tool-card-header" onClick={toggle}>
+          <span className="collapse-arrow">{collapsed ? '▸' : '▾'}</span>
           <span className="badge run">▶ {event.name}</span>
           <span style={{ color: 'var(--text-dim)' }}>tool call</span>
         </div>
-        {event.arguments && Object.keys(event.arguments).length > 0 ? (
+        {!collapsed && event.arguments && Object.keys(event.arguments).length > 0 ? (
           <div className="tool-card-body">{JSON.stringify(event.arguments, null, 2)}</div>
         ) : null}
       </div>
@@ -1563,11 +1590,12 @@ function SubAgentEventCard({ event }: { event: SubAgentEvent }) {
   if (event.type === 'tool_result') {
     return (
       <div className="tool-card result" style={{ margin: '4px 0' }}>
-        <div className="tool-card-header">
+        <div className="tool-card-header" onClick={toggle}>
+          <span className="collapse-arrow">{collapsed ? '▸' : '▾'}</span>
           <span className="badge done">✔ {event.name || event.title || 'done'}</span>
           <span style={{ color: 'var(--text-dim)' }}>result</span>
         </div>
-        <div className="tool-card-body">{event.content || ''}</div>
+        {!collapsed ? <div className="tool-card-body">{event.content || ''}</div> : null}
       </div>
     );
   }
@@ -1575,10 +1603,11 @@ function SubAgentEventCard({ event }: { event: SubAgentEvent }) {
   if (event.type === 'error') {
     return (
       <div className="tool-card error-card" style={{ margin: '4px 0' }}>
-        <div className="tool-card-header">
+        <div className="tool-card-header" onClick={toggle}>
+          <span className="collapse-arrow">{collapsed ? '▸' : '▾'}</span>
           <span className="badge error">✗ error</span>
         </div>
-        <div className="tool-card-body">{event.content}</div>
+        {!collapsed ? <div className="tool-card-body">{event.content}</div> : null}
       </div>
     );
   }

@@ -124,7 +124,9 @@ button.workspace-tree-row { cursor: pointer; }
 .bubble img { max-width: 100%; border-radius: var(--radius-sm); }
 
 .tool-card { margin: 10px 0 6px 0; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--tool-bg); }
-.tool-card-header { display: flex; align-items: center; gap: 6px; padding: 6px 10px; background: var(--bg3); font-size: 12px; font-family: var(--mono); }
+.tool-card-header { display: flex; align-items: center; gap: 6px; padding: 6px 10px; background: var(--bg3); font-size: 12px; font-family: var(--mono); cursor: pointer; user-select: none; }
+.tool-card-header:hover { background: var(--bg2); }
+.collapse-arrow { font-size: 10px; color: var(--text-dim); transition: transform 0.15s; flex-shrink: 0; width: 14px; text-align: center; }
 .tool-card-header .badge { font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 4px; text-transform: uppercase; font-family: var(--font); letter-spacing: 0.5px; }
 .tool-card-header .badge.run { background: #1f6feb33; color: var(--accent); }
 .tool-card-header .badge.done { background: #3fb95033; color: var(--accent2); }
