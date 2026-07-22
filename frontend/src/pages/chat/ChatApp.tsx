@@ -34,6 +34,11 @@ const MIN_PLAN_DOCS_HEIGHT = 120;
 const MIN_MODIFIED_FILES_HEIGHT = 140;
 const DEFAULT_PLAN_DOCS_HEIGHT = 220;
 const WORKSPACE_SECTION_RESIZER_SIZE = 6;
+const INPUT_AREA_HEIGHT_STORAGE_KEY = 'input-area-height';
+const MIN_INPUT_AREA_HEIGHT = 180;
+const DEFAULT_INPUT_AREA_HEIGHT = 200;
+const INPUT_AREA_RESIZER_SIZE = 6;
+const MIN_CHAT_HEIGHT = 180;
 const BYTES_PER_KB = 1024;
 const TREE_INDENT_PER_LEVEL = 16;
 const TREE_FOLDER_BASE_INDENT = 12;
@@ -64,6 +69,10 @@ function readStoredWorkspaceWidth(): number {
 
 function readStoredPlanDocsHeight(): number {
   return readStoredDimension(PLAN_DOCS_HEIGHT_STORAGE_KEY, MIN_PLAN_DOCS_HEIGHT, Number.MAX_SAFE_INTEGER, DEFAULT_PLAN_DOCS_HEIGHT);
+}
+
+function readStoredInputAreaHeight(): number {
+  return readStoredDimension(INPUT_AREA_HEIGHT_STORAGE_KEY, MIN_INPUT_AREA_HEIGHT, Number.MAX_SAFE_INTEGER, DEFAULT_INPUT_AREA_HEIGHT);
 }
 
 function detectSystemDark(): boolean {
@@ -184,6 +193,9 @@ export function ChatApp() {
   const [planDocsHeight, setPlanDocsHeight] = useState(readStoredPlanDocsHeight);
   const [isPlanDocsResizing, setIsPlanDocsResizing] = useState(false);
   const planDocsResizeStateRef = useRef<{ startY: number; startHeight: number } | null>(null);
+  const [inputAreaHeight, setInputAreaHeight] = useState(readStoredInputAreaHeight);
+  const [isInputAreaResizing, setIsInputAreaResizing] = useState(false);
+  const inputAreaResizeStateRef = useRef<{ startY: number; startHeight: number } | null>(null);
   const [sessionTitle, setSessionTitle] = useState('nanoClaude');
   const [mode, setMode] = useState<Mode>('build');
   const [planDocs, setPlanDocs] = useState<PlanDocListItem[]>([]);
@@ -205,6 +217,9 @@ export function ChatApp() {
   const questionQueueRef = useRef<QuestionDialog[]>([]);
   const toastTimerRef = useRef<number | null>(null);
   const chatContainerRef = useRef<HTMLDivElement | null>(null);
+  const mainPanelRef = useRef<HTMLDivElement | null>(null);
+  const chatHeaderRef = useRef<HTMLDivElement | null>(null);
+  const streamingIndicatorRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const customInputRef = useRef<HTMLTextAreaElement | null>(null);
   const newSessionRef = useRef<() => Promise<void>>(async () => {});
@@ -332,6 +347,18 @@ export function ChatApp() {
     return Math.min(maxHeight, Math.max(minHeight, height));
   }, []);
 
+  const clampInputAreaHeight = useCallback((height: number) => {
+    const containerHeight = mainPanelRef.current?.clientHeight;
+    if (!containerHeight) {
+      return Math.max(MIN_INPUT_AREA_HEIGHT, height);
+    }
+    const headerHeight = chatHeaderRef.current?.offsetHeight ?? 0;
+    const streamingHeight = streamingIndicatorRef.current?.offsetHeight ?? 0;
+    const maxHeight = Math.max(0, containerHeight - headerHeight - streamingHeight - MIN_CHAT_HEIGHT - INPUT_AREA_RESIZER_SIZE);
+    const minHeight = Math.min(MIN_INPUT_AREA_HEIGHT, maxHeight);
+    return Math.min(maxHeight, Math.max(minHeight, height));
+  }, []);
+
   const handleResizeMove = useCallback((event: MouseEvent) => {
     const state = resizeStateRef.current;
     if (!state) {
@@ -440,6 +467,42 @@ export function ChatApp() {
     [clampPlanDocsHeight, handlePlanDocsResizeEnd, handlePlanDocsResizeMove, planDocsHeight],
   );
 
+  const handleInputAreaResizeMove = useCallback((event: MouseEvent) => {
+    const state = inputAreaResizeStateRef.current;
+    if (!state) {
+      return;
+    }
+    const delta = event.clientY - state.startY;
+    setInputAreaHeight(clampInputAreaHeight(state.startHeight + delta));
+  }, [clampInputAreaHeight]);
+
+  const handleInputAreaResizeEnd = useCallback(() => {
+    inputAreaResizeStateRef.current = null;
+    setIsInputAreaResizing(false);
+    document.body.style.removeProperty('cursor');
+    document.body.style.removeProperty('user-select');
+    window.removeEventListener('mousemove', handleInputAreaResizeMove);
+    window.removeEventListener('mouseup', handleInputAreaResizeEnd);
+    setInputAreaHeight((current) => {
+      const next = clampInputAreaHeight(current);
+      localStorage.setItem(INPUT_AREA_HEIGHT_STORAGE_KEY, String(next));
+      return next;
+    });
+  }, [clampInputAreaHeight, handleInputAreaResizeMove]);
+
+  const handleInputAreaResizeStart = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      inputAreaResizeStateRef.current = { startY: event.clientY, startHeight: inputAreaHeight };
+      setIsInputAreaResizing(true);
+      document.body.style.cursor = 'row-resize';
+      document.body.style.userSelect = 'none';
+      window.addEventListener('mousemove', handleInputAreaResizeMove);
+      window.addEventListener('mouseup', handleInputAreaResizeEnd);
+    },
+    [handleInputAreaResizeEnd, handleInputAreaResizeMove, inputAreaHeight],
+  );
+
   useEffect(() => {
     return () => {
       window.removeEventListener('mousemove', handleResizeMove);
@@ -448,8 +511,10 @@ export function ChatApp() {
       window.removeEventListener('mouseup', handleWorkspaceResizeEnd);
       window.removeEventListener('mousemove', handlePlanDocsResizeMove);
       window.removeEventListener('mouseup', handlePlanDocsResizeEnd);
+      window.removeEventListener('mousemove', handleInputAreaResizeMove);
+      window.removeEventListener('mouseup', handleInputAreaResizeEnd);
     };
-  }, [handlePlanDocsResizeEnd, handlePlanDocsResizeMove, handleResizeEnd, handleResizeMove, handleWorkspaceResizeEnd, handleWorkspaceResizeMove]);
+  }, [handleInputAreaResizeEnd, handleInputAreaResizeMove, handlePlanDocsResizeEnd, handlePlanDocsResizeMove, handleResizeEnd, handleResizeMove, handleWorkspaceResizeEnd, handleWorkspaceResizeMove]);
 
   useEffect(() => {
     const syncPlanDocsHeight = () => {
@@ -461,6 +526,17 @@ export function ChatApp() {
       window.removeEventListener('resize', syncPlanDocsHeight);
     };
   }, [clampPlanDocsHeight]);
+
+  useEffect(() => {
+    const syncInputAreaHeight = () => {
+      setInputAreaHeight((current) => clampInputAreaHeight(current));
+    };
+    syncInputAreaHeight();
+    window.addEventListener('resize', syncInputAreaHeight);
+    return () => {
+      window.removeEventListener('resize', syncInputAreaHeight);
+    };
+  }, [clampInputAreaHeight, isStreaming]);
 
   const openVSCode = useCallback(async () => {
     try {
@@ -950,15 +1026,6 @@ export function ChatApp() {
   }, [closeEventSource, loadCurrent, loadSessions]);
 
   useEffect(() => {
-    const element = inputRef.current;
-    if (!element) {
-      return;
-    }
-    element.style.height = 'auto';
-    element.style.height = `${Math.min(element.scrollHeight, 200)}px`;
-  }, [inputText]);
-
-  useEffect(() => {
     scheduleScrollBottom();
   }, [messages, subAgentFlows, isStreaming, activeQuestion, activePermission, scheduleScrollBottom]);
 
@@ -1087,8 +1154,8 @@ export function ChatApp() {
         title="Drag to resize, double-click to reset"
       />
 
-      <div id="main">
-        <div id="chat-header" className="visible">
+      <div id="main" ref={mainPanelRef}>
+        <div id="chat-header" className="visible" ref={chatHeaderRef}>
           <button id="menu-btn" onClick={() => setSidebarOpen((prev) => !prev)}>
             ☰
           </button>
@@ -1235,12 +1302,27 @@ export function ChatApp() {
           ) : null,
         )}
 
-        <div id="streaming-indicator" className={isStreaming ? 'active' : ''}>
+        <div id="streaming-indicator" className={isStreaming ? 'active' : ''} ref={streamingIndicatorRef}>
           <div className="spinner" />
           <span>AI is thinking...</span>
         </div>
 
-        <div id="input-area">
+        <div
+          id="input-area-resizer"
+          className={isInputAreaResizing ? 'resizing' : ''}
+          onMouseDown={handleInputAreaResizeStart}
+          onDoubleClick={() => {
+            const next = clampInputAreaHeight(DEFAULT_INPUT_AREA_HEIGHT);
+            setInputAreaHeight(next);
+            localStorage.setItem(INPUT_AREA_HEIGHT_STORAGE_KEY, String(next));
+          }}
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Resize input area"
+          title="Drag to resize, double-click to reset"
+        />
+
+        <div id="input-area" style={{ flex: '0 0 auto', height: inputAreaHeight, minHeight: inputAreaHeight }}>
           <div id="input-row">
             <textarea
               id="msg-input"
