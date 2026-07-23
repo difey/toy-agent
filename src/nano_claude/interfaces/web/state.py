@@ -7,6 +7,7 @@ from nano_claude.core.agent import Agent
 from nano_claude.infra.session import Session, list_sessions, save_current, session_info, session_path
 
 from nano_claude.interfaces.web.serializers import serialize_messages_for_api
+from nano_claude.interfaces.web.services.diff_service import list_diffs_for_session
 
 
 class WebAppState:
@@ -121,6 +122,9 @@ class WebAppState:
         info["messages"] = serialize_messages_for_api(self.session.messages)
         info["mode"] = self.agent.mode if self.agent else "build"
         info["setup_needed"] = self.agent is None
+        info["diff_summaries"] = list_diffs_for_session(
+            self.cwd, os.path.basename(self.session_file_ref[0]),
+        )
         return info
 
     # ── SSE helpers ─────────────────────────────────────────────────────

@@ -2,14 +2,19 @@
 
 import asyncio
 import json
+import os
 import traceback
 
 from fastapi import HTTPException
 
-from nano_claude.core.message import ToolCall
+from nano_claude.core.message import ToolCall, UserMessage
 from nano_claude.infra.session import save_current
 
 from nano_claude.interfaces.web.state import WebAppState
+
+from nano_claude.interfaces.web.services.diff_service import (
+    take_snapshot, compute_diff, save_diff,
+)
 
 
 async def run_chat(state: WebAppState, message: str) -> str:
@@ -152,7 +157,28 @@ async def _execute_chat(state: WebAppState, message: str, response_id: str) -> N
     agent.on_event_callback = on_event
 
     try:
+        # Take snapshot before agent runs to detect file changes
+        before_snapshot, before_content, before_binary = take_snapshot(cwd)
+        user_msg_count = sum(1 for m in session.messages if isinstance(m, UserMessage))
+        segment_key = f"seg-{max(0, user_msg_count - 1)}"
+
         await agent.run_stream(message, cwd, session=session)
+
+        # Take snapshot after agent runs and compute diff
+        after_snapshot, _after_content, after_binary = take_snapshot(cwd)
+        # Merge binary sets from before and after (binary detection is stable)
+        binary_set = before_binary | after_binary
+        diff_data = compute_diff(cwd, before_snapshot, after_snapshot, before_content, binary_set)
+        if diff_data:
+            diff_filename = save_diff(
+                cwd, diff_data, segment_key,
+                os.path.basename(state.session_file_ref[0]),
+            )
+            await state.push_event("diff_summary", {
+                "segment_key": segment_key,
+                "diff_filename": diff_filename,
+                "summary": diff_data["summary"],
+            })
         await state.push_event("done", {})
     except asyncio.CancelledError:
         await state.push_event("done", {})

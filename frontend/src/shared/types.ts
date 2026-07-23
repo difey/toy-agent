@@ -25,6 +25,7 @@ export interface CurrentInfo extends SessionSummary {
   mode: Mode;
   setup_needed: boolean;
   messages: ChatMessage[];
+  diff_summaries?: DiffSummary[];
 }
 
 export interface QuestionOption {
@@ -94,4 +95,36 @@ export interface ModifiedFileItem {
 export interface WorkspacePanelResponse {
   plan_docs: PlanDocListItem[];
   modified_files: ModifiedFileItem[];
+}
+
+export interface DiffSummary {
+  segment_key: string;
+  diff_filename: string;
+  summary: {
+    files_changed: number;
+    insertions: number;
+    deletions: number;
+  };
+}
+
+export interface DiffFileEntry {
+  path: string;
+  status: 'modified' | 'added' | 'deleted';
+  insertions: number;
+  deletions: number;
+  diff: string;
+  binary?: boolean;
+}
+
+export interface DiffDetail {
+  version: number;
+  timestamp: string;
+  session_file: string;
+  message_segment_key: string;
+  summary: {
+    files_changed: number;
+    insertions: number;
+    deletions: number;
+  };
+  files: DiffFileEntry[];
 }

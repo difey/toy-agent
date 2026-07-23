@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from nano_claude.core.agent import Agent
 from nano_claude.infra.session import Session
 
-from nano_claude.interfaces.web.routers import chat, pages, sessions, setup, system
+from nano_claude.interfaces.web.routers import chat, diffs, pages, sessions, setup, system
 from nano_claude.interfaces.web.state import state
 
 _DIST_ASSETS_DIR = Path(__file__).resolve().parent / "static" / "dist" / "assets"
@@ -34,6 +34,7 @@ def create_app() -> FastAPI:
     app.include_router(sessions.router)
     app.include_router(setup.router)
     app.include_router(chat.router)
+    app.include_router(diffs.router)
     return app
 
 

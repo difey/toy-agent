@@ -5,6 +5,8 @@ import { renderMarkdown } from '../../shared/markdown';
 import type {
   ChatMessage,
   CurrentInfo,
+  DiffDetail,
+  DiffSummary,
   ModifiedFileItem,
   Mode,
   PermissionRequest,
@@ -263,6 +265,8 @@ export function ChatApp() {
   const [customAnswer, setCustomAnswer] = useState('');
   const [activePermission, setActivePermission] = useState<PermissionRequest | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [diffSummaries, setDiffSummaries] = useState<Record<string, DiffSummary>>({});
+  const [activeDiff, setActiveDiff] = useState<string | null>(null);
 
   const messagesRef = useRef(messages);
   const activeQuestionRef = useRef(activeQuestion);
@@ -391,6 +395,16 @@ export function ChatApp() {
       });
       setCollapsedCards(initialCollapsed);
       resetFlowState();
+      // Load diff summaries for the current session
+      if (data.diff_summaries) {
+        const map: Record<string, DiffSummary> = {};
+        for (const ds of data.diff_summaries) {
+          map[ds.segment_key] = ds;
+        }
+        setDiffSummaries(map);
+      } else {
+        setDiffSummaries({});
+      }
       await loadSessions();
       await loadWorkspacePanel();
       scheduleScrollBottom();
@@ -1044,6 +1058,12 @@ export function ChatApp() {
         scheduleScrollBottom();
       });
 
+      eventSource.addEventListener('diff_summary', (event) => {
+        const payload = JSON.parse((event as MessageEvent<string>).data) as DiffSummary;
+        setDiffSummaries((prev) => ({ ...prev, [payload.segment_key]: payload }));
+        scheduleScrollBottom();
+      });
+
       eventSource.addEventListener('done', async () => {
         closeEventSource();
         setActivePermission(null);
@@ -1431,6 +1451,19 @@ export function ChatApp() {
                   />
                 ) : null}
                 {seg.lastMessage ? renderMessageNode(seg.lastMessage.message, seg.lastMessage.index) : null}
+                {diffSummaries[seg.key] ? (
+                  <DiffOverviewBubble
+                    summary={diffSummaries[seg.key]}
+                    isActive={activeDiff === diffSummaries[seg.key].diff_filename}
+                    onClick={() =>
+                      setActiveDiff(
+                        activeDiff === diffSummaries[seg.key].diff_filename
+                          ? null
+                          : diffSummaries[seg.key].diff_filename
+                      )
+                    }
+                  />
+                ) : null}
               </div>
             ))
           )}
@@ -1569,18 +1602,31 @@ export function ChatApp() {
       <aside id="workspace-panel" ref={workspacePanelRef} style={{ width: workspaceWidth, minWidth: workspaceWidth }}>
         <div className="workspace-panel-section">
           <div className="workspace-panel-header">
-            <span>Modified Files</span>
-            <button
-              className={`workspace-refresh-btn ${isRefreshing ? 'spinning' : ''}`}
-              onClick={() => void refreshWorkspace()}
-              title="Refresh modified files and plan docs"
-              type="button"
-            >
-              ↻
-            </button>
+            <span>{activeDiff ? 'Diff Details' : 'Modified Files'}</span>
+            {activeDiff ? (
+              <button
+                className="workspace-refresh-btn"
+                onClick={() => setActiveDiff(null)}
+                title="Back to modified files"
+                type="button"
+              >
+                ←
+              </button>
+            ) : (
+              <button
+                className={`workspace-refresh-btn ${isRefreshing ? 'spinning' : ''}`}
+                onClick={() => void refreshWorkspace()}
+                title="Refresh modified files and plan docs"
+                type="button"
+              >
+                ↻
+              </button>
+            )}
           </div>
           <div className="workspace-panel-body">
-            {modifiedFileTree.length > 0 ? (
+            {activeDiff ? (
+              <DiffDetailView diffFilename={activeDiff} />
+            ) : modifiedFileTree.length > 0 ? (
               renderedModifiedTree
             ) : (
               <div className="workspace-panel-empty">No modified files</div>
@@ -1741,6 +1787,135 @@ export function ChatApp() {
       <div id="toast" className={toast.visible ? 'show' : ''}>
         {toast.message}
       </div>
+    </div>
+  );
+}
+
+function DiffOverviewBubble({
+  summary, isActive, onClick,
+}: {
+  summary: DiffSummary; isActive: boolean; onClick: () => void;
+}) {
+  return (
+    <div className="diff-overview">
+      <div className={`diff-overview-card ${isActive ? 'active' : ''}`} onClick={onClick}>
+        <span className="diff-overview-icon">📝</span>
+        <span className="diff-overview-stats">
+          <span className="diff-stat-files">{summary.summary.files_changed} file{summary.summary.files_changed !== 1 ? 's' : ''}</span>
+          <span className="diff-stat-insertions">+{summary.summary.insertions}</span>
+          <span className="diff-stat-deletions">-{summary.summary.deletions}</span>
+        </span>
+        <span className="diff-overview-arrow">{isActive ? '▾' : '▸'}</span>
+      </div>
+    </div>
+  );
+}
+
+/** Escape HTML special chars in diff text */
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/** Apply syntax highlighting to unified diff text */
+function highlightDiff(diffText: string): string {
+  return diffText
+    .split('\n')
+    .map((line) => {
+      const escaped = escapeHtml(line);
+      if (line.startsWith('+') && !line.startsWith('+++')) {
+        return `<span class="diff-line-add">${escaped}</span>`;
+      }
+      if (line.startsWith('-') && !line.startsWith('---')) {
+        return `<span class="diff-line-del">${escaped}</span>`;
+      }
+      if (line.startsWith('@@')) {
+        return `<span class="diff-line-hdr">${escaped}</span>`;
+      }
+      return escaped;
+    })
+    .join('\n');
+}
+
+function DiffDetailView({ diffFilename }: { diffFilename: string }) {
+  const [diffData, setDiffData] = useState<DiffDetail | null>(null);
+  const [expandedFiles, setExpandedFiles] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    setDiffData(null);
+    api<DiffDetail>('GET', `/api/diffs/${encodeURIComponent(diffFilename)}`)
+      .then((data) => {
+        setDiffData(data);
+        const expanded: Record<string, boolean> = {};
+        // Start with only the first file expanded, rest collapsed
+        data.files.forEach((f, i) => { expanded[f.path] = i === 0; });
+        setExpandedFiles(expanded);
+      })
+      .catch(() => {
+        // silently fail
+      });
+  }, [diffFilename]);
+
+  if (!diffData) {
+    return <div className="workspace-panel-empty">Loading diff...</div>;
+  }
+
+  return (
+    <div className="diff-detail-view">
+      {diffData.files.length === 0 ? (
+        <div className="workspace-panel-empty">No file changes in this diff</div>
+      ) : (
+        diffData.files.map((file) => (
+          <div key={file.path} className="diff-file-item">
+            <div
+              className="diff-file-header"
+              onClick={() =>
+                setExpandedFiles((prev) => ({
+                  ...prev,
+                  [file.path]: !prev[file.path],
+                }))
+              }
+            >
+              <span className="diff-overview-caret">
+                {expandedFiles[file.path] ? '▾' : '▸'}
+              </span>
+              <span>
+                {file.status === 'added'
+                  ? '🆕'
+                  : file.status === 'deleted'
+                    ? '🗑️'
+                    : '📄'}
+              </span>
+              <span className="diff-file-name">{file.path}</span>
+              {file.binary ? <span className="diff-binary-badge">(binary)</span> : null}
+              <span className="diff-file-stats">
+                <span className="diff-stat-insertions">+{file.insertions}</span>
+                <span className="diff-stat-deletions">-{file.deletions}</span>
+              </span>
+            </div>
+            {expandedFiles[file.path] && !file.binary ? (
+              <pre
+                className="diff-file-content"
+                dangerouslySetInnerHTML={{ __html: highlightDiff(file.diff) }}
+              />
+            ) : expandedFiles[file.path] && file.binary ? (
+              <div className="diff-file-content diff-binary-msg">
+                Binary file — changes cannot be displayed as line-by-line diff
+              </div>
+            ) : null}
+          </div>
+        ))
+      )}
+      {diffData.files.length > 0 ? (
+        <div className="diff-detail-footer">
+          <span className="diff-stat-files">{diffData.summary.files_changed} files</span>
+          <span className="diff-stat-insertions">+{diffData.summary.insertions}</span>
+          <span className="diff-stat-deletions">-{diffData.summary.deletions}</span>
+        </div>
+      ) : null}
     </div>
   );
 }

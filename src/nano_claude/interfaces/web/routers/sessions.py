@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException
 from nano_claude.infra.session import Session, session_info
 
 from nano_claude.interfaces.web.serializers import serialize_messages_for_api
+from nano_claude.interfaces.web.services.diff_service import list_diffs_for_session
 from nano_claude.interfaces.web.state import state
 
 router = APIRouter()
@@ -35,13 +36,17 @@ async def api_get_session(idx: int):
     files = state._refresh_sessions()
     if idx < 1 or idx > len(files):
         raise HTTPException(status_code=404, detail="Invalid session")
-    info = session_info(files[idx - 1])
+    filepath = files[idx - 1]
+    info = session_info(filepath)
     try:
-        sess = Session.load(files[idx - 1])
+        sess = Session.load(filepath)
         info["messages"] = serialize_messages_for_api(sess.messages)
     except Exception as e:
         info["messages"] = []
         info["load_error"] = str(e)
+    info["diff_summaries"] = list_diffs_for_session(
+        state.cwd, os.path.basename(filepath),
+    )
     return info
 
 
