@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import subprocess
+import tempfile
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -415,3 +416,158 @@ def _save_mapping(cwd: str, mapping: dict) -> None:
     Path(mapping_path).write_text(
         json.dumps(mapping, ensure_ascii=False, indent=2)
     )
+
+
+# ── Rollback ──────────────────────────────────────────────────────────────
+
+_DIFF_TIMESTAMP_FMT = "%Y-%m-%dT%H-%M-%S"
+
+
+def _diff_timestamp_to_unix(ts_str: str) -> float:
+    """Convert a diff timestamp string (e.g. '2024-01-01T12-00-00') to Unix timestamp float."""
+    return datetime.strptime(ts_str, _DIFF_TIMESTAMP_FMT).timestamp()
+
+
+def _extract_deleted_content(diff_text: str) -> str:
+    """Extract the original file content from a unified diff of a deleted file.
+
+    In a deleted-file diff, all content lines from the old file appear as ``-``
+    (removed) lines.  We strip the ``-`` prefix and skip header lines.
+    """
+    result: list[str] = []
+    for line in diff_text.splitlines(keepends=True):
+        if not line:
+            continue
+        prefix = line[0]
+        if prefix == '-':
+            if line.startswith('---'):
+                continue  # skip header line
+            result.append(line[1:])  # strip leading '-'
+        elif prefix == ' ':
+            result.append(line[1:])  # context line, strip leading ' '
+    return ''.join(result)
+
+
+def _apply_reverse_patch(cwd: str, diff_text: str) -> bool:
+    """Apply a reverse unified diff patch to a file in *cwd*.
+
+    Uses the system ``patch`` command with ``-R`` (reverse) and ``-p1``
+    (strip ``a/`` / ``b/`` prefixes).  Returns ``True`` on success.
+    """
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode='w', suffix='.diff', delete=False, encoding='utf-8',
+        ) as f:
+            f.write(diff_text)
+            tmp_path = f.name
+
+        try:
+            result = subprocess.run(
+                ["patch", "-R", "-p1", "-d", cwd, "-i", tmp_path],
+                capture_output=True, text=True, timeout=30,
+            )
+            return result.returncode == 0
+        except (subprocess.SubprocessError, TimeoutError):
+            return False
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+    except OSError:
+        return False
+
+
+def apply_reverse_diff(cwd: str, diff_data: dict) -> tuple[list[str], list[str]]:
+    """Apply the **reverse** of every file change described in *diff_data*.
+
+    Returns a ``(skipped, errors)`` tuple:
+      - ``skipped`` — list of file paths skipped (binary files)
+      - ``errors``  — list of file paths where the reverse operation failed
+    """
+    resolved_cwd = str(Path(cwd).resolve())
+    skipped: list[str] = []
+    errors: list[str] = []
+
+    for entry in diff_data.get("files", []):
+        rel_path = entry["path"]
+        status = entry["status"]
+        diff_text = entry.get("diff", "")
+        is_binary = entry.get("binary", False)
+        abs_path = os.path.normpath(os.path.join(resolved_cwd, rel_path))
+
+        # ── Binary files: skip entirely ─────────────────────────────
+        if is_binary:
+            skipped.append(rel_path)
+            continue
+
+        # ── Reverse of "added" → delete the file ────────────────────
+        if status == "added":
+            try:
+                if os.path.isfile(abs_path):
+                    os.remove(abs_path)
+            except OSError:
+                errors.append(rel_path)
+            continue
+
+        # ── Reverse of "deleted" → recreate the file ────────────────
+        if status == "deleted":
+            try:
+                content = _extract_deleted_content(diff_text)
+                os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+                Path(abs_path).write_text(content, encoding="utf-8")
+            except (OSError, UnicodeEncodeError):
+                errors.append(rel_path)
+            continue
+
+        # ── Reverse of "modified" → apply reverse patch ─────────────
+        if status == "modified":
+            if not diff_text:
+                errors.append(rel_path)
+                continue
+            if not os.path.isfile(abs_path):
+                errors.append(rel_path)
+                continue
+            if not _apply_reverse_patch(resolved_cwd, diff_text):
+                errors.append(rel_path)
+            continue
+
+    return skipped, errors
+
+
+def rollback_to_timestamp(
+    cwd: str, target_timestamp: float, session_file: str,
+) -> tuple[list[str], list[str]]:
+    """Rollback all diffs whose timestamp is after *target_timestamp*.
+
+    Diffs are applied in reverse chronological order (newest first).
+
+    Returns a ``(skipped, errors)`` tuple aggregating results from every
+    diff that was rolled back.
+    """
+    mapping = _load_mapping(cwd)
+    candidates: list[dict] = []
+
+    for entry in mapping.get("mappings", []):
+        if entry.get("session_file") != session_file:
+            continue
+        diff_ts = _diff_timestamp_to_unix(entry["timestamp"])
+        if diff_ts > target_timestamp:
+            candidates.append(entry)
+
+    # Sort newest first
+    candidates.sort(key=lambda e: _diff_timestamp_to_unix(e["timestamp"]), reverse=True)
+
+    all_skipped: list[str] = []
+    all_errors: list[str] = []
+
+    for entry in candidates:
+        diff_data = get_diff(cwd, entry["diff_filename"])
+        if diff_data is None:
+            all_errors.append(f"<diff:{entry['diff_filename']}> (unreadable)")
+            continue
+        skipped, errors = apply_reverse_diff(cwd, diff_data)
+        all_skipped.extend(skipped)
+        all_errors.extend(errors)
+
+    return all_skipped, all_errors

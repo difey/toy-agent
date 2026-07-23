@@ -773,6 +773,43 @@ export function ChatApp() {
     }
   }, [commitMessages, isStreaming, loadSessions, showToast, scheduleScrollBottom]);
 
+  const rollbackAtMessage = useCallback(async (messageIndex: number) => {
+    if (isStreaming) {
+      return;
+    }
+
+    if (!window.confirm('确定要回滚吗？\n\n将撤销此消息之后的所有文件更改（跳过二进制文件），并删除此消息之后的所有消息。')) {
+      return;
+    }
+
+    try {
+      const response = await api<{ ok: boolean; current: CurrentInfo }>(
+        'POST', '/api/sessions/rollback', { message_index: messageIndex },
+      );
+      setCurrentSession(response.current);
+      commitMessages(() => response.current.messages);
+      setSessionTitle(response.current.title || 'nanoClaude');
+      setDiffSummaries((prev) => {
+        // Keep only diff summaries for segments that still exist
+        const newSummaries: Record<string, DiffSummary> = {};
+        if (response.current.diff_summaries) {
+          for (const ds of response.current.diff_summaries) {
+            newSummaries[ds.segment_key] = ds;
+          }
+        }
+        return newSummaries;
+      });
+      setActiveDiff(null);
+      setDiffFilePaths([]);
+      await loadSessions();
+      await loadWorkspacePanel();
+      showToast('回滚成功');
+      scheduleScrollBottom();
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '回滚失败');
+    }
+  }, [commitMessages, isStreaming, loadSessions, loadWorkspacePanel, showToast, scheduleScrollBottom]);
+
   const toggleQuestionOption = useCallback((label: string) => {
     setQuestionAnswers((prev) => {
       if (activeQuestionRef.current?.multiple) {
@@ -1297,6 +1334,17 @@ export function ChatApp() {
                 {message.content}
               </div>
               <button
+                className="rollback-btn"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void rollbackAtMessage(index);
+                }}
+                title="Rollback to this point"
+                disabled={isStreaming}
+              >
+                ↩
+              </button>
+              <button
                 className="fork-btn"
                 onClick={(event) => {
                   event.stopPropagation();
@@ -1371,7 +1419,7 @@ export function ChatApp() {
         </div>
       );
     },
-    [collapsedCards, delegateFlowMap, forkAtMessage, isStreaming, subAgentFlows, toggleCard, toggleSubAgentFlow],
+    [collapsedCards, delegateFlowMap, forkAtMessage, isStreaming, rollbackAtMessage, subAgentFlows, toggleCard, toggleSubAgentFlow],
   );
 
   return (

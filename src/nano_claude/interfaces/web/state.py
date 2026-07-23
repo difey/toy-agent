@@ -4,10 +4,14 @@ import asyncio
 import os
 
 from nano_claude.core.agent import Agent
+from nano_claude.core.message import UserMessage
 from nano_claude.infra.session import Session, list_sessions, save_current, session_info, session_path
 
 from nano_claude.interfaces.web.serializers import serialize_messages_for_api
-from nano_claude.interfaces.web.services.diff_service import list_diffs_for_session
+from nano_claude.interfaces.web.services.diff_service import (
+    list_diffs_for_session,
+    rollback_to_timestamp,
+)
 
 
 class WebAppState:
@@ -122,6 +126,63 @@ class WebAppState:
         self.session.title = forked.title
         self.session_file_ref[0] = new_path
         return self.current_info()
+
+    def rollback_session(self, message_api_index: int) -> dict:
+        """Rollback all changes (files + messages) after the given user message.
+
+        1. Reverse all diffs whose timestamps are after the target message.
+        2. Truncate session messages after that message.
+        3. Save and return updated current_info.
+
+        Args:
+            message_api_index: Zero-based index of the user message in the
+                               serialized API message array (same as fork).
+
+        Returns:
+            dict with ``current`` (CurrentInfo), ``skipped_files``, and
+            ``errors`` keys.
+        """
+        save_current(self.session, self.session_file_ref[0])
+
+        # ── 1. Find the target user message's timestamp ──────────────
+        api_messages = serialize_messages_for_api(self.session.messages)
+        if message_api_index < 0 or message_api_index >= len(api_messages):
+            raise ValueError(f"Invalid message index: {message_api_index}")
+
+        target_msg = api_messages[message_api_index]
+        target_ts: float = target_msg.get("timestamp", 0.0)
+        if target_ts == 0.0:
+            raise ValueError("Target message has no timestamp")
+
+        # ── 2. Reverse diffs after this timestamp ────────────────────
+        session_file_basename = os.path.basename(self.session_file_ref[0])
+        skipped, errors = rollback_to_timestamp(
+            self.cwd, target_ts, session_file_basename,
+        )
+
+        # ── 3. Truncate session messages after this message ──────────
+        # Convert API index to session-internal index
+        user_text_count = 0
+        cutoff_idx = len(self.session.messages)
+        for i, msg in enumerate(self.session.messages):
+            if isinstance(msg, UserMessage) and isinstance(msg.content, str):
+                if user_text_count == message_api_index:
+                    # Keep everything up to (but not including) this message
+                    # Actually, keep this message but remove everything after it.
+                    # We want messages from 0 to i (inclusive) → cutoff = i + 1
+                    cutoff_idx = i + 1
+                    break
+                user_text_count += 1
+
+        # Truncate: keep messages up to cutoff_idx
+        self.session.messages = self.session.messages[:cutoff_idx]
+
+        # ── 4. Save and return ───────────────────────────────────────
+        save_current(self.session, self.session_file_ref[0])
+        info = self.current_info()
+        info["skipped_files"] = skipped
+        info["errors"] = errors
+        return info
 
     def new_session(self) -> None:
         save_current(self.session, self.session_file_ref[0])

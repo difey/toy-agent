@@ -25,6 +25,22 @@ async def api_fork_session(body: dict):
         raise HTTPException(status_code=400, detail="message_index is required (int)")
     return {"ok": True, "current": state.fork_session(message_index)}
 
+@router.post("/api/sessions/rollback")
+async def api_rollback_session(body: dict):
+    message_index = body.get("message_index")
+    if message_index is None or not isinstance(message_index, int):
+        raise HTTPException(status_code=400, detail="message_index is required (int)")
+    try:
+        result = state.rollback_session(message_index)
+        return {
+            "ok": True,
+            "current": result,
+            "skipped_files": result.get("skipped_files", []),
+            "errors": result.get("errors", []),
+        }
+    except (ValueError, RuntimeError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 @router.post("/api/sessions")
 async def api_new_session():
     state.new_session()
