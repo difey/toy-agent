@@ -161,20 +161,27 @@ class WebAppState:
         )
 
         # ── 3. Truncate session messages after this message ──────────
-        # Convert API index to session-internal index
+        # First convert API array index to a user-text-only count (same
+        # approach as fork_session — the API array has tool_start/tool_result
+        # entries expanded, so we need to count only user/text messages).
+        user_msg_index = 0
+        for i, m in enumerate(api_messages):
+            if i == message_api_index:
+                break
+            if m.get("role") == "user" and m.get("type") == "text":
+                user_msg_index += 1
+
+        # Now find the user_msg_index-th user message in the session and
+        # truncate everything after it (keep the user message itself).
         user_text_count = 0
         cutoff_idx = len(self.session.messages)
         for i, msg in enumerate(self.session.messages):
             if isinstance(msg, UserMessage) and isinstance(msg.content, str):
-                if user_text_count == message_api_index:
-                    # Keep everything up to (but not including) this message
-                    # Actually, keep this message but remove everything after it.
-                    # We want messages from 0 to i (inclusive) → cutoff = i + 1
-                    cutoff_idx = i + 1
+                if user_text_count == user_msg_index:
+                    cutoff_idx = i + 1  # keep this message, remove later ones
                     break
                 user_text_count += 1
 
-        # Truncate: keep messages up to cutoff_idx
         self.session.messages = self.session.messages[:cutoff_idx]
 
         # ── 4. Save and return ───────────────────────────────────────

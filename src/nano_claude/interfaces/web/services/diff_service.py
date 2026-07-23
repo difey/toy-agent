@@ -15,7 +15,7 @@ import os
 import subprocess
 import tempfile
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from nano_claude.infra.session import get_diff_dir
@@ -424,8 +424,14 @@ _DIFF_TIMESTAMP_FMT = "%Y-%m-%dT%H-%M-%S"
 
 
 def _diff_timestamp_to_unix(ts_str: str) -> float:
-    """Convert a diff timestamp string (e.g. '2024-01-01T12-00-00') to Unix timestamp float."""
-    return datetime.strptime(ts_str, _DIFF_TIMESTAMP_FMT).timestamp()
+    """Convert a diff timestamp string (e.g. '2024-01-01T12-00-00') to Unix timestamp float.
+
+    Diff timestamps are generated via ``datetime.utcnow()`` (naive UTC), so we
+    parse them as UTC explicitly to avoid the local-timezone assumption that
+    ``.timestamp()`` makes on naive datetimes.
+    """
+    dt = datetime.strptime(ts_str, _DIFF_TIMESTAMP_FMT)
+    return dt.replace(tzinfo=timezone.utc).timestamp()
 
 
 def _extract_deleted_content(diff_text: str) -> str:
@@ -540,20 +546,27 @@ def rollback_to_timestamp(
 ) -> tuple[list[str], list[str]]:
     """Rollback all diffs whose timestamp is after *target_timestamp*.
 
-    Diffs are applied in reverse chronological order (newest first).
+    Diffs are applied in reverse chronological order (newest first).  After
+    applying, the corresponding entries are removed from the mapping so that
+    future calls to ``list_diffs_for_session`` (and therefore the frontend
+    diff summaries) reflect the truncated history.
 
     Returns a ``(skipped, errors)`` tuple aggregating results from every
     diff that was rolled back.
     """
     mapping = _load_mapping(cwd)
     candidates: list[dict] = []
+    remaining: list[dict] = []
 
     for entry in mapping.get("mappings", []):
         if entry.get("session_file") != session_file:
+            remaining.append(entry)
             continue
         diff_ts = _diff_timestamp_to_unix(entry["timestamp"])
         if diff_ts > target_timestamp:
             candidates.append(entry)
+        else:
+            remaining.append(entry)
 
     # Sort newest first
     candidates.sort(key=lambda e: _diff_timestamp_to_unix(e["timestamp"]), reverse=True)
@@ -569,5 +582,9 @@ def rollback_to_timestamp(
         skipped, errors = apply_reverse_diff(cwd, diff_data)
         all_skipped.extend(skipped)
         all_errors.extend(errors)
+
+    # Remove rolled-back entries from mapping so frontend doesn't see stale diff summaries
+    mapping["mappings"] = remaining
+    _save_mapping(cwd, mapping)
 
     return all_skipped, all_errors
