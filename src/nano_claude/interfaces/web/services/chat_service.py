@@ -160,7 +160,7 @@ async def _execute_chat(state: WebAppState, message: str, response_id: str) -> N
         # Take snapshot before agent runs to detect file changes
         before_snapshot, before_content, before_binary = take_snapshot(cwd)
         user_msg_count = sum(1 for m in session.messages if isinstance(m, UserMessage))
-        segment_key = f"seg-{max(0, user_msg_count - 1)}"
+        segment_key = f"seg-{user_msg_count}"
 
         await agent.run_stream(message, cwd, session=session)
 

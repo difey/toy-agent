@@ -94,13 +94,27 @@ class WebAppState:
 
         Args:
             message_api_index: Zero-based index of the user message in the
-                               serialized API message array.
+                               serialized API message array (as seen by the
+                               frontend, which includes expanded tool entries).
 
         Returns:
             The current_info dict for the new forked session.
         """
         save_current(self.session, self.session_file_ref[0])
-        forked = self.session.fork(message_api_index)
+
+        # Convert API message array index to user-text-only index.
+        # The API array has tool_start/tool_result entries expanded, so
+        # we need to count only user/text messages to get the correct
+        # index for Session.fork().
+        api_messages = serialize_messages_for_api(self.session.messages)
+        user_msg_index = 0
+        for i, m in enumerate(api_messages):
+            if i == message_api_index:
+                break
+            if m.get("role") == "user" and m.get("type") == "text":
+                user_msg_index += 1
+
+        forked = self.session.fork(user_msg_index)
         new_path = session_path(self.cwd)
         forked.save(new_path)
         self.session.messages.clear()

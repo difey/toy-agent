@@ -267,6 +267,7 @@ export function ChatApp() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [diffSummaries, setDiffSummaries] = useState<Record<string, DiffSummary>>({});
   const [activeDiff, setActiveDiff] = useState<string | null>(null);
+  const [diffFilePaths, setDiffFilePaths] = useState<string[]>([]);
 
   const messagesRef = useRef(messages);
   const activeQuestionRef = useRef(activeQuestion);
@@ -353,6 +354,8 @@ export function ChatApp() {
   }, [showToast]);
 
   const refreshWorkspace = useCallback(async () => {
+    setActiveDiff(null);
+    setDiffFilePaths([]);
     setIsRefreshing(true);
     try {
       const data = await api<WorkspacePanelResponse>('GET', '/api/workspace-panel');
@@ -634,6 +637,21 @@ export function ChatApp() {
       window.removeEventListener('resize', syncInputAreaHeight);
     };
   }, [clampInputAreaHeight]);
+
+  useEffect(() => {
+    if (!activeDiff) {
+      setDiffFilePaths([]);
+      return;
+    }
+    setDiffFilePaths([]);
+    api<DiffDetail>('GET', `/api/diffs/${encodeURIComponent(activeDiff)}`)
+      .then((data) => {
+        setDiffFilePaths(data.files.map(f => f.path));
+      })
+      .catch(() => {
+        setDiffFilePaths([]);
+      });
+  }, [activeDiff]);
 
   const openVSCode = useCallback(async () => {
     try {
@@ -1188,7 +1206,12 @@ export function ChatApp() {
 
   const flowEntries = useMemo(() => Object.entries(subAgentFlows), [subAgentFlows]);
   const segments = useMemo(() => buildMessageSegments(messages), [messages]);
-  const modifiedFileTree = useMemo(() => buildModifiedFileTree(modifiedFiles), [modifiedFiles]);
+
+  const filteredFiles = useMemo(() => {
+    if (!activeDiff || diffFilePaths.length === 0) return modifiedFiles;
+    return modifiedFiles.filter(mf => diffFilePaths.includes(mf.path));
+  }, [modifiedFiles, activeDiff, diffFilePaths]);
+  const modifiedFileTree = useMemo(() => buildModifiedFileTree(filteredFiles), [filteredFiles]);
 
   const unexecutedPlans = useMemo(() => {
     return planDocs
@@ -1245,7 +1268,7 @@ export function ChatApp() {
       );
     })
   ), [expandedFolders, toggleFolder]);
-  const renderedModifiedTree = useMemo(() => renderTreeNodes(modifiedFileTree), [modifiedFileTree, renderTreeNodes]);
+
 
   const renderMessageNode = useCallback(
     (message: ChatMessage, index: number): ReactNode => {
@@ -1455,13 +1478,14 @@ export function ChatApp() {
                   <DiffOverviewBubble
                     summary={diffSummaries[seg.key]}
                     isActive={activeDiff === diffSummaries[seg.key].diff_filename}
-                    onClick={() =>
+                    onClick={() => {
                       setActiveDiff(
                         activeDiff === diffSummaries[seg.key].diff_filename
                           ? null
                           : diffSummaries[seg.key].diff_filename
-                      )
-                    }
+                      );
+                      setDiffFilePaths([]);
+                    }}
                   />
                 ) : null}
               </div>
@@ -1602,32 +1626,22 @@ export function ChatApp() {
       <aside id="workspace-panel" ref={workspacePanelRef} style={{ width: workspaceWidth, minWidth: workspaceWidth }}>
         <div className="workspace-panel-section">
           <div className="workspace-panel-header">
-            <span>{activeDiff ? 'Diff Details' : 'Modified Files'}</span>
-            {activeDiff ? (
-              <button
-                className="workspace-refresh-btn"
-                onClick={() => setActiveDiff(null)}
-                title="Back to modified files"
-                type="button"
-              >
-                ←
-              </button>
-            ) : (
-              <button
-                className={`workspace-refresh-btn ${isRefreshing ? 'spinning' : ''}`}
-                onClick={() => void refreshWorkspace()}
-                title="Refresh modified files and plan docs"
-                type="button"
-              >
-                ↻
-              </button>
-            )}
+            <span className="header-title">
+              <span className="header-label">Modified Files</span>
+              {activeDiff ? <span className="header-diff-badge">filtered</span> : null}
+            </span>
+            <button
+              className={`workspace-refresh-btn ${!activeDiff && isRefreshing ? 'spinning' : ''}`}
+              onClick={() => void refreshWorkspace()}
+              title={activeDiff ? 'Back to all modified files' : 'Refresh modified files and plan docs'}
+              type="button"
+            >
+              {activeDiff ? '←' : '↻'}
+            </button>
           </div>
           <div className="workspace-panel-body">
-            {activeDiff ? (
-              <DiffDetailView diffFilename={activeDiff} />
-            ) : modifiedFileTree.length > 0 ? (
-              renderedModifiedTree
+            {modifiedFileTree.length > 0 ? (
+              renderTreeNodes(modifiedFileTree)
             ) : (
               <div className="workspace-panel-empty">No modified files</div>
             )}
@@ -1842,10 +1856,12 @@ function highlightDiff(diffText: string): string {
 
 function DiffDetailView({ diffFilename }: { diffFilename: string }) {
   const [diffData, setDiffData] = useState<DiffDetail | null>(null);
+  const [diffError, setDiffError] = useState(false);
   const [expandedFiles, setExpandedFiles] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     setDiffData(null);
+    setDiffError(false);
     api<DiffDetail>('GET', `/api/diffs/${encodeURIComponent(diffFilename)}`)
       .then((data) => {
         setDiffData(data);
@@ -1855,12 +1871,17 @@ function DiffDetailView({ diffFilename }: { diffFilename: string }) {
         setExpandedFiles(expanded);
       })
       .catch(() => {
-        // silently fail
+        setDiffError(true);
       });
   }, [diffFilename]);
 
   if (!diffData) {
-    return <div className="workspace-panel-empty">Loading diff...</div>;
+    return (
+      <div className="diff-loading">
+        <div className="spinner" />
+        <span>{diffError ? 'Failed to load diff' : 'Loading diff...'}</span>
+      </div>
+    );
   }
 
   return (
