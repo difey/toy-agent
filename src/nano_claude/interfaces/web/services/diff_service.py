@@ -328,11 +328,13 @@ def save_diff(cwd: str, diff_data: dict, segment_key: str, session_file: str) ->
         json.dumps(wrapped, ensure_ascii=False, indent=2)
     )
 
-    # Update mapping
+    # Update mapping — acts as lightweight metadata index for diff files
     mapping = _load_mapping(cwd)
     mapping.setdefault("mappings", []).append({
         "segment_key": segment_key,
         "diff_filename": filename,
+        "session_file": session_file,
+        "timestamp": timestamp,
     })
     _save_mapping(cwd, mapping)
 
