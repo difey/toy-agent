@@ -6,7 +6,7 @@ from nano_claude.core.tool_contracts import (
 )
 from nano_claude.core.tool_registry import Tool
 from nano_claude.core.path_utils import check_file_permission, resolve_safe_path
-from nano_claude.infra.session import get_session_dir
+from nano_claude.infra.session import get_plan_dir
 
 class EditTool(Tool):
     @property
@@ -58,7 +58,7 @@ class EditTool(Tool):
 
         # In plan mode, only allow editing .md files under session directory
         if ctx.mode == "plan":
-            session_dir = get_session_dir(ctx.cwd)
+            session_dir = get_plan_dir(ctx.cwd)
             resolved_lower = resolved_path.lower()
             if not resolved_lower.endswith(".md"):
                 return ToolExecResult(

@@ -20,7 +20,7 @@ from nano_claude.core.prompts import PLAN_MODE_TOOLS, PLAN_SYSTEM_PROMPT, SYSTEM
 from nano_claude.core.tool_contracts import AskUserCallback, PermissionCallback, ToolContext, ToolExecResult
 from nano_claude.core.tool_registry import ToolRegistry
 from nano_claude.infra.llm import LLMClient
-from nano_claude.infra.session import Session, get_session_dir
+from nano_claude.infra.session import Session, get_plan_dir, get_session_dir
 
 
 class Agent:
@@ -146,7 +146,7 @@ class Agent:
         template = PLAN_SYSTEM_PROMPT if self.mode == "plan" else SYSTEM_PROMPT
         prompt = template.format(
             cwd=cwd,
-            session_dir=get_session_dir(cwd),
+            session_dir=get_plan_dir(cwd),
             platform=platform.system(),
             date=datetime.now().strftime("%a %b %d %Y"),
             tools=tools_prompt,

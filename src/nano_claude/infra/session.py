@@ -382,24 +382,86 @@ def _ensure_session_dir(cwd: str) -> str:
         _save_index(index)
     dir_path = os.path.join(SESSION_DIR, h)
     os.makedirs(dir_path, exist_ok=True)
+    _migrate_to_subdirs(dir_path)
     return dir_path
+
+
+def get_context_dir(cwd: str) -> str:
+    """Return (and create if needed) the context/ subdirectory for session files."""
+    base = _ensure_session_dir(cwd)
+    context_dir = os.path.join(base, "context")
+    os.makedirs(context_dir, exist_ok=True)
+    return context_dir
+
+
+def get_plan_dir(cwd: str) -> str:
+    """Return (and create if needed) the plan/ subdirectory for plan documents."""
+    base = _ensure_session_dir(cwd)
+    plan_dir = os.path.join(base, "plan")
+    os.makedirs(plan_dir, exist_ok=True)
+    return plan_dir
+
+
+def get_diff_dir(cwd: str) -> str:
+    """Return (and create if needed) the diff/ subdirectory for historical diffs."""
+    base = _ensure_session_dir(cwd)
+    diff_dir = os.path.join(base, "diff")
+    os.makedirs(diff_dir, exist_ok=True)
+    return diff_dir
 
 
 def session_path(cwd: str) -> str:
     ts = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
-    session_dir = _ensure_session_dir(cwd)
-    return os.path.join(session_dir, f"{ts}.json")
+    context_dir = get_context_dir(cwd)
+    return os.path.join(context_dir, f"{ts}.json")
 
 
 def list_sessions(cwd: str) -> list[str]:
-    session_dir = _ensure_session_dir(cwd)
-    pattern = os.path.join(session_dir, "*.json")
+    context_dir = get_context_dir(cwd)
+    pattern = os.path.join(context_dir, "*.json")
     return sorted(glob.glob(pattern))
 
 
 def get_session_dir(cwd: str) -> str:
-    """Return the session directory path for a given cwd (for plan files, etc.)."""
+    """Return the base session directory path for a given cwd."""
     return _ensure_session_dir(cwd)
+
+
+def _migrate_to_subdirs(base_dir: str) -> None:
+    """Migrate old-format session directories to the new subdirectory layout.
+
+    Old layout:  <base>/*.json, <base>/*.md
+    New layout:  <base>/context/*.json, <base>/plan/*.md, <base>/diff/
+
+    This is a no-op if the directory is already in the new layout (i.e. no
+    .json or .md files remain at the root level).
+    """
+    json_files = sorted(glob.glob(os.path.join(base_dir, "*.json")))
+    md_files = sorted(glob.glob(os.path.join(base_dir, "*.md")))
+    md_resolved_files = sorted(glob.glob(os.path.join(base_dir, "*.md.resolved")))
+
+    if not json_files and not md_files and not md_resolved_files:
+        return  # already migrated or empty
+
+    # Move .json files to context/
+    context_dir = os.path.join(base_dir, "context")
+    os.makedirs(context_dir, exist_ok=True)
+    for f in json_files:
+        dest = os.path.join(context_dir, os.path.basename(f))
+        if not os.path.exists(dest):
+            shutil.move(f, dest)
+
+    # Move .md and .md.resolved files to plan/
+    plan_dir = os.path.join(base_dir, "plan")
+    os.makedirs(plan_dir, exist_ok=True)
+    for f in md_files + md_resolved_files:
+        dest = os.path.join(plan_dir, os.path.basename(f))
+        if not os.path.exists(dest):
+            shutil.move(f, dest)
+
+    # Ensure diff/ exists
+    diff_dir = os.path.join(base_dir, "diff")
+    os.makedirs(diff_dir, exist_ok=True)
 
 
 def migrate_old_sessions(cwd: str) -> int:
@@ -416,7 +478,8 @@ def migrate_old_sessions(cwd: str) -> int:
     new_dir = _ensure_session_dir(cwd)
     count = 0
     for f in old_files:
-        new_path = os.path.join(new_dir, os.path.basename(f))
+        new_path = os.path.join(new_dir, "context", os.path.basename(f))
+        os.makedirs(os.path.dirname(new_path), exist_ok=True)
         if not os.path.exists(new_path):
             shutil.copy2(f, new_path)
             count += 1

@@ -18,7 +18,7 @@ from prompt_toolkit.styles import Style
 
 from nano_claude.core.agent import Agent
 from nano_claude.core.message import ToolCall, UserMessage
-from nano_claude.infra.session import Session, get_session_dir, list_sessions, save_current, session_info, session_path
+from nano_claude.infra.session import Session, get_plan_dir, get_session_dir, list_sessions, save_current, session_info, session_path
 
 _STYLE = Style.from_dict({
     "status": "bg:#222222 #ffffff",
@@ -353,11 +353,11 @@ class InteractiveUI:
         )
 
     def _find_latest_plan(self) -> str | None:
-        """Find the most recently modified .md plan file in the session directory."""
-        session_dir = Path(get_session_dir(self.cwd))
-        if not session_dir.is_dir():
+        """Find the most recently modified .md plan file in the plan directory."""
+        plan_dir = Path(get_plan_dir(self.cwd))
+        if not plan_dir.is_dir():
             return None
-        md_files = list(session_dir.glob("*.md"))
+        md_files = list(plan_dir.glob("*.md"))
         if not md_files:
             return None
         return str(max(md_files, key=os.path.getmtime))

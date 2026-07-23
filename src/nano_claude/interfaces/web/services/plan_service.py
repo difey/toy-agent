@@ -4,26 +4,26 @@ import os
 import subprocess
 from pathlib import Path
 
-from nano_claude.infra.session import get_session_dir
+from nano_claude.infra.session import get_plan_dir
 
 MIN_GIT_STATUS_LINE_LENGTH = 4
 
 
 def _latest_plan_file(cwd: str) -> Path | None:
-    session_dir = Path(get_session_dir(cwd))
-    if not session_dir.is_dir():
+    plan_dir = Path(get_plan_dir(cwd))
+    if not plan_dir.is_dir():
         return None
-    md_files = sorted(session_dir.glob("*.md"), key=lambda f: os.path.getmtime(f))
+    md_files = sorted(plan_dir.glob("*.md"), key=lambda f: os.path.getmtime(f))
     if not md_files:
         return None
     return md_files[-1]
 
 
 def _list_plan_files(cwd: str) -> list[Path]:
-    session_dir = Path(get_session_dir(cwd))
-    if not session_dir.is_dir():
+    plan_dir = Path(get_plan_dir(cwd))
+    if not plan_dir.is_dir():
         return []
-    files = [*session_dir.glob("*.md"), *session_dir.glob("*.md.resolved")]
+    files = [*plan_dir.glob("*.md"), *plan_dir.glob("*.md.resolved")]
     return sorted(files, key=lambda f: os.path.getmtime(f), reverse=True)
 
 
