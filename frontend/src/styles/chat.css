@@ -174,6 +174,7 @@ button.workspace-tree-row { cursor: pointer; }
 .bubble h1, .bubble h2, .bubble h3, .bubble h4 { color: var(--text-bright); }
 .bubble h1 { font-size: 1.3em; }
 .bubble h2 { font-size: 1.15em; }
+.msg-timestamp { font-size: 11px; color: var(--text-dim); font-family: var(--mono); line-height: 1.4; }
 .bubble h3 { font-size: 1.05em; }
 .bubble pre { background: var(--bg3); padding: 14px; border-radius: var(--radius-sm); overflow-x: auto; font-size: 12.5px; line-height: 1.55; border: 1px solid var(--border); position: relative; }
 .bubble code { background: var(--bg3); padding: 2px 6px; border-radius: 4px; font-family: var(--mono); font-size: 0.9em; color: var(--accent3); }

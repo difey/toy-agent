@@ -1,3 +1,4 @@
+import time
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -6,12 +7,14 @@ from typing import Literal
 class SystemMessage:
     role: Literal["system"] = "system"
     content: str = ""
+    timestamp: float = field(default_factory=time.time)
 
 
 @dataclass
 class UserMessage:
     content: str | list[dict]
     role: Literal["user"] = "user"
+    timestamp: float = field(default_factory=time.time)
 
 
 @dataclass
@@ -20,6 +23,7 @@ class AssistantMessage:
     content: str | None = None
     reasoning_content: str | None = None
     tool_calls: list["ToolCall"] = field(default_factory=list)
+    timestamp: float = field(default_factory=time.time)
 
 
 @dataclass
@@ -28,6 +32,7 @@ class ToolResult:
     tool_call_id: str = ""
     content: str = ""
     tool_name: str = ""
+    timestamp: float = field(default_factory=time.time)
 
 
 @dataclass

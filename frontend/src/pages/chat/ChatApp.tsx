@@ -54,6 +54,19 @@ const TIMESTAMP_FORMATTER = new Intl.DateTimeFormat(undefined, {
   minute: '2-digit',
   hour12: false,
 });
+const MSG_TIMESTAMP_FORMATTER = new Intl.DateTimeFormat(undefined, {
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false,
+});
+function formatMsgTimestamp(ts: number | undefined | null): string {
+  if (!ts || ts === 0) return '';
+  return MSG_TIMESTAMP_FORMATTER.format(new Date(ts * 1000));
+}
 function readStoredDimension(storageKey: string, minValue: number, maxValue: number, defaultValue: number): number {
   const stored = Number(localStorage.getItem(storageKey));
   if (Number.isFinite(stored) && stored >= minValue && stored <= maxValue) {
@@ -1279,7 +1292,10 @@ export function ChatApp() {
         <div key={`${message.role}-${message.type}-${index}`} className={`msg ${message.role || 'assistant'}`}>
           {message.role === 'user' && message.type === 'text' ? (
             <div className="bubble-wrapper">
-              <div className="bubble">{message.content}</div>
+              <div className="bubble">
+                <div className="msg-timestamp">{formatMsgTimestamp(message.timestamp)}</div>
+                {message.content}
+              </div>
               <button
                 className="fork-btn"
                 onClick={(event) => {
@@ -1295,7 +1311,10 @@ export function ChatApp() {
           ) : null}
 
           {message.role === 'assistant' && message.type === 'text' ? (
-            <div className="bubble" dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }} />
+            <div className="bubble">
+              <div className="msg-timestamp">{formatMsgTimestamp(message.timestamp)}</div>
+              <div dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }} />
+            </div>
           ) : null}
 
           {message.type === 'tool_start' ? (
@@ -1304,6 +1323,7 @@ export function ChatApp() {
                 <span className="collapse-arrow">{collapsedCards[index] !== false ? '▸' : '▾'}</span>
                 <span className="badge run">▶ {message.name}</span>
                 <span style={{ color: 'var(--text-dim)' }}>tool call</span>
+                <span className="msg-timestamp" style={{ marginLeft: 'auto', marginRight: 8 }}>{formatMsgTimestamp(message.timestamp)}</span>
               </div>
               {collapsedCards[index] !== false ? null : (
                 <div className="tool-card-body">{JSON.stringify(message.arguments ?? {}, null, 2)}</div>
@@ -1317,6 +1337,7 @@ export function ChatApp() {
                 <span className="collapse-arrow">{collapsedCards[index] !== false ? '▸' : '▾'}</span>
                 <span className="badge done">✔ {message.name || message.title || 'done'}</span>
                 <span style={{ color: 'var(--text-dim)' }}>result</span>
+                <span className="msg-timestamp" style={{ marginLeft: 'auto', marginRight: 8 }}>{formatMsgTimestamp(message.timestamp)}</span>
                 {message.name === 'delegate' ? (
                   <button
                     onClick={(event) => {
@@ -2030,11 +2051,17 @@ function ThinkingBubble({
           {messages.map(({ message, index }) => (
             <div key={`${message.role}-${message.type}-${index}`} className={`msg ${message.role || 'assistant'}`}>
               {message.role === 'user' && message.type === 'text' ? (
-                <div className="bubble">{message.content}</div>
+                <div className="bubble">
+                  <div className="msg-timestamp">{formatMsgTimestamp(message.timestamp)}</div>
+                  {message.content}
+                </div>
               ) : null}
 
               {message.role === 'assistant' && message.type === 'text' ? (
-                <div className="bubble" dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }} />
+                <div className="bubble">
+                  <div className="msg-timestamp">{formatMsgTimestamp(message.timestamp)}</div>
+                  <div dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }} />
+                </div>
               ) : null}
 
               {message.type === 'tool_start' ? (
@@ -2043,6 +2070,7 @@ function ThinkingBubble({
                     <span className="collapse-arrow">{collapsedCards[index] !== false ? '▸' : '▾'}</span>
                     <span className="badge run">▶ {message.name}</span>
                     <span style={{ color: 'var(--text-dim)' }}>tool call</span>
+                    <span className="msg-timestamp" style={{ marginLeft: 'auto', marginRight: 8 }}>{formatMsgTimestamp(message.timestamp)}</span>
                   </div>
                   {collapsedCards[index] !== false ? null : (
                     <div className="tool-card-body">{JSON.stringify(message.arguments ?? {}, null, 2)}</div>
@@ -2056,6 +2084,7 @@ function ThinkingBubble({
                     <span className="collapse-arrow">{collapsedCards[index] !== false ? '▸' : '▾'}</span>
                     <span className="badge done">✔ {message.name || message.title || 'done'}</span>
                     <span style={{ color: 'var(--text-dim)' }}>result</span>
+                    <span className="msg-timestamp" style={{ marginLeft: 'auto', marginRight: 8 }}>{formatMsgTimestamp(message.timestamp)}</span>
                     {message.name === 'delegate' ? (
                       <button
                         onClick={(event) => {

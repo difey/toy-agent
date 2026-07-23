@@ -1,6 +1,7 @@
 import asyncio
 import os
 import subprocess
+import time
 import traceback
 from pathlib import Path
 
@@ -92,6 +93,14 @@ class InteractiveUI:
         self._turn_count = 0
 
         self._build_ui()
+
+    @staticmethod
+    def _fmt_ts(ts: float | None) -> str:
+        """Format a Unix timestamp to HH:MM:SS for CLI display."""
+        if ts is None or ts == 0:
+            return ""
+        from datetime import datetime as _dt
+        return _dt.fromtimestamp(ts).strftime("%H:%M:%S")
 
     def _format_status(self) -> FormattedText:
         title = self.session.title or "new session"
@@ -396,7 +405,7 @@ class InteractiveUI:
         self.application.invalidate()
 
         self._turn_count += 1
-        self._append_output(f"\n> {text}\n")
+        self._append_output(f"\n[{self._fmt_ts(time.time())}] > {text}\n")
 
         original_on_text_delta = self.agent.on_text_delta
         original_on_tool_end = self.agent.on_tool_end
@@ -453,12 +462,12 @@ class InteractiveUI:
         self.application.invalidate()
 
     def _on_tool_start(self, call: ToolCall):
-        label = f"\n  [{call.name}]"
+        label = f"\n  [{self._fmt_ts(time.time())}] [{call.name}]"
         self._append_output(label)
         self.application.invalidate()
 
     def _on_tool_end(self, name: str, title: str, output: str):
-        label = f"\n  [{title}]"
+        label = f"\n  [{self._fmt_ts(time.time())}] [{title}]"
         self._append_output(label)
         self.application.invalidate()
 

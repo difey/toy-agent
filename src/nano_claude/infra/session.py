@@ -296,12 +296,13 @@ class Session:
 
 def _serialize_message(msg: Message) -> dict:
     if isinstance(msg, SystemMessage):
-        return {"content": msg.content}
+        return {"content": msg.content, "timestamp": msg.timestamp}
     elif isinstance(msg, UserMessage):
-        return {"content": msg.content}
+        return {"content": msg.content, "timestamp": msg.timestamp}
     elif isinstance(msg, AssistantMessage):
         data: dict = {
             "content": msg.content,
+            "timestamp": msg.timestamp,
             "tool_calls": [
                 {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
                 for tc in msg.tool_calls
@@ -315,6 +316,7 @@ def _serialize_message(msg: Message) -> dict:
             "tool_call_id": msg.tool_call_id,
             "content": msg.content,
             "tool_name": msg.tool_name,
+            "timestamp": msg.timestamp,
         }
     raise TypeError(f"Unknown message type: {type(msg)}")
 
@@ -323,13 +325,14 @@ def _deserialize_message(item: dict) -> Message:
     msg_type = item["type"]
     data = item["data"]
     if msg_type == "SystemMessage":
-        return SystemMessage(content=data["content"])
+        return SystemMessage(content=data["content"], timestamp=data.get("timestamp", 0.0))
     elif msg_type == "UserMessage":
-        return UserMessage(content=data["content"])
+        return UserMessage(content=data["content"], timestamp=data.get("timestamp", 0.0))
     elif msg_type == "AssistantMessage":
         return AssistantMessage(
             content=data.get("content"),
             reasoning_content=data.get("reasoning_content"),
+            timestamp=data.get("timestamp", 0.0),
             tool_calls=[
                 ToolCall(id=tc["id"], name=tc["name"], arguments=tc["arguments"])
                 for tc in data.get("tool_calls", [])
@@ -340,6 +343,7 @@ def _deserialize_message(item: dict) -> Message:
             tool_call_id=data["tool_call_id"],
             content=data["content"],
             tool_name=data.get("tool_name", ""),
+            timestamp=data.get("timestamp", 0.0),
         )
     raise TypeError(f"Unknown message type: {msg_type}")
 

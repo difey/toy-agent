@@ -19,6 +19,7 @@ export interface ChatMessage {
   title?: string;
   arguments?: Record<string, unknown>;
   flow_id?: string;
+  timestamp?: number;
 }
 
 export interface CurrentInfo extends SessionSummary {
