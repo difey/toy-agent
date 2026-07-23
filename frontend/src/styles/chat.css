@@ -101,8 +101,14 @@ button.workspace-tree-row { cursor: pointer; }
 
 .msg { margin-bottom: 16px; animation: fadeIn 0.3s ease-out; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-.msg.user { display: flex; justify-content: flex-end; }
+.msg.user { display: flex; justify-content: flex-end; position: relative; }
 .msg.user .bubble { background: var(--user-bg); border: 1px solid #1f6feb55; padding: 10px 16px; border-radius: 18px 18px 4px 18px; max-width: 72%; color: var(--text-bright); line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+.msg.user .bubble-wrapper { position: relative; display: inline-block; max-width: 72%; }
+.msg.user .bubble-wrapper .bubble { max-width: 100%; }
+.fork-btn { position: absolute; top: -6px; right: -6px; width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--border); background: var(--bg2); color: var(--text-dim); cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center; opacity: 0; transition: all 0.15s; z-index: 10; line-height: 1; padding: 0; }
+.msg.user:hover .fork-btn { opacity: 0.7; }
+.fork-btn:hover { opacity: 1 !important; background: var(--accent); color: #fff; border-color: var(--accent); }
+.fork-btn:disabled { opacity: 0 !important; cursor: not-allowed; }
 .msg.assistant { display: flex; justify-content: flex-start; }
 .msg.assistant .bubble { background: var(--assistant-bg); border: 1px solid var(--border); padding: 12px 16px; border-radius: 18px 18px 18px 4px; max-width: 88%; line-height: 1.5; }
 .bubble { display: flex; flex-direction: column; gap: 0.35em; word-break: break-word; }

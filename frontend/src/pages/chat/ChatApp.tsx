@@ -708,6 +708,26 @@ export function ChatApp() {
     }
   }, [currentSession?.index, isStreaming, loadCurrent, loadSessions, showToast]);
 
+  const forkAtMessage = useCallback(async (messageIndex: number) => {
+    if (isStreaming) {
+      return;
+    }
+
+    try {
+      const response = await api<{ ok: boolean; current: CurrentInfo }>(
+        'POST', '/api/sessions/fork', { message_index: messageIndex },
+      );
+      setCurrentSession(response.current);
+      commitMessages(() => response.current.messages);
+      setSessionTitle(response.current.title || 'nanoClaude');
+      await loadSessions();
+      showToast('Forked new session');
+      scheduleScrollBottom();
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to fork session');
+    }
+  }, [commitMessages, isStreaming, loadSessions, showToast, scheduleScrollBottom]);
+
   const toggleQuestionOption = useCallback((label: string) => {
     setQuestionAnswers((prev) => {
       if (activeQuestionRef.current?.multiple) {
@@ -1215,7 +1235,20 @@ export function ChatApp() {
       return (
         <div key={`${message.role}-${message.type}-${index}`} className={`msg ${message.role || 'assistant'}`}>
           {message.role === 'user' && message.type === 'text' ? (
-            <div className="bubble">{message.content}</div>
+            <div className="bubble-wrapper">
+              <div className="bubble">{message.content}</div>
+              <button
+                className="fork-btn"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void forkAtMessage(index);
+                }}
+                title="Fork conversation from this point"
+                disabled={isStreaming}
+              >
+                ⤴
+              </button>
+            </div>
           ) : null}
 
           {message.role === 'assistant' && message.type === 'text' ? (
@@ -1274,7 +1307,7 @@ export function ChatApp() {
         </div>
       );
     },
-    [collapsedCards, delegateFlowMap, subAgentFlows, toggleCard, toggleSubAgentFlow],
+    [collapsedCards, delegateFlowMap, forkAtMessage, isStreaming, subAgentFlows, toggleCard, toggleSubAgentFlow],
   );
 
   return (

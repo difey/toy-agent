@@ -236,6 +236,50 @@ class Session:
         }
         Path(path).write_text(json.dumps(data, ensure_ascii=False, indent=2))
 
+    def fork(self, message_api_index: int) -> "Session":
+        """Create a new Session containing messages up to (but not including)
+        the user message at the given index in the serialized API format.
+
+        The API format (serialize_messages_for_api) skips SystemMessage entries
+        and expands tool_calls, so we count only UserMessage (text) entries to
+        locate the cut-off point.
+
+        Args:
+            message_api_index: The zero-based index of the user text message in
+                               the serialized API message array.
+
+        Returns:
+            A new Session with the forked message history (system_prompt + all
+            messages before the referenced user message). The new session has
+            no title — it will be regenerated on the first new user message.
+        """
+        # Find the cut-off index in self.messages by counting user text messages
+        user_text_count = 0
+        cutoff = len(self.messages)  # default: include everything
+        for i, msg in enumerate(self.messages):
+            if isinstance(msg, UserMessage) and isinstance(msg.content, str):
+                if user_text_count == message_api_index:
+                    cutoff = i  # stop before this message
+                    break
+                user_text_count += 1
+
+        # Build the forked session
+        forked = Session(
+            max_tokens=self.max_tokens,
+            summarizer=self.summarizer,
+            title="",
+        )
+        forked._ensure_system_prompt(self._get_system_prompt())
+        # Copy messages from position 1 (after system prompt) up to cutoff
+        forked.messages.extend(self.messages[1:cutoff])
+        return forked
+
+    def _get_system_prompt(self) -> str:
+        """Return the current system prompt string, or empty string."""
+        if self.messages and isinstance(self.messages[0], SystemMessage):
+            return self.messages[0].content
+        return ""
+
     @classmethod
     def load(cls, path: str) -> "Session":
         data = json.loads(Path(path).read_text())

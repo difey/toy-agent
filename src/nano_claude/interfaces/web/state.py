@@ -85,6 +85,29 @@ class WebAppState:
         except OSError as e:
             return f"Error: {e}"
 
+    def fork_session(self, message_api_index: int) -> dict:
+        """Fork the current session at the given user message index.
+
+        Creates a new session with all messages before the referenced user
+        message, saves it to disk, and switches the current session to it.
+
+        Args:
+            message_api_index: Zero-based index of the user message in the
+                               serialized API message array.
+
+        Returns:
+            The current_info dict for the new forked session.
+        """
+        save_current(self.session, self.session_file_ref[0])
+        forked = self.session.fork(message_api_index)
+        new_path = session_path(self.cwd)
+        forked.save(new_path)
+        self.session.messages.clear()
+        self.session.messages.extend(forked.messages)
+        self.session.title = forked.title
+        self.session_file_ref[0] = new_path
+        return self.current_info()
+
     def new_session(self) -> None:
         save_current(self.session, self.session_file_ref[0])
         self.session.messages.clear()

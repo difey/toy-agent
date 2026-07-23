@@ -17,6 +17,13 @@ async def api_list_sessions():
     return state.sessions_list()
 
 
+@router.post("/api/sessions/fork")
+async def api_fork_session(body: dict):
+    message_index = body.get("message_index")
+    if message_index is None or not isinstance(message_index, int):
+        raise HTTPException(status_code=400, detail="message_index is required (int)")
+    return {"ok": True, "current": state.fork_session(message_index)}
+
 @router.post("/api/sessions")
 async def api_new_session():
     state.new_session()
