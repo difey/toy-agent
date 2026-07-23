@@ -172,13 +172,13 @@ class WebAppState:
                 user_msg_index += 1
 
         # Now find the user_msg_index-th user message in the session and
-        # truncate everything after it (keep the user message itself).
+        # truncate everything from it onward (remove the message itself too).
         user_text_count = 0
         cutoff_idx = len(self.session.messages)
         for i, msg in enumerate(self.session.messages):
             if isinstance(msg, UserMessage) and isinstance(msg.content, str):
                 if user_text_count == user_msg_index:
-                    cutoff_idx = i + 1  # keep this message, remove later ones
+                    cutoff_idx = i  # remove this message and everything after
                     break
                 user_text_count += 1
 
