@@ -7,7 +7,10 @@ from fastapi import APIRouter, HTTPException
 from nano_claude.infra.session import Session, session_info
 
 from nano_claude.interfaces.web.serializers import serialize_messages_for_api
-from nano_claude.interfaces.web.services.diff_service import list_diffs_for_session
+from nano_claude.interfaces.web.services.diff_service import (
+    list_checkpoints_for_session,
+    RollbackError,
+)
 from nano_claude.interfaces.web.state import state
 
 router = APIRouter()
@@ -38,7 +41,7 @@ async def api_rollback_session(body: dict):
             "skipped_files": result.get("skipped_files", []),
             "errors": result.get("errors", []),
         }
-    except (ValueError, RuntimeError) as e:
+    except (ValueError, RuntimeError, RollbackError) as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/api/sessions")
@@ -60,7 +63,7 @@ async def api_get_session(idx: int):
     except Exception as e:
         info["messages"] = []
         info["load_error"] = str(e)
-    info["diff_summaries"] = list_diffs_for_session(
+    info["diff_summaries"] = list_checkpoints_for_session(
         state.cwd, os.path.basename(filepath),
     )
     return info

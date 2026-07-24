@@ -22,7 +22,14 @@ export interface ChatMessage {
   timestamp?: number;
 }
 
-export interface CurrentInfo extends SessionSummary {
+export interface CurrentInfo {
+  index: number;
+  is_current: boolean;
+  title: string;
+  path: string;
+  name: string;
+  preview: string;
+  tokens: number;
   mode: Mode;
   setup_needed: boolean;
   messages: ChatMessage[];
@@ -100,32 +107,31 @@ export interface WorkspacePanelResponse {
 
 export interface DiffSummary {
   segment_key: string;
-  diff_filename: string;
+  checkpoint_filename: string;
   summary: {
     files_changed: number;
-    insertions: number;
-    deletions: number;
+    files: FileChangeItem[];
   };
 }
 
-export interface DiffFileEntry {
+export interface FileChangeItem {
   path: string;
-  status: 'modified' | 'added' | 'deleted';
-  insertions: number;
-  deletions: number;
-  diff: string;
-  binary?: boolean;
+  status: 'modified' | 'added' | 'deleted' | 'binary';
 }
 
-export interface DiffDetail {
+export interface CheckpointData {
   version: number;
   timestamp: string;
+  git_commit_hash: string;
   session_file: string;
   message_segment_key: string;
   summary: {
     files_changed: number;
-    insertions: number;
-    deletions: number;
   };
-  files: DiffFileEntry[];
+  files: {
+    modified: Record<string, string>;
+    deleted: Record<string, string>;
+    added: string[];
+    binary: string[];
+  };
 }

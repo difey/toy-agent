@@ -4,8 +4,8 @@ import { api } from '../../shared/api';
 import { renderMarkdown } from '../../shared/markdown';
 import type {
   ChatMessage,
+  CheckpointData,
   CurrentInfo,
-  DiffDetail,
   DiffSummary,
   ModifiedFileItem,
   Mode,
@@ -657,9 +657,17 @@ export function ChatApp() {
       return;
     }
     setDiffFilePaths([]);
-    api<DiffDetail>('GET', `/api/diffs/${encodeURIComponent(activeDiff)}`)
+    api<CheckpointData>('GET', `/api/diffs/${encodeURIComponent(activeDiff)}`)
       .then((data) => {
-        setDiffFilePaths(data.files.map(f => f.path));
+        // Collect all file paths from the checkpoint's files object
+        const paths: string[] = [];
+        if (data.files) {
+          paths.push(...Object.keys(data.files.modified || {}));
+          paths.push(...Object.keys(data.files.deleted || {}));
+          paths.push(...(data.files.added || []));
+          paths.push(...(data.files.binary || []));
+        }
+        setDiffFilePaths(paths);
       })
       .catch(() => {
         setDiffFilePaths([]);
@@ -1546,12 +1554,12 @@ export function ChatApp() {
                 {diffSummaries[seg.key] ? (
                   <DiffOverviewBubble
                     summary={diffSummaries[seg.key]}
-                    isActive={activeDiff === diffSummaries[seg.key].diff_filename}
+                    isActive={activeDiff === diffSummaries[seg.key].checkpoint_filename}
                     onClick={() => {
                       setActiveDiff(
-                        activeDiff === diffSummaries[seg.key].diff_filename
+                        activeDiff === diffSummaries[seg.key].checkpoint_filename
                           ? null
-                          : diffSummaries[seg.key].diff_filename
+                          : diffSummaries[seg.key].checkpoint_filename
                       );
                       setDiffFilePaths([]);
                     }}
@@ -1885,8 +1893,6 @@ function DiffOverviewBubble({
         <span className="diff-overview-icon">📝</span>
         <span className="diff-overview-stats">
           <span className="diff-stat-files">{summary.summary.files_changed} file{summary.summary.files_changed !== 1 ? 's' : ''}</span>
-          <span className="diff-stat-insertions">+{summary.summary.insertions}</span>
-          <span className="diff-stat-deletions">-{summary.summary.deletions}</span>
         </span>
         <span className="diff-overview-arrow">{isActive ? '▾' : '▸'}</span>
       </div>
@@ -1894,50 +1900,16 @@ function DiffOverviewBubble({
   );
 }
 
-/** Escape HTML special chars in diff text */
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-/** Apply syntax highlighting to unified diff text */
-function highlightDiff(diffText: string): string {
-  return diffText
-    .split('\n')
-    .map((line) => {
-      const escaped = escapeHtml(line);
-      if (line.startsWith('+') && !line.startsWith('+++')) {
-        return `<span class="diff-line-add">${escaped}</span>`;
-      }
-      if (line.startsWith('-') && !line.startsWith('---')) {
-        return `<span class="diff-line-del">${escaped}</span>`;
-      }
-      if (line.startsWith('@@')) {
-        return `<span class="diff-line-hdr">${escaped}</span>`;
-      }
-      return escaped;
-    })
-    .join('\n');
-}
-
 function DiffDetailView({ diffFilename }: { diffFilename: string }) {
-  const [diffData, setDiffData] = useState<DiffDetail | null>(null);
+  const [diffData, setDiffData] = useState<CheckpointData | null>(null);
   const [diffError, setDiffError] = useState(false);
-  const [expandedFiles, setExpandedFiles] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     setDiffData(null);
     setDiffError(false);
-    api<DiffDetail>('GET', `/api/diffs/${encodeURIComponent(diffFilename)}`)
+    api<CheckpointData>('GET', `/api/diffs/${encodeURIComponent(diffFilename)}`)
       .then((data) => {
         setDiffData(data);
-        const expanded: Record<string, boolean> = {};
-        // Start with only the first file expanded, rest collapsed
-        data.files.forEach((f, i) => { expanded[f.path] = i === 0; });
-        setExpandedFiles(expanded);
       })
       .catch(() => {
         setDiffError(true);
@@ -1953,57 +1925,53 @@ function DiffDetailView({ diffFilename }: { diffFilename: string }) {
     );
   }
 
+  const files = diffData.files || {};
+  const fileList: { path: string; status: string }[] = [];
+
+  for (const path of Object.keys(files.modified || {})) {
+    fileList.push({ path, status: 'modified' });
+  }
+  for (const path of Object.keys(files.deleted || {})) {
+    fileList.push({ path, status: 'deleted' });
+  }
+  for (const path of files.added || []) {
+    fileList.push({ path, status: 'added' });
+  }
+  for (const path of files.binary || []) {
+    fileList.push({ path, status: 'binary' });
+  }
+
+  const statusIcon: Record<string, string> = {
+    added: '🆕',
+    deleted: '🗑️',
+    modified: '📄',
+    binary: '🗄️',
+  };
+
   return (
     <div className="diff-detail-view">
-      {diffData.files.length === 0 ? (
-        <div className="workspace-panel-empty">No file changes in this diff</div>
+      {fileList.length === 0 ? (
+        <div className="workspace-panel-empty">No file changes in this checkpoint</div>
       ) : (
-        diffData.files.map((file) => (
+        fileList.map((file) => (
           <div key={file.path} className="diff-file-item">
-            <div
-              className="diff-file-header"
-              onClick={() =>
-                setExpandedFiles((prev) => ({
-                  ...prev,
-                  [file.path]: !prev[file.path],
-                }))
-              }
-            >
-              <span className="diff-overview-caret">
-                {expandedFiles[file.path] ? '▾' : '▸'}
-              </span>
+            <div className="diff-file-header">
               <span>
-                {file.status === 'added'
-                  ? '🆕'
-                  : file.status === 'deleted'
-                    ? '🗑️'
-                    : '📄'}
+                {statusIcon[file.status] || '📄'}
               </span>
               <span className="diff-file-name">{file.path}</span>
-              {file.binary ? <span className="diff-binary-badge">(binary)</span> : null}
-              <span className="diff-file-stats">
-                <span className="diff-stat-insertions">+{file.insertions}</span>
-                <span className="diff-stat-deletions">-{file.deletions}</span>
-              </span>
+              {file.status === 'binary' ? (
+                <span className="diff-binary-badge">(binary)</span>
+              ) : (
+                <span className={`diff-file-status status-${file.status}`}>{file.status}</span>
+              )}
             </div>
-            {expandedFiles[file.path] && !file.binary ? (
-              <pre
-                className="diff-file-content"
-                dangerouslySetInnerHTML={{ __html: highlightDiff(file.diff) }}
-              />
-            ) : expandedFiles[file.path] && file.binary ? (
-              <div className="diff-file-content diff-binary-msg">
-                Binary file — changes cannot be displayed as line-by-line diff
-              </div>
-            ) : null}
           </div>
         ))
       )}
-      {diffData.files.length > 0 ? (
+      {fileList.length > 0 ? (
         <div className="diff-detail-footer">
           <span className="diff-stat-files">{diffData.summary.files_changed} files</span>
-          <span className="diff-stat-insertions">+{diffData.summary.insertions}</span>
-          <span className="diff-stat-deletions">-{diffData.summary.deletions}</span>
         </div>
       ) : null}
     </div>

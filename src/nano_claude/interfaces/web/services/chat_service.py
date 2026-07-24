@@ -13,7 +13,8 @@ from nano_claude.infra.session import save_current
 from nano_claude.interfaces.web.state import WebAppState
 
 from nano_claude.interfaces.web.services.diff_service import (
-    take_snapshot, compute_diff, save_diff,
+    take_snapshot, detect_file_changes, save_checkpoint, cleanup_checkpoints,
+    _get_git_head_hash,
 )
 
 
@@ -164,21 +165,44 @@ async def _execute_chat(state: WebAppState, message: str, response_id: str) -> N
 
         await agent.run_stream(message, cwd, session=session)
 
-        # Take snapshot after agent runs and compute diff
+        # Take snapshot after agent runs and detect changes
         after_snapshot, _after_content, after_binary = take_snapshot(cwd)
-        # Merge binary sets from before and after (binary detection is stable)
         binary_set = before_binary | after_binary
-        diff_data = compute_diff(cwd, before_snapshot, after_snapshot, before_content, binary_set)
-        if diff_data:
-            diff_filename = save_diff(
-                cwd, diff_data, segment_key,
+        changed_files = detect_file_changes(
+            before_snapshot, after_snapshot,
+            cwd=cwd, before_content=before_content, binary_set=binary_set,
+        )
+
+        if changed_files["files_changed"] > 0:
+            git_hash = _get_git_head_hash(cwd)
+            checkpoint_filename = save_checkpoint(
+                cwd, changed_files, segment_key,
                 os.path.basename(state.session_file_ref[0]),
+                git_hash,
             )
+            # Build simplified file list for the frontend
+            files_list = []
+            for rel_path in changed_files.get("modified", {}):
+                files_list.append({"path": rel_path, "status": "modified"})
+            for rel_path in changed_files.get("deleted", {}):
+                files_list.append({"path": rel_path, "status": "deleted"})
+            for rel_path in changed_files.get("added", []):
+                files_list.append({"path": rel_path, "status": "added"})
+            for rel_path in changed_files.get("binary", []):
+                files_list.append({"path": rel_path, "status": "binary"})
+
             await state.push_event("diff_summary", {
                 "segment_key": segment_key,
-                "diff_filename": diff_filename,
-                "summary": diff_data["summary"],
+                "checkpoint_filename": checkpoint_filename,
+                "summary": {
+                    "files_changed": changed_files["files_changed"],
+                    "files": files_list,
+                },
             })
+
+        # Cleanup old checkpoints
+        cleanup_checkpoints(cwd)
+
         await state.push_event("done", {})
     except asyncio.CancelledError:
         await state.push_event("done", {})

@@ -9,8 +9,9 @@ from nano_claude.infra.session import Session, list_sessions, save_current, sess
 
 from nano_claude.interfaces.web.serializers import serialize_messages_for_api
 from nano_claude.interfaces.web.services.diff_service import (
-    list_diffs_for_session,
-    rollback_to_timestamp,
+    list_checkpoints_for_session,
+    rollback_to_checkpoint,
+    RollbackError,
 )
 
 
@@ -130,7 +131,7 @@ class WebAppState:
     def rollback_session(self, message_api_index: int) -> dict:
         """Rollback all changes (files + messages) after the given user message.
 
-        1. Reverse all diffs whose timestamps are after the target message.
+        1. Restore files via checkpoint rollback (with git hash check).
         2. Truncate session messages after that message.
         3. Save and return updated current_info.
 
@@ -154,16 +155,18 @@ class WebAppState:
         if target_ts == 0.0:
             raise ValueError("Target message has no timestamp")
 
-        # ── 2. Reverse diffs after this timestamp ────────────────────
+        # ── 2. Restore files via checkpoint rollback ─────────────────
         session_file_basename = os.path.basename(self.session_file_ref[0])
-        skipped, errors = rollback_to_timestamp(
-            self.cwd, target_ts, session_file_basename,
-        )
+        hash_error = None
+        try:
+            skipped, errors = rollback_to_checkpoint(
+                self.cwd, target_ts, session_file_basename,
+            )
+        except RollbackError as e:
+            hash_error = str(e)
+            skipped, errors = [], [hash_error]
 
         # ── 3. Truncate session messages after this message ──────────
-        # First convert API array index to a user-text-only count (same
-        # approach as fork_session — the API array has tool_start/tool_result
-        # entries expanded, so we need to count only user/text messages).
         user_msg_index = 0
         for i, m in enumerate(api_messages):
             if i == message_api_index:
@@ -171,14 +174,12 @@ class WebAppState:
             if m.get("role") == "user" and m.get("type") == "text":
                 user_msg_index += 1
 
-        # Now find the user_msg_index-th user message in the session and
-        # truncate everything from it onward (remove the message itself too).
         user_text_count = 0
         cutoff_idx = len(self.session.messages)
         for i, msg in enumerate(self.session.messages):
             if isinstance(msg, UserMessage) and isinstance(msg.content, str):
                 if user_text_count == user_msg_index:
-                    cutoff_idx = i  # remove this message and everything after
+                    cutoff_idx = i
                     break
                 user_text_count += 1
 
@@ -189,6 +190,7 @@ class WebAppState:
         info = self.current_info()
         info["skipped_files"] = skipped
         info["errors"] = errors
+        info["rollback_hash_error"] = hash_error is not None
         return info
 
     def new_session(self) -> None:
@@ -204,7 +206,7 @@ class WebAppState:
         info["messages"] = serialize_messages_for_api(self.session.messages)
         info["mode"] = self.agent.mode if self.agent else "build"
         info["setup_needed"] = self.agent is None
-        info["diff_summaries"] = list_diffs_for_session(
+        info["diff_summaries"] = list_checkpoints_for_session(
             self.cwd, os.path.basename(self.session_file_ref[0]),
         )
         return info

@@ -2,8 +2,15 @@ import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 
 const renderer = new marked.Renderer();
-renderer.table = (header: string, body: string) => {
-  return `<div class="table-wrapper"><table>${header}${body}</table></div>`;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+renderer.table = (token: any) => {
+  const headerHtml = token.header.map((c: any) => renderer.tablecell(c)).join('');
+  const headerRow = renderer.tablerow({ text: headerHtml });
+  const bodyHtml = token.rows.map((row: any[]) => {
+    const cells = row.map((c: any) => renderer.tablecell(c)).join('');
+    return renderer.tablerow({ text: cells });
+  }).join('');
+  return `<div class="table-wrapper"><table>${headerRow}${bodyHtml}</table></div>`;
 };
 
 marked.setOptions({ breaks: true, gfm: true, renderer });
