@@ -191,14 +191,18 @@ async def _execute_chat(state: WebAppState, message: str, response_id: str) -> N
             for rel_path in changed_files.get("binary", []):
                 files_list.append({"path": rel_path, "status": "binary"})
 
-            await state.push_event("diff_summary", {
+            diff_summary = {
                 "segment_key": segment_key,
                 "checkpoint_filename": checkpoint_filename,
                 "summary": {
                     "files_changed": changed_files["files_changed"],
                     "files": files_list,
                 },
-            })
+            }
+            # Add to state for immediate availability
+            state.add_diff_summary(segment_key, diff_summary)
+            # Push SSE event for streaming
+            await state.push_event("diff_summary", diff_summary)
 
         # Cleanup old checkpoints
         cleanup_checkpoints(cwd)

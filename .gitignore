@@ -10,6 +10,7 @@ build/
 .eggs/
 .DS_Store
 uv.lock
+.github
 
 .session/
 frontend/node_modules/

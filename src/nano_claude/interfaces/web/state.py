@@ -22,7 +22,13 @@ class WebAppState:
         self.agent: Agent | None = None
         self.cwd: str = ""
         self.session: Session | None = None
+        # Mutable "reference" to current session file path.
+        # We intentionally store it as a single-item list so different
+        # components can share and update the same container via [0]
+        # (plain str rebinding would not propagate across holders).
         self.session_file_ref: list[str] = [""]
+        # Diff summaries for current session, keyed by segment_key
+        self.diff_summaries: dict[str, dict] = {}
         # SSE queues: keyed by response_id
         self._sse_queues: dict[str, asyncio.Queue] = {}
         self._running_response_id: str | None = None
@@ -75,6 +81,8 @@ class WebAppState:
         self.session.messages.extend(new_session.messages)
         self.session.title = new_session.title
         self.session_file_ref[0] = target
+        # Reload diff summaries for the new session
+        self._reload_diff_summaries()
         return None
 
     def delete_session_by_index(self, index: int) -> str | None:
@@ -126,6 +134,8 @@ class WebAppState:
         self.session.messages.extend(forked.messages)
         self.session.title = forked.title
         self.session_file_ref[0] = new_path
+        # Reload diff summaries for the new fork
+        self._reload_diff_summaries()
         return self.current_info()
 
     def rollback_session(self, message_api_index: int) -> dict:
@@ -185,8 +195,9 @@ class WebAppState:
 
         self.session.messages = self.session.messages[:cutoff_idx]
 
-        # ── 4. Save and return ───────────────────────────────────────
+        # ── 4. Save and reload diff summaries ───────────────────────────
         save_current(self.session, self.session_file_ref[0])
+        self._reload_diff_summaries()
         info = self.current_info()
         info["skipped_files"] = skipped
         info["errors"] = errors
@@ -198,6 +209,8 @@ class WebAppState:
         self.session.messages.clear()
         self.session.title = ""
         self.session_file_ref[0] = session_path(self.cwd)
+        # Clear diff summaries for the new session
+        self.diff_summaries.clear()
 
     def current_info(self) -> dict:
         info = session_info(self.session_file_ref[0])
@@ -206,10 +219,22 @@ class WebAppState:
         info["messages"] = serialize_messages_for_api(self.session.messages)
         info["mode"] = self.agent.mode if self.agent else "build"
         info["setup_needed"] = self.agent is None
-        info["diff_summaries"] = list_checkpoints_for_session(
-            self.cwd, os.path.basename(self.session_file_ref[0]),
-        )
+        # Use diff_summaries from state instead of reading from disk
+        info["diff_summaries"] = list(self.diff_summaries.values())
         return info
+
+    def _reload_diff_summaries(self) -> None:
+        """Reload diff summaries from disk for the current session."""
+        session_basename = os.path.basename(self.session_file_ref[0])
+        summaries = list_checkpoints_for_session(self.cwd, session_basename)
+        # Build a dict keyed by segment_key for easy lookup
+        self.diff_summaries.clear()
+        for summary in summaries:
+            self.diff_summaries[summary["segment_key"]] = summary
+
+    def add_diff_summary(self, segment_key: str, summary: dict) -> None:
+        """Add or update a diff summary for a segment."""
+        self.diff_summaries[segment_key] = summary
 
     # ── SSE helpers ─────────────────────────────────────────────────────
 

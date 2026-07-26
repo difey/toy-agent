@@ -58,6 +58,8 @@ def start_web_ui(
     state.cwd = cwd
     state.session = session
     state.session_file_ref[0] = session_file
+    # Load diff summaries for the current session
+    state._reload_diff_summaries()
 
     import webbrowser
 
