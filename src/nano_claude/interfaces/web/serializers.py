@@ -10,7 +10,12 @@ def serialize_messages_for_api(messages) -> list[dict]:
     result = []
     for msg in messages:
         if isinstance(msg, SystemMessage):
-            continue  # skip system messages in display
+            result.append({
+                "role": "system",
+                "type": "system",
+                "content": msg.content,
+                "timestamp": msg.timestamp,
+            })
         elif isinstance(msg, UserMessage):
             content = msg.content if isinstance(msg.content, str) else json.dumps(msg.content, ensure_ascii=False)
             result.append({

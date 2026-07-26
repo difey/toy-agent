@@ -225,7 +225,21 @@ function buildMessageSegments(messages: ChatMessage[]): MessageSegment[] {
 
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
-    if (msg.role === 'user' && msg.type === 'text') {
+    if (msg.role === 'system' && msg.type === 'system') {
+      // System message: finalize current segment, then emit a standalone system segment
+      if (segUser !== null || segMsgs.length > 0) {
+        finalize(`seg-${segCount++}`, segUser, segMsgs, segStartIdx);
+      }
+      segments.push({
+        key: `seg-${segCount++}`,
+        userMessage: null,
+        foldingMessages: [],
+        lastMessage: { message: msg, index: i },
+      });
+      segUser = null;
+      segMsgs = [];
+      segStartIdx = i + 1;
+    } else if (msg.role === 'user' && msg.type === 'text') {
       if (segUser !== null || segMsgs.length > 0) {
         finalize(`seg-${segCount++}`, segUser, segMsgs, segStartIdx);
       }
@@ -1373,6 +1387,10 @@ export function ChatApp() {
             </div>
           ) : null}
 
+          {message.role === 'system' && message.type === 'system' ? (
+            <SystemPromptBubble content={message.content} />
+          ) : null}
+
           {message.type === 'tool_start' ? (
             <div className="tool-card args">
               <div className="tool-card-header" onClick={() => toggleCard(index)}>
@@ -1896,6 +1914,29 @@ function DiffOverviewBubble({
         </span>
         <span className="diff-overview-arrow">{isActive ? '▾' : '▸'}</span>
       </div>
+    </div>
+  );
+}
+
+function SystemPromptBubble({ content }: { content: string }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="system-prompt-overview">
+      <div
+        className={`system-prompt-card ${expanded ? 'expanded' : ''}`}
+        onClick={() => setExpanded(!expanded)}
+      >
+        <span className="system-prompt-icon">⚙️</span>
+        <span className="system-prompt-label">System Prompt</span>
+        {expanded ? <span className="system-prompt-badge">visible</span> : null}
+        <span className="system-prompt-arrow">{expanded ? '▾' : '▸'}</span>
+      </div>
+      {expanded ? (
+        <div className="system-prompt-body">
+          <pre>{content}</pre>
+        </div>
+      ) : null}
     </div>
   );
 }

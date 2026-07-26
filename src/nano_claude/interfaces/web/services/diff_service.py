@@ -306,7 +306,9 @@ def get_checkpoint_for_segment(cwd: str, segment_key: str) -> dict | None:
     mapping = _load_mapping(cwd)
     for entry in mapping.get("mappings", []):
         if entry["segment_key"] == segment_key:
-            return get_checkpoint(cwd, entry["checkpoint_filename"])
+            checkpoint_filename = _entry_checkpoint_filename(entry)
+            if checkpoint_filename:
+                return get_checkpoint(cwd, checkpoint_filename)
     return None
 
 
@@ -315,12 +317,15 @@ def list_checkpoints(cwd: str) -> list[dict]:
     mapping = _load_mapping(cwd)
     summaries = []
     for entry in reversed(mapping.get("mappings", [])):
-        cp = get_checkpoint(cwd, entry["checkpoint_filename"])
+        checkpoint_filename = _entry_checkpoint_filename(entry)
+        if not checkpoint_filename:
+            continue
+        cp = get_checkpoint(cwd, checkpoint_filename)
         if cp:
             files_list = _build_files_list(cp)
             summaries.append({
                 "segment_key": entry["segment_key"],
-                "checkpoint_filename": entry["checkpoint_filename"],
+                "checkpoint_filename": checkpoint_filename,
                 "summary": {
                     "files_changed": cp.get("summary", {}).get("files_changed", 0),
                     "files": files_list,
@@ -336,12 +341,15 @@ def list_checkpoints_for_session(cwd: str, session_file_basename: str) -> list[d
     for entry in reversed(mapping.get("mappings", [])):
         if entry.get("session_file") != session_file_basename:
             continue
-        cp = get_checkpoint(cwd, entry["checkpoint_filename"])
+        checkpoint_filename = _entry_checkpoint_filename(entry)
+        if not checkpoint_filename:
+            continue
+        cp = get_checkpoint(cwd, checkpoint_filename)
         if cp:
             files_list = _build_files_list(cp)
             summaries.append({
                 "segment_key": entry["segment_key"],
-                "checkpoint_filename": entry["checkpoint_filename"],
+                "checkpoint_filename": checkpoint_filename,
                 "summary": {
                     "files_changed": cp.get("summary", {}).get("files_changed", 0),
                     "files": files_list,
@@ -375,7 +383,10 @@ def _load_mapping(cwd: str) -> dict:
     if not os.path.isfile(mapping_path):
         return {"version": _CHECKPOINT_VERSION, "mappings": []}
     try:
-        return json.loads(Path(mapping_path).read_text(encoding="utf-8"))
+        mapping = json.loads(Path(mapping_path).read_text(encoding="utf-8"))
+        if _normalize_mapping(mapping):
+            _save_mapping(cwd, mapping)
+        return mapping
     except (json.JSONDecodeError, OSError):
         return {"version": _CHECKPOINT_VERSION, "mappings": []}
 
@@ -387,6 +398,42 @@ def _save_mapping(cwd: str, mapping: dict) -> None:
     Path(mapping_path).write_text(
         json.dumps(mapping, ensure_ascii=False, indent=2)
     )
+
+
+def _entry_checkpoint_filename(entry: dict) -> str:
+    """Return checkpoint filename from mapping entry (supports legacy key names)."""
+    filename = entry.get("checkpoint_filename")
+    if isinstance(filename, str) and filename:
+        return filename
+    legacy_filename = entry.get("diff_filename")
+    if isinstance(legacy_filename, str) and legacy_filename:
+        return legacy_filename
+    return ""
+
+
+def _normalize_mapping(mapping: dict) -> bool:
+    """Normalize mapping content to current schema; returns True if changed."""
+    changed = False
+    entries = mapping.get("mappings")
+    if not isinstance(entries, list):
+        mapping["mappings"] = []
+        entries = mapping["mappings"]
+        changed = True
+
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        if "checkpoint_filename" not in entry:
+            legacy_filename = entry.get("diff_filename")
+            if isinstance(legacy_filename, str) and legacy_filename:
+                entry["checkpoint_filename"] = legacy_filename
+                changed = True
+
+    if mapping.get("version") != _CHECKPOINT_VERSION:
+        mapping["version"] = _CHECKPOINT_VERSION
+        changed = True
+
+    return changed
 
 
 # ── Timestamp helpers ──────────────────────────────────────────────────────

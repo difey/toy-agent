@@ -12,8 +12,8 @@ export interface SessionSummary {
 }
 
 export interface ChatMessage {
-  role: 'user' | 'assistant' | 'tool';
-  type: 'text' | 'tool_start' | 'tool_result';
+  role: 'user' | 'assistant' | 'tool' | 'system';
+  type: 'text' | 'tool_start' | 'tool_result' | 'system';
   content: string;
   name?: string;
   title?: string;
