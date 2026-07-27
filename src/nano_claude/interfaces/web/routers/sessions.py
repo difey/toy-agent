@@ -50,12 +50,11 @@ async def api_new_session():
     return {"ok": True, "current": state.current_info()}
 
 
-@router.get("/api/sessions/{idx}")
-async def api_get_session(idx: int):
-    files = state._refresh_sessions()
-    if idx < 1 or idx > len(files):
+@router.get("/api/sessions/{name}")
+async def api_get_session(name: str):
+    filepath = state._find_session_by_name(name)
+    if filepath is None:
         raise HTTPException(status_code=404, detail="Invalid session")
-    filepath = files[idx - 1]
     info = session_info(filepath)
     try:
         sess = Session.load(filepath)
@@ -69,17 +68,17 @@ async def api_get_session(idx: int):
     return info
 
 
-@router.put("/api/sessions/{idx}")
-async def api_switch_session(idx: int):
-    err = state.load_session_by_index(idx)
+@router.put("/api/sessions/{name}")
+async def api_switch_session(name: str):
+    err = state.load_session_by_name(name)
     if err:
         raise HTTPException(status_code=400, detail=err)
     return {"ok": True, "current": state.current_info()}
 
 
-@router.delete("/api/sessions/{idx}")
-async def api_delete_session(idx: int):
-    err = state.delete_session_by_index(idx)
+@router.delete("/api/sessions/{name}")
+async def api_delete_session(name: str):
+    err = state.delete_session_by_name(name)
     if err:
         raise HTTPException(status_code=400, detail=err)
     return {

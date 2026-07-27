@@ -145,7 +145,6 @@ function SessionGroup({
   title,
   defaultOpen,
   sessions,
-  currentIndex,
   onSwitch,
   onDelete,
   isStreaming,
@@ -153,9 +152,8 @@ function SessionGroup({
   title: string;
   defaultOpen: boolean;
   sessions: SessionSummary[];
-  currentIndex: number | null;
-  onSwitch: (index: number) => void;
-  onDelete: (index: number) => void;
+  onSwitch: (sessionId: string) => void;
+  onDelete: (sessionId: string) => void;
   isStreaming: boolean;
 }) {
   const [collapsed, setCollapsed] = useState(!defaultOpen);
@@ -169,11 +167,10 @@ function SessionGroup({
       </div>
       {!collapsed && sessions.map((session) => (
         <div
-          key={session.index}
+          key={session.id}
           className={`session-item ${session.is_current ? 'active' : ''}`}
-          onClick={() => onSwitch(session.index)}
+          onClick={() => onSwitch(session.id)}
         >
-          <span className="idx">{session.index}.</span>
           <div className="info">
             <div className="title">{session.title || '(untitled)'}</div>
             <div className="meta">{session.messages} msgs</div>
@@ -182,7 +179,7 @@ function SessionGroup({
             className="del-btn"
             onClick={(event) => {
               event.stopPropagation();
-              onDelete(session.index);
+              onDelete(session.id);
             }}
             title="Delete session"
           >
@@ -844,13 +841,13 @@ export function ChatApp() {
     }
   }, [commitMessages, isStreaming, loadSessions, resetInteractionState, showToast]);
 
-  const switchSession = useCallback(async (index: number) => {
+  const switchSession = useCallback(async (sessionId: string) => {
     if (isStreaming) {
       return;
     }
 
     try {
-      const response = await api<{ ok: boolean; current: CurrentInfo }>('PUT', `/api/sessions/${index}`);
+      const response = await api<{ ok: boolean; current: CurrentInfo }>('PUT', `/api/sessions/${encodeURIComponent(sessionId)}`);
       setCurrentSession(response.current);
       commitMessages(() => response.current.messages);
       setSessionTitle(response.current.title || 'nanoClaude');
@@ -861,14 +858,14 @@ export function ChatApp() {
     }
   }, [commitMessages, isStreaming, loadSessions, showToast]);
 
-  const deleteSession = useCallback(async (index: number) => {
+  const deleteSession = useCallback(async (sessionId: string) => {
     if (isStreaming || !window.confirm('Delete this session?')) {
       return;
     }
 
     try {
       const response = await api<{ ok: boolean; current: CurrentInfo; sessions: SessionSummary[] }>(
-        'DELETE', `/api/sessions/${index}`
+        'DELETE', `/api/sessions/${encodeURIComponent(sessionId)}`
       );
       commitMessages(() => response.current.messages);
       setSessionTitle(response.current.title || 'nanoClaude');
@@ -1617,7 +1614,6 @@ export function ChatApp() {
                     title="最近会话"
                     defaultOpen={true}
                     sessions={recent}
-                    currentIndex={currentSession?.index ?? null}
                     onSwitch={switchSession}
                     onDelete={deleteSession}
                     isStreaming={isStreaming}
@@ -1627,7 +1623,6 @@ export function ChatApp() {
                       title="更早的会话"
                       defaultOpen={false}
                       sessions={older}
-                      currentIndex={currentSession?.index ?? null}
                       onSwitch={switchSession}
                       onDelete={deleteSession}
                       isStreaming={isStreaming}

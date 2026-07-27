@@ -1,7 +1,7 @@
 export type Mode = 'plan' | 'build';
 
 export interface SessionSummary {
-  index: number;
+  id: string;
   is_current: boolean;
   title: string;
   messages: number;
@@ -31,7 +31,7 @@ export interface ChatMessage {
 }
 
 export interface CurrentInfo {
-  index: number;
+  id: string;
   is_current: boolean;
   title: string;
   path: string;

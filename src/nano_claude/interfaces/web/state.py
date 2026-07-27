@@ -45,23 +45,27 @@ class WebAppState:
     def _refresh_sessions(self) -> list[str]:
         return list_sessions(self.cwd)
 
-    def _get_current_idx(self) -> int | None:
-        files = self._refresh_sessions()
-        current_abs = os.path.abspath(self.session_file_ref[0])
-        for i, f in enumerate(files):
-            if os.path.abspath(f) == current_abs:
-                return i + 1  # 1-based
+    def _find_session_by_name(self, name: str) -> str | None:
+        """查找 session 文件名（不含扩展名）对应的完整路径。"""
+        for f in self._refresh_sessions():
+            if os.path.splitext(os.path.basename(f))[0] == name:
+                return f
         return None
 
     def sessions_list(self) -> list[dict]:
         files = self._refresh_sessions()
-        current_idx = self._get_current_idx()
+        current_abs = os.path.abspath(self.session_file_ref[0])
         result = []
-        for i, f in enumerate(files):
+        for f in files:
             info = session_info(f)
-            info["index"] = i + 1
-            info["is_current"] = (i + 1 == current_idx)
+            info["id"] = info["name"]
+            info["is_current"] = (os.path.abspath(f) == current_abs)
             result.append(info)
+        # 按 updated_at（后备 created_at）降序排列
+        result.sort(
+            key=lambda s: s.get("updated_at") or s.get("created_at") or 0,
+            reverse=True,
+        )
         return result
 
     def _load_session_to_current(self, filepath: str) -> bool:
@@ -79,12 +83,11 @@ class WebAppState:
         self._reload_diff_summaries()
         return True
 
-    def load_session_by_index(self, index: int) -> str | None:
-        """Load a session by 1-based index. Returns error message or None."""
-        files = self._refresh_sessions()
-        if index < 1 or index > len(files):
-            return f"Invalid session number: {index}"
-        target = files[index - 1]
+    def load_session_by_name(self, name: str) -> str | None:
+        """Load a session by filename (without extension). Returns error message or None."""
+        target = self._find_session_by_name(name)
+        if target is None:
+            return f"Invalid session: {name}"
         if os.path.abspath(target) == os.path.abspath(self.session_file_ref[0]):
             return None  # already current
         save_current(self.session, self.session_file_ref[0])
@@ -106,16 +109,15 @@ class WebAppState:
         else:
             self._create_fresh_session()
 
-    def delete_session_by_index(self, index: int) -> str | None:
-        """Delete a session by 1-based index.
+    def delete_session_by_name(self, name: str) -> str | None:
+        """Delete a session by filename (without extension).
 
         If the active session is deleted, automatically switches to the most
         recent remaining session. Returns error message or None.
         """
-        files = self._refresh_sessions()
-        if index < 1 or index > len(files):
-            return f"Invalid session number: {index}"
-        target = files[index - 1]
+        target = self._find_session_by_name(name)
+        if target is None:
+            return f"Invalid session: {name}"
         is_current = os.path.abspath(target) == os.path.abspath(self.session_file_ref[0])
 
         try:
@@ -251,7 +253,7 @@ class WebAppState:
     def current_info(self) -> dict:
         info = session_info(self.session_file_ref[0])
         info["is_current"] = True
-        info["index"] = self._get_current_idx() or 1
+        info["id"] = info["name"]
         info["messages"] = serialize_messages_for_api(self.session.messages)
         info["mode"] = self.agent.mode if self.agent else "build"
         info["setup_needed"] = self.agent is None
