@@ -1,17 +1,14 @@
+import argparse
 import asyncio
 import os
 import sys
 from pathlib import Path
-
-import click
-from rich.console import Console
 
 from nano_claude.core.agent import Agent
 from nano_claude.core.tool_registry import ToolRegistry
 from nano_claude.infra.config import resolve_config
 from nano_claude.infra.session import Session, migrate_old_sessions, save_current
 from nano_claude.infra.session_service import resume_or_create_session
-from nano_claude.infra.setup import has_user_config, run_wizard
 from nano_claude.tools import (
     ApplyPatchTool,
     BashTool,
@@ -29,9 +26,6 @@ from nano_claude.tools import (
     WriteTool,
 )
 from nano_claude.tools.skill import SkillStore
-from nano_claude.interfaces.cli.ui import InteractiveUI
-
-console = Console()
 
 
 def _build_registry() -> ToolRegistry:
@@ -59,13 +53,7 @@ def _ensure_cwd(cwd: str) -> str:
     return resolved
 
 
-def _run_interactive(agent: Agent, cwd: str, session: Session, session_file_ref: list) -> None:
-    """Run interactive mode with persistent TUI and always-visible bottom toolbar."""
-    ui = InteractiveUI(agent, cwd, session, session_file_ref)
-    ui.run()
-
-
-def _run_web(agent: Agent | None, cwd: str, session: Session, session_file: str, port: int) -> None:
+def _start_web(agent: Agent | None, cwd: str, session: Session, session_file: str, port: int) -> None:
     """Run the web UI server using FastAPI + Uvicorn."""
     from nano_claude.interfaces.web.app import start_web_ui
 
@@ -75,53 +63,37 @@ def _run_web(agent: Agent | None, cwd: str, session: Session, session_file: str,
         pass
 
 
-@click.command()
-@click.argument("message", required=False)
-@click.option("--model", default=None, help="LLM model (auto-detects provider from model name)")
-@click.option("--cwd", default=None, help="Working directory (default: current directory)")
-@click.option("--setup", "force_setup", is_flag=True, default=False, help="Re-run the setup wizard")
-@click.option("--web", "web_mode", is_flag=True, default=False, help="Start web UI server instead of TUI")
-@click.option("--port", default=8080, type=int, help="Port for web UI server (default: 8080)")
-@click.option("--plan", "plan_mode", is_flag=True, default=False, help="Start in plan mode (discuss requirements only)")
-def main(message: str | None, model: str | None, cwd: str | None, force_setup: bool, web_mode: bool, port: int, plan_mode: bool):
-    """nanoClaude - a CLI coding assistant that uses tools to complete coding tasks.
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        prog="nano-claude",
+        description="nanoClaude - a CLI coding assistant with web UI.",
+    )
+    parser.add_argument("message", nargs="?", default=None,
+                        help="Single-turn message (omit to start web UI server)")
+    parser.add_argument("--model", default=None,
+                        help="LLM model (auto-detects provider from model name)")
+    parser.add_argument("--cwd", default=None,
+                        help="Working directory (default: current directory)")
+    parser.add_argument("--port", type=int, default=8080,
+                        help="Port for web UI server (default: 8080)")
+    parser.add_argument("--plan", action="store_true", default=False,
+                        help="Start in plan mode (discuss requirements only)")
 
-    Set DEEPSEEK_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, or NANO_CLAUDE_API_KEY
-    depending on the provider. Provider is auto-detected from the model name:
+    args = parser.parse_args()
 
-    \b
-      deepseek-v4-pro     → DeepSeek (needs DEEPSEEK_API_KEY)
-      deepseek-v4-flash    → DeepSeek (needs DEEPSEEK_API_KEY)
-      gpt-4o, gpt-4.1      → OpenAI (needs OPENAI_API_KEY)
-      claude-*             → Anthropic (needs ANTHROPIC_API_KEY)
-
-    Run without MESSAGE to enter interactive multi-turn mode.
-
-    Session files are auto-saved to ~/.nano_claude/sessions/<hash>/<timestamp>.json.
-    Configuration is stored at ~/.nano_claude/config.toml.
-    """
-
-    if force_setup or not has_user_config():
-        if web_mode:
-            # In web mode, skip CLI wizard — the web UI handles setup
-            pass
-        else:
-            run_wizard(console)
-
-    config = resolve_config(model)
-    if not config.api_key and not web_mode:
-        console.print(f"[bold red]Error:[/bold red] No API key found for provider '{config.name}'.")
-        console.print(f"  Set {config.name.upper()}_API_KEY or NANO_CLAUDE_API_KEY environment variable,")
-        console.print(f"  or run `nano-claude --setup` to configure.")
+    config = resolve_config(args.model)
+    if not config.api_key:
+        print(f"Error: No API key found for provider '{config.name}'.")
+        print(f"  Set {config.name.upper()}_API_KEY or NANO_CLAUDE_API_KEY environment variable.")
         sys.exit(1)
 
     resolved_model = config.default_model
-    resolved_cwd = _ensure_cwd(cwd or os.getcwd())
+    resolved_cwd = _ensure_cwd(args.cwd or os.getcwd())
 
     # Migrate old .session/ files to new home-directory storage
     migrated = migrate_old_sessions(resolved_cwd)
     if migrated:
-        console.print(f"  📦 Migrated {migrated} session(s) from .session/ to ~/.nano_claude/sessions/")
+        print(f"  📦 Migrated {migrated} session(s) from .session/ to ~/.nano_claude/sessions/")
 
     registry = _build_registry()
 
@@ -133,45 +105,33 @@ def main(message: str | None, model: str | None, cwd: str | None, force_setup: b
     ])
     if skill_store.count > 0:
         names = ", ".join(s.name for s in skill_store.list_all())
-        console.print(f"  📚 Discovered {skill_store.count} skills: {names}")
+        print(f"  📚 Discovered {skill_store.count} skills: {names}")
 
-    if web_mode and not config.api_key:
-        # Web mode without API key: start server in setup-only mode
-        agent = None
-    else:
-        agent = Agent(
-            model=resolved_model,
-            tools=registry,
-            skill_store=skill_store,
-            api_key=config.api_key,
-            base_url=config.base_url,
-            permission_callback=None,  # Will be overridden in interactive mode
-            ask_user_callback=None,     # Will be overridden in interactive mode
-            on_text_delta=None,         # Will be overridden in interactive mode
-            on_tool_start=None,
-            on_tool_end=None,           # Will be overridden in interactive mode
-            mode="plan" if plan_mode else "build",
-        )
+    agent = Agent(
+        model=resolved_model,
+        tools=registry,
+        skill_store=skill_store,
+        api_key=config.api_key,
+        base_url=config.base_url,
+        mode="plan" if args.plan else "build",
+    )
 
     # 启动时自动接续最近一次的 session，避免每次启动都产生新文件
     session, session_file = resume_or_create_session(resolved_cwd)
-    session_file_ref = [session_file]
 
     try:
-        if message:
-            asyncio.run(agent.run_stream(message, resolved_cwd, session=session))
-            console.print()
-        elif web_mode:
-            _run_web(agent, resolved_cwd, session, session_file_ref[0], port)
+        if args.message:
+            asyncio.run(agent.run_stream(args.message, resolved_cwd, session=session))
+            print()
         else:
-            _run_interactive(agent, resolved_cwd, session, session_file_ref)
+            _start_web(agent, resolved_cwd, session, session_file, args.port)
     except (KeyboardInterrupt, EOFError):
-        console.print()
+        print()
     except Exception as e:
-        console.print(f"\n[bold red]Error:[/bold red] {e}")
+        print(f"\nError: {e}")
         sys.exit(1)
     finally:
-        save_current(session, session_file_ref[0])
+        save_current(session, session_file)
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 
 > **Caution:** This project is used to do some experiments. And it is not a very serious project. Bad coding structure and some unreviewed commits exist, or maybe even some bugs. No plan to fix.
 
-A Python CLI coding assistant that uses LLM-powered tools to complete coding tasks from natural language input.
+A coding assistant that uses LLM-powered tools to complete coding tasks from natural language input.
 
 ```bash
 $ nano-claude "用 FastAPI 写一个 hello world 服务"
@@ -56,15 +56,15 @@ uv tool uninstall nanoClaude
 ## Quick Start
 
 ```bash
-# First run — setup wizard guides you through model + API key
+# Start web UI — configure model/API key via the browser setup page
 nano-claude
 ```
 
-Configuration is saved to `~/.nano_claude/config.toml`. Run `nano-claude --setup` to reconfigure.
+Configuration is saved to `~/.nano_claude/config.toml`. You can reconfigure via the web UI setup page.
 
 ## Usage
 
-### Single turn
+### Single-turn mode
 
 ```bash
 nano-claude "create a python script"
@@ -74,7 +74,7 @@ nano-claude "..." --model deepseek-v4-pro
 
 ### Plan Mode & Build Mode
 
-nanoClaude supports two operational modes in interactive and web UI:
+nanoClaude supports two operational modes (primarily in web UI):
 
 | Mode | Icon | Purpose | Available Tools |
 |------|------|---------|-----------------|
@@ -87,17 +87,10 @@ nanoClaude supports two operational modes in interactive and web UI:
 
 **Starting in plan mode:**
 ```bash
-# Start interactive mode in plan mode
 nano-claude --plan
 ```
 
-**Switching modes interactively:**
-- `/plan` — switch to plan mode (discuss requirements only)
-- `/build` — switch to build mode (implement code)
-
-Mode switching preserves the full conversation history. When switching from plan to build, the agent sees the entire planning discussion.
-
-**"执行" workflow:** After the agent produces a plan (`.md` file) in plan mode, the plan content is automatically displayed at the end of each response. Type `执行` to automatically switch to build mode with the plan content injected as context — the agent will implement according to the plan.
+Mode switching preserves the full conversation history. When switching from plan to build, the agent sees the entire planning discussion. In the web UI, you can toggle between modes in the session sidebar.
 
 ### Web UI mode (recommended)
 
@@ -105,10 +98,10 @@ Start a browser-based UI with a session sidebar and waterfall chat display:
 
 ```bash
 # Start web UI on default port 8080
-nano-claude --web
+nano-claude
 
 # Custom port
-nano-claude --web --port 9090
+nano-claude --port 9090
 ```
 
 The web UI opens automatically in your browser at `http://127.0.0.1:8080`.
@@ -119,39 +112,10 @@ The web UI opens automatically in your browser at `http://127.0.0.1:8080`.
 - **Real-time streaming** — AI responses and tool outputs stream in as they're generated via SSE (Server-Sent Events)
 - **Send shortcut** — `⌘+Enter` (Mac) or `Ctrl+Enter` (Windows/Linux) to send; plain `Enter` inserts a newline
 - **Dark/Light theme** — auto-detects system preference, toggle with the ☀️/🌙 button
-- **Multi-turn conversations** — same session management as TUI, auto-saved to `<cwd>/.session/`
 - **File permission approval** — when the agent accesses files outside the working directory, a permission dialog pops up (Allow / Deny / Always Allow); 120s timeout auto-denies |
 - **Interactive question dialogs** — when the agent asks for clarification, a modal with selectable options appears; supports queuing of multiple questions |
 
-### Interactive mode (TUI)
-
-```bash
-$ nano-claude --cwd ./my-project
-nanoClaude interactive mode. Type /help for commands, Ctrl+C to exit.
-> write a hello world script
-  [write [hello.py]] Wrote 120 bytes to hello.py
-   Done!
-> /exit
-```
-
-| Command | Description |
-|---------|-------------|
-| `/help` | Show help |
-| `/clear` | Clear conversation history |
-| `/tokens` | Show token usage |
-| `/session` | Show current session info |
-| `/session new` | Start a new session |
-| `/sessions` | Interactive session list (↑↓→← Esc) |
-| `/sessions new` | Start a new session |
-| `/sessions <n>` | Switch to session n |
-| `/sessions delete <n>` | Delete session n |
-| `/sessions delete all` | Delete all saved sessions |
-| `/plan` | Switch to plan mode (discuss requirements only) |
-| `/build` | Switch to build mode (implement code) |
-| `/vscode` | Open current directory in VS Code |
-| `/exit` | Exit |
-
-Session history is auto-saved to `<cwd>/.session/<timestamp>.json`. On startup, nanoClaude automatically resumes the most recent session from the same working directory, so your conversation history persists across restarts.
+> **Note:** The interactive TUI mode has been removed and is being redesigned. A new TUI will be available in a future release. For now, use `nano-claude` (without arguments) to start the web UI server.
 
 ## Providers
 

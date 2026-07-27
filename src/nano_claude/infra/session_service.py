@@ -1,8 +1,7 @@
-"""Shared session lifecycle helpers used by every front end (CLI, TUI, Web UI).
+"""Shared session lifecycle helpers used by front ends.
 
 Centralizes the "resume the most recent session for a cwd, or start a new
-one" logic so `interfaces/cli.py`, `interfaces/ui.py` and
-`interfaces/webui.py` don't each re-implement it.
+one" logic so front ends don't each re-implement it.
 """
 
 from nano_claude.infra.session import Session, list_sessions, session_path
