@@ -127,7 +127,7 @@ class Session:
         for i in range(len(self.messages) - 1, -1, -1):
             msg = self.messages[i]
             if (
-                isinstance(msg, UserMessage)
+                isinstance(msg, (UserMessage, SystemMessage))
                 and isinstance(msg.content, str)
                 and msg.content.startswith(_MODE_SWITCH_PREFIX)
             ):

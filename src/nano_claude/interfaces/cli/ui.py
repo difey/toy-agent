@@ -18,7 +18,7 @@ from prompt_toolkit.layout.menus import CompletionsMenu
 from prompt_toolkit.styles import Style
 
 from nano_claude.core.agent import Agent
-from nano_claude.core.message import ToolCall, UserMessage
+from nano_claude.core.message import SystemMessage, ToolCall, UserMessage
 from nano_claude.infra.session import Session, get_plan_dir, get_session_dir, list_sessions, save_current, session_info, session_path
 
 _STYLE = Style.from_dict({
@@ -388,7 +388,7 @@ class InteractiveUI:
             _resolved_plan_file = plan_file
             self.agent.set_mode("build")
             self.session.messages.append(
-                UserMessage(content="[Mode changed to Build mode. 以下为计划内容，请按照计划执行。]")
+                SystemMessage(content="[Mode changed to Build mode. 以下为计划内容，请按照计划执行。]")
             )
             self.session._collapse_mode_switches()
             text = f"请按照以下计划严格执行：\n\n{plan_content}"
@@ -585,7 +585,7 @@ class InteractiveUI:
             else:
                 self.agent.set_mode("plan")
                 self.session.messages.append(
-                    UserMessage(content="[Mode changed to Plan mode. You can now only discuss requirements and write/edit .md files. Do NOT write any source code or run shell commands.]")
+                    SystemMessage(content="[Mode changed to Plan mode. You can now only discuss requirements and write/edit .md files. Do NOT write any source code or run shell commands.]")
                 )
                 collapsed = self.session._collapse_mode_switches()
                 if collapsed > 0:
@@ -599,7 +599,7 @@ class InteractiveUI:
             else:
                 self.agent.set_mode("build")
                 self.session.messages.append(
-                    UserMessage(content="[Mode changed to Build mode. All tools are now available. You can implement code, run commands, and make changes.]")
+                    SystemMessage(content="[Mode changed to Build mode. All tools are now available. You can implement code, run commands, and make changes.]")
                 )
                 collapsed = self.session._collapse_mode_switches()
                 if collapsed > 0:
