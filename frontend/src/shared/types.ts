@@ -9,6 +9,8 @@ export interface SessionSummary {
   name: string;
   preview: string;
   tokens: number;
+  created_at: number;
+  updated_at: number;
 }
 
 export interface ChatMessage {

@@ -43,6 +43,7 @@ const DEFAULT_INPUT_AREA_HEIGHT = 200;
 const INPUT_AREA_RESIZER_SIZE = 6;
 const MIN_CHAT_HEIGHT = 180;
 const MAX_STORED_PANEL_HEIGHT = 2000;
+const SEVEN_DAYS_SEC = 7 * 24 * 60 * 60;
 const BYTES_IN_KIBIBYTE = 1024;
 const TREE_INDENT_PER_LEVEL = 16;
 const TREE_FOLDER_BASE_INDENT = 12;
@@ -119,6 +120,78 @@ function cloneFlow(flow: SubAgentFlow): SubAgentFlow {
     ...flow,
     agents: flow.agents.map((agent) => ({ ...agent, events: [...agent.events] })),
   };
+}
+
+function groupSessions(sessions: SessionSummary[]): { recent: SessionSummary[]; older: SessionSummary[] } {
+  const now = Date.now() / 1000;
+  const threshold = now - SEVEN_DAYS_SEC;
+
+  const recent: SessionSummary[] = [];
+  const older: SessionSummary[] = [];
+
+  for (const s of sessions) {
+    const ts = s.updated_at || s.created_at || 0;
+    if (ts >= threshold) {
+      recent.push(s);
+    } else {
+      older.push(s);
+    }
+  }
+
+  return { recent, older };
+}
+
+function SessionGroup({
+  title,
+  defaultOpen,
+  sessions,
+  currentIndex,
+  onSwitch,
+  onDelete,
+  isStreaming,
+}: {
+  title: string;
+  defaultOpen: boolean;
+  sessions: SessionSummary[];
+  currentIndex: number | null;
+  onSwitch: (index: number) => void;
+  onDelete: (index: number) => void;
+  isStreaming: boolean;
+}) {
+  const [collapsed, setCollapsed] = useState(!defaultOpen);
+
+  return (
+    <div className="session-group">
+      <div className="session-group-header" onClick={() => setCollapsed(!collapsed)}>
+        <span className="collapse-arrow">{collapsed ? '▸' : '▾'}</span>
+        <span className="session-group-title">{title}</span>
+        <span className="session-group-count">({sessions.length})</span>
+      </div>
+      {!collapsed && sessions.map((session) => (
+        <div
+          key={session.index}
+          className={`session-item ${session.is_current ? 'active' : ''}`}
+          onClick={() => onSwitch(session.index)}
+        >
+          <span className="idx">{session.index}.</span>
+          <div className="info">
+            <div className="title">{session.title || '(untitled)'}</div>
+            <div className="meta">{session.messages} msgs</div>
+          </div>
+          <button
+            className="del-btn"
+            onClick={(event) => {
+              event.stopPropagation();
+              onDelete(session.index);
+            }}
+            title="Delete session"
+          >
+            ✕
+          </button>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 interface FileTreeNode {
@@ -1536,29 +1609,33 @@ export function ChatApp() {
           {sessions.length === 0 ? (
             <div style={{ padding: 16, color: 'var(--text-dim)', textAlign: 'center', fontSize: 13 }}>No saved sessions</div>
           ) : (
-            sessions.map((session) => (
-              <div
-                key={session.index}
-                className={`session-item ${session.is_current ? 'active' : ''}`}
-                onClick={() => void switchSession(session.index)}
-              >
-                <span className="idx">{session.index}.</span>
-                <div className="info">
-                  <div className="title">{session.title || '(untitled)'}</div>
-                  <div className="meta">{session.messages} msgs</div>
-                </div>
-                <button
-                  className="del-btn"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    void deleteSession(session.index);
-                  }}
-                  title="Delete session"
-                >
-                  ✕
-                </button>
-              </div>
-            ))
+            (() => {
+              const { recent, older } = groupSessions(sessions);
+              return (
+                <>
+                  <SessionGroup
+                    title="最近会话"
+                    defaultOpen={true}
+                    sessions={recent}
+                    currentIndex={currentSession?.index ?? null}
+                    onSwitch={switchSession}
+                    onDelete={deleteSession}
+                    isStreaming={isStreaming}
+                  />
+                  {older.length > 0 && (
+                    <SessionGroup
+                      title="更早的会话"
+                      defaultOpen={false}
+                      sessions={older}
+                      currentIndex={currentSession?.index ?? null}
+                      onSwitch={switchSession}
+                      onDelete={deleteSession}
+                      isStreaming={isStreaming}
+                    />
+                  )}
+                </>
+              );
+            })()
           )}
         </div>
 

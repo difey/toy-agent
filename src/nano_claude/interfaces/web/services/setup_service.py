@@ -79,8 +79,7 @@ def apply_setup(state: WebAppState, model: str, api_key: str) -> None:
             base_url=cfg.base_url,
         )
         # Re-initialize the session
-        state.session.messages.clear()
-        state.session.title = ""
+        state.session.clear_messages()
     else:
         # Update existing agent
         state.agent.model = model

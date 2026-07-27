@@ -44,8 +44,7 @@ async def api_set_mode(body: dict):
             msg = "[Mode changed to Plan mode. You can now only discuss requirements and write/edit .md files. Do NOT write any source code or run shell commands.]"
         else:
             msg = "[Mode changed to Build mode. All tools are now available. You can implement code, run commands, and make changes.]"
-        state.session.messages.append(SystemMessage(content=msg))
-        collapsed = state.session._collapse_mode_switches()
+        collapsed = await state.session.add_message(SystemMessage(content=msg))
     return {"mode": mode, "collapsed_count": collapsed, "current": state.current_info()}
 
 

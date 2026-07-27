@@ -387,10 +387,9 @@ class InteractiveUI:
             plan_content = Path(plan_file).read_text()
             _resolved_plan_file = plan_file
             self.agent.set_mode("build")
-            self.session.messages.append(
+            await self.session.add_message(
                 SystemMessage(content="[Mode changed to Build mode. 以下为计划内容，请按照计划执行。]")
             )
-            self.session._collapse_mode_switches()
             text = f"请按照以下计划严格执行：\n\n{plan_content}"
             self._append_output(f"\n[📋 找到计划文件: {os.path.basename(plan_file)}，切换到 🔨 build mode...]\n")
 
@@ -584,10 +583,9 @@ class InteractiveUI:
                 self._append_output("\n[Already in plan mode.]")
             else:
                 self.agent.set_mode("plan")
-                self.session.messages.append(
+                collapsed = await self.session.add_message(
                     SystemMessage(content="[Mode changed to Plan mode. You can now only discuss requirements and write/edit .md files. Do NOT write any source code or run shell commands.]")
                 )
-                collapsed = self.session._collapse_mode_switches()
                 if collapsed > 0:
                     self._append_output(f"\n  [🔄 已折叠 {collapsed} 条重复的模式切换消息]")
                 self._append_output("\n[Switched to 📋 plan mode. Session context preserved. Send a message to continue planning.]")
@@ -598,10 +596,9 @@ class InteractiveUI:
                 self._append_output("\n[Already in build mode.]")
             else:
                 self.agent.set_mode("build")
-                self.session.messages.append(
+                collapsed = await self.session.add_message(
                     SystemMessage(content="[Mode changed to Build mode. All tools are now available. You can implement code, run commands, and make changes.]")
                 )
-                collapsed = self.session._collapse_mode_switches()
                 if collapsed > 0:
                     self._append_output(f"\n  [🔄 已折叠 {collapsed} 条重复的模式切换消息]")
                 self._append_output("\n[Switched to 🔨 build mode. Session context preserved. Send a message to continue building.]")
@@ -613,7 +610,7 @@ class InteractiveUI:
 
         if cmd == "/clear":
             self.output_buffer.reset()
-            self.session.messages.clear()
+            self.session.clear_messages()
             self._append_output("\n[Conversation cleared.]")
             return True
 
@@ -645,9 +642,8 @@ class InteractiveUI:
 
             if arg == "new":
                 save_current(self.session, self.session_file_ref[0])
-                self.session.messages.clear()
+                self.session.clear_messages()
                 self.session._ensure_system_prompt(self.agent._build_system_prompt(self.cwd))
-                self.session.title = ""
                 self.session_file_ref[0] = session_path(self.cwd)
                 self.output_buffer.reset()
                 self._append_output("\n[New session started.]")
@@ -713,9 +709,7 @@ class InteractiveUI:
                 except Exception:
                     self._append_output("\n[Failed to load session.]")
                     return True
-                self.session.messages.clear()
-                self.session.messages.extend(new_session.messages)
-                self.session.title = new_session.title
+                self.session.load_messages_from(new_session)
                 self.session_file_ref[0] = target
                 self.output_buffer.reset()
                 info = session_info(target)
@@ -748,9 +742,7 @@ class InteractiveUI:
             self.application.invalidate()
             return
 
-        self.session.messages.clear()
-        self.session.messages.extend(new_session.messages)
-        self.session.title = new_session.title
+        self.session.load_messages_from(new_session)
         self.session_file_ref[0] = target
 
         self.output_buffer.reset()

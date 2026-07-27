@@ -74,9 +74,7 @@ class WebAppState:
             new_session = Session.load(filepath)
         except Exception:
             return False
-        self.session.messages.clear()
-        self.session.messages.extend(new_session.messages)
-        self.session.title = new_session.title
+        self.session.load_messages_from(new_session)
         self.session_file_ref[0] = filepath
         self._reload_diff_summaries()
         return True
@@ -132,8 +130,7 @@ class WebAppState:
 
     def _create_fresh_session(self) -> None:
         """Reset to a fresh empty session."""
-        self.session.messages.clear()
-        self.session.title = ""
+        self.session.clear_messages()
         self.session_file_ref[0] = session_path(self.cwd)
         self.diff_summaries.clear()
         if self.agent:
@@ -170,9 +167,7 @@ class WebAppState:
         forked = self.session.fork(user_msg_index)
         new_path = session_path(self.cwd)
         forked.save(new_path)
-        self.session.messages.clear()
-        self.session.messages.extend(forked.messages)
-        self.session.title = forked.title
+        self.session.load_messages_from(forked)
         self.session_file_ref[0] = new_path
         # Reload diff summaries for the new fork
         self._reload_diff_summaries()
@@ -233,7 +228,7 @@ class WebAppState:
                     break
                 user_text_count += 1
 
-        self.session.messages = self.session.messages[:cutoff_idx]
+        self.session.truncate_messages(cutoff_idx)
 
         # ── 4. Save and reload diff summaries ───────────────────────────
         save_current(self.session, self.session_file_ref[0])
@@ -246,10 +241,9 @@ class WebAppState:
 
     def new_session(self) -> None:
         save_current(self.session, self.session_file_ref[0])
-        self.session.messages.clear()
+        self.session.clear_messages()
         if self.agent:
             self.session._ensure_system_prompt(self.agent._build_system_prompt(self.cwd))
-        self.session.title = ""
         self.session_file_ref[0] = session_path(self.cwd)
         # Clear diff summaries for the new session
         self.diff_summaries.clear()

@@ -132,13 +132,11 @@ class Agent:
                     if self.on_tool_end:
                         await self._call_with_await(self.on_tool_end, call.name, exec_result.title, exec_result.output, exec_result.metadata)
 
-            sess.messages.append(ToolResult(
+            await sess.add_message(ToolResult(
                 tool_call_id=call.id,
                 content=exec_result.output,
                 tool_name=call.name,
             ))
-
-        await sess._compact()
 
     def _build_system_prompt(self, cwd: str) -> str:
         year = datetime.now().year

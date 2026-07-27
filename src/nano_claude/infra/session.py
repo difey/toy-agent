@@ -1,8 +1,11 @@
+import calendar
 import glob
 import hashlib
 import json
 import os
+import re
 import shutil
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -76,6 +79,9 @@ class Session:
         self.summarizer = summarizer
         self.messages: list[Message] = []
         self.title = title
+        now = time.time()
+        self.created_at: float = now
+        self.updated_at: float = now
         if system_prompt:
             self.messages.append(SystemMessage(content=system_prompt))
 
@@ -110,6 +116,7 @@ class Session:
         if not self.title and content.strip():
             self.title = await self._generate_title(content)
         self.messages.append(UserMessage(content=content))
+        self.updated_at = time.time()
         removed = self._collapse_mode_switches()
         await self._compact()
         return removed
@@ -118,6 +125,7 @@ class Session:
         """添加消息并自动折叠连续的模式切换消息。
         返回被折叠的消息数量。"""
         self.messages.append(msg)
+        self.updated_at = time.time()
         removed = self._collapse_mode_switches()
         await self._compact()
         return removed
@@ -233,6 +241,8 @@ class Session:
                 break
 
         data = {
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
             "max_tokens": self.max_tokens,
             "title": self.title,
             "system_prompt": system_prompt,
@@ -280,6 +290,10 @@ class Session:
             summarizer=self.summarizer,
             title="",
         )
+        # Fork 视为新 session，使用当前时间
+        now = time.time()
+        forked.created_at = now
+        forked.updated_at = now
         forked._ensure_system_prompt(self._get_system_prompt())
         # Copy messages from position 1 (after system prompt) up to cutoff
         forked.messages.extend(self.messages[1:cutoff])
@@ -290,6 +304,26 @@ class Session:
         if self.messages and isinstance(self.messages[0], SystemMessage):
             return self.messages[0].content
         return ""
+
+    def load_messages_from(self, other: "Session") -> None:
+        """从另一个 Session 复制消息列表及相关状态（用于加载/切换 session）。"""
+        self.messages.clear()
+        self.messages.extend(other.messages)
+        self.title = other.title
+        self.created_at = other.created_at
+        self.updated_at = other.updated_at
+
+    def clear_messages(self) -> None:
+        """清空所有消息，重置标题和时间戳。"""
+        self.messages.clear()
+        self.title = ""
+        now = time.time()
+        self.created_at = now
+        self.updated_at = now
+
+    def truncate_messages(self, cutoff: int) -> None:
+        """截断消息到指定索引位置。"""
+        self.messages = self.messages[:cutoff]
 
     @classmethod
     def load(cls, path: str) -> "Session":
@@ -302,6 +336,26 @@ class Session:
             system_prompt=system_prompt,
         )
         session.messages = [_deserialize_message(item) for item in data["messages"]]
+
+        # 读取时间字段，含 fallback 逻辑
+        session.created_at = data.get("created_at", 0.0)
+        session.updated_at = data.get("updated_at", 0.0)
+
+        if session.updated_at == 0.0:
+            # Fallback: 使用最后一条消息的时间戳
+            if session.messages:
+                session.updated_at = session.messages[-1].timestamp
+            elif session.created_at != 0.0:
+                session.updated_at = session.created_at
+            else:
+                session.updated_at = time.time()
+
+        if session.created_at == 0.0:
+            # Fallback: 从文件名中提取创建时间
+            session.created_at = _extract_timestamp_from_filename(path)
+            if session.created_at == 0.0:
+                session.created_at = session.updated_at
+
         return session
 
 
@@ -512,6 +566,22 @@ def migrate_old_sessions(cwd: str) -> int:
     return count
 
 
+def _extract_timestamp_from_filename(path: str) -> float:
+    """从 session 文件名提取创建时间戳作为 fallback。
+    文件名格式: 2025-01-15T10-30-00-abc123.json
+    """
+    basename = os.path.basename(path)
+    match = re.match(r"(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})", basename)
+    if match:
+        dt_str = f"{match.group(1)} {match.group(2)}:{match.group(3)}:{match.group(4)}"
+        try:
+            dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
+            return calendar.timegm(dt.timetuple())
+        except ValueError:
+            pass
+    return 0.0
+
+
 def session_info(filepath: str) -> dict:
     try:
         sess = Session.load(filepath)
@@ -528,6 +598,8 @@ def session_info(filepath: str) -> dict:
             "messages": len(sess.messages),
             "tokens": sess.total_tokens(),
             "preview": first_msg[:60] + ("..." if len(first_msg) > 60 else ""),
+            "created_at": sess.created_at,
+            "updated_at": sess.updated_at,
         }
     except Exception:
         return {
@@ -537,6 +609,8 @@ def session_info(filepath: str) -> dict:
             "messages": 0,
             "tokens": 0,
             "preview": "(unreadable)",
+            "created_at": 0.0,
+            "updated_at": 0.0,
         }
 
 

@@ -269,13 +269,11 @@ class SubAgent:
                     if cb and cb.on_tool_end:
                         await cb.on_tool_end(aid, call.name, exec_result.title, exec_result.output)
 
-            sess.messages.append(ToolResult(
+            await sess.add_message(ToolResult(
                 tool_call_id=call.id,
                 content=exec_result.output,
                 tool_name=call.name,
             ))
-
-        await sess._compact()
 
 
 class SubAgentManager:
