@@ -782,10 +782,11 @@ export function ChatApp() {
       commitMessages(() => response.current.messages);
       setSessionTitle(response.current.title || 'nanoClaude');
       setSidebarOpen(false);
+      await loadSessions();
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Failed to switch session');
     }
-  }, [commitMessages, isStreaming, showToast]);
+  }, [commitMessages, isStreaming, loadSessions, showToast]);
 
   const deleteSession = useCallback(async (index: number) => {
     if (isStreaming || !window.confirm('Delete this session?')) {
