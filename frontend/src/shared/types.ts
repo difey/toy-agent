@@ -12,14 +12,20 @@ export interface SessionSummary {
 }
 
 export interface ChatMessage {
-  role: 'user' | 'assistant' | 'tool' | 'system';
-  type: 'text' | 'tool_start' | 'tool_result' | 'system';
+  role: 'user' | 'assistant' | 'tool' | 'system' | 'diff_summary';
+  type: 'text' | 'tool_start' | 'tool_result' | 'system' | 'diff_summary';
   content: string;
   name?: string;
   title?: string;
   arguments?: Record<string, unknown>;
   flow_id?: string;
   timestamp?: number;
+  // diff_summary specific fields
+  checkpoint_filename?: string;
+  summary?: {
+    files_changed: number;
+    files: FileChangeItem[];
+  };
 }
 
 export interface CurrentInfo {
@@ -106,7 +112,6 @@ export interface WorkspacePanelResponse {
 }
 
 export interface DiffSummary {
-  segment_key: string;
   checkpoint_filename: string;
   summary: {
     files_changed: number;

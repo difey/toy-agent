@@ -11,7 +11,7 @@ def test_list_plan_docs_and_get_plan_doc(tmp_path, monkeypatch):
     older.touch()
     newer.touch()
 
-    monkeypatch.setattr(plan_service, "get_session_dir", lambda cwd: str(tmp_path))
+    monkeypatch.setattr(plan_service, "get_plan_dir", lambda cwd: str(tmp_path))
     monkeypatch.setattr(plan_service.os.path, "getmtime", lambda path: 100 if Path(path).name == "older.md" else 200)
 
     docs = plan_service.list_plan_docs("/repo")

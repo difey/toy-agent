@@ -36,13 +36,24 @@ class ToolResult:
 
 
 @dataclass
+class DiffSummaryMessage:
+    role: Literal["diff_summary"] = "diff_summary"
+    checkpoint_filename: str = ""
+    summary: dict = field(default_factory=lambda: {
+        "files_changed": 0,
+        "files": [],
+    })
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass
 class ToolCall:
     id: str
     name: str
     arguments: dict
 
 
-Message = SystemMessage | UserMessage | AssistantMessage | ToolResult
+Message = SystemMessage | UserMessage | AssistantMessage | ToolResult | DiffSummaryMessage
 
 
 @dataclass

@@ -2,7 +2,7 @@
 
 import json
 
-from nano_claude.core.message import AssistantMessage, SystemMessage, ToolResult, UserMessage
+from nano_claude.core.message import AssistantMessage, DiffSummaryMessage, SystemMessage, ToolResult, UserMessage
 
 
 def serialize_messages_for_api(messages) -> list[dict]:
@@ -48,6 +48,14 @@ def serialize_messages_for_api(messages) -> list[dict]:
                 "name": msg.tool_name or "",
                 "content": msg.content[:2000],
                 "tool_call_id": msg.tool_call_id,
+                "timestamp": msg.timestamp,
+            })
+        elif isinstance(msg, DiffSummaryMessage):
+            result.append({
+                "role": "diff_summary",
+                "type": "diff_summary",
+                "checkpoint_filename": msg.checkpoint_filename,
+                "summary": msg.summary,
                 "timestamp": msg.timestamp,
             })
     return result

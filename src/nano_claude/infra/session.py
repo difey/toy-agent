@@ -3,12 +3,14 @@ import hashlib
 import json
 import os
 import shutil
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Awaitable, Callable
 
 from nano_claude.core.message import (
     AssistantMessage,
+    DiffSummaryMessage,
     Message,
     SystemMessage,
     ToolCall,
@@ -37,6 +39,8 @@ def message_tokens(msg: Message) -> int:
         return n
     elif isinstance(msg, ToolResult):
         return estimate_tokens(msg.content)
+    elif isinstance(msg, DiffSummaryMessage):
+        return estimate_tokens(json.dumps(msg.summary))
     return 0
 
 
@@ -55,6 +59,8 @@ def _format_message_for_summary(msg: Message) -> str:
         return "\n".join(parts)
     elif isinstance(msg, ToolResult):
         return f"[ToolResult] ({msg.tool_name}): {msg.content[:500]}"
+    elif isinstance(msg, DiffSummaryMessage):
+        return f"[Diff Summary] ({msg.checkpoint_filename}): {msg.summary.get('files_changed', 0)} files changed"
     return ""
 
 
@@ -115,6 +121,10 @@ class Session:
         removed = self._collapse_mode_switches()
         await self._compact()
         return removed
+
+    def get_messages_for_llm(self) -> list[Message]:
+        """返回发送给 LLM 的消息列表，过滤掉 DiffSummaryMessage。"""
+        return [m for m in self.messages if not isinstance(m, DiffSummaryMessage)]
 
     def total_tokens(self) -> int:
         return sum(message_tokens(m) for m in self.messages)
@@ -317,6 +327,11 @@ def _serialize_message(msg: Message) -> dict:
             "content": msg.content,
             "tool_name": msg.tool_name,
         }
+    elif isinstance(msg, DiffSummaryMessage):
+        return {
+            "checkpoint_filename": msg.checkpoint_filename,
+            "summary": msg.summary,
+        }
     raise TypeError(f"Unknown message type: {type(msg)}")
 
 
@@ -343,6 +358,12 @@ def _deserialize_message(item: dict) -> Message:
             tool_call_id=data["tool_call_id"],
             content=data["content"],
             tool_name=data.get("tool_name", ""),
+            timestamp=ts,
+        )
+    elif msg_type == "DiffSummaryMessage":
+        return DiffSummaryMessage(
+            checkpoint_filename=data["checkpoint_filename"],
+            summary=data["summary"],
             timestamp=ts,
         )
     raise TypeError(f"Unknown message type: {msg_type}")
@@ -416,8 +437,9 @@ def get_diff_dir(cwd: str) -> str:
 
 def session_path(cwd: str) -> str:
     ts = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+    suffix = uuid.uuid4().hex[:8]
     context_dir = get_context_dir(cwd)
-    return os.path.join(context_dir, f"{ts}.json")
+    return os.path.join(context_dir, f"{ts}-{suffix}.json")
 
 
 def list_sessions(cwd: str) -> list[str]:

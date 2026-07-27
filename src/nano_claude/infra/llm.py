@@ -5,6 +5,7 @@ import litellm
 
 from nano_claude.core.message import (
     AssistantMessage,
+    DiffSummaryMessage,
     Message,
     ReasoningDelta,
     StreamChunk,
@@ -169,4 +170,6 @@ class LLMClient:
                     "tool_call_id": msg.tool_call_id,
                     "content": msg.content,
                 })
+            elif isinstance(msg, DiffSummaryMessage):
+                continue  # 跳过，不应发送给 LLM
         return formatted

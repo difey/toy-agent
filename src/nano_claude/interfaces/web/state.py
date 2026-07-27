@@ -27,7 +27,7 @@ class WebAppState:
         # components can share and update the same container via [0]
         # (plain str rebinding would not propagate across holders).
         self.session_file_ref: list[str] = [""]
-        # Diff summaries for current session, keyed by segment_key
+        # Diff summaries for current session, keyed by checkpoint_filename
         self.diff_summaries: dict[str, dict] = {}
         # SSE queues: keyed by response_id
         self._sse_queues: dict[str, asyncio.Queue] = {}
@@ -227,14 +227,14 @@ class WebAppState:
         """Reload diff summaries from disk for the current session."""
         session_basename = os.path.basename(self.session_file_ref[0])
         summaries = list_checkpoints_for_session(self.cwd, session_basename)
-        # Build a dict keyed by segment_key for easy lookup
+        # Build a dict keyed by checkpoint_filename for easy lookup
         self.diff_summaries.clear()
         for summary in summaries:
-            self.diff_summaries[summary["segment_key"]] = summary
+            self.diff_summaries[summary["checkpoint_filename"]] = summary
 
-    def add_diff_summary(self, segment_key: str, summary: dict) -> None:
-        """Add or update a diff summary for a segment."""
-        self.diff_summaries[segment_key] = summary
+    def add_diff_summary(self, checkpoint_filename: str, summary: dict) -> None:
+        """Add or update a diff summary for a checkpoint."""
+        self.diff_summaries[checkpoint_filename] = summary
 
     # ── SSE helpers ─────────────────────────────────────────────────────
 

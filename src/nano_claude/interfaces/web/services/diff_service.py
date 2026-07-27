@@ -234,7 +234,6 @@ def detect_file_changes(
 def save_checkpoint(
     cwd: str,
     changed_files: dict,
-    segment_key: str,
     session_file: str,
     git_commit_hash: str,
 ) -> str:
@@ -243,7 +242,6 @@ def save_checkpoint(
     Args:
         cwd: Working directory.
         changed_files: Dict from ``detect_file_changes()``.
-        segment_key: The agent-round key (e.g. ``"seg-3"``).
         session_file: Basename of the session JSON file.
         git_commit_hash: Current git HEAD hash at snapshot time.
 
@@ -261,7 +259,6 @@ def save_checkpoint(
         "timestamp": timestamp,
         "git_commit_hash": git_commit_hash,
         "session_file": session_file,
-        "message_segment_key": segment_key,
         "summary": {
             "files_changed": changed_files.get("files_changed", 0),
         },
@@ -278,7 +275,6 @@ def save_checkpoint(
     # Update mapping
     mapping = _load_mapping(cwd)
     mapping.setdefault("mappings", []).append({
-        "segment_key": segment_key,
         "checkpoint_filename": filename,
         "session_file": session_file,
         "timestamp": timestamp,
@@ -301,17 +297,6 @@ def get_checkpoint(cwd: str, checkpoint_filename: str) -> dict | None:
         return None
 
 
-def get_checkpoint_for_segment(cwd: str, segment_key: str) -> dict | None:
-    """Find and return the checkpoint for a specific segment key."""
-    mapping = _load_mapping(cwd)
-    for entry in mapping.get("mappings", []):
-        if entry["segment_key"] == segment_key:
-            checkpoint_filename = _entry_checkpoint_filename(entry)
-            if checkpoint_filename:
-                return get_checkpoint(cwd, checkpoint_filename)
-    return None
-
-
 def list_checkpoints(cwd: str) -> list[dict]:
     """Return list of checkpoint summaries, most recent first."""
     mapping = _load_mapping(cwd)
@@ -324,7 +309,6 @@ def list_checkpoints(cwd: str) -> list[dict]:
         if cp:
             files_list = _build_files_list(cp)
             summaries.append({
-                "segment_key": entry["segment_key"],
                 "checkpoint_filename": checkpoint_filename,
                 "summary": {
                     "files_changed": cp.get("summary", {}).get("files_changed", 0),
@@ -348,7 +332,6 @@ def list_checkpoints_for_session(cwd: str, session_file_basename: str) -> list[d
         if cp:
             files_list = _build_files_list(cp)
             summaries.append({
-                "segment_key": entry["segment_key"],
                 "checkpoint_filename": checkpoint_filename,
                 "summary": {
                     "files_changed": cp.get("summary", {}).get("files_changed", 0),

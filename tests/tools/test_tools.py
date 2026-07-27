@@ -80,6 +80,10 @@ async def test_edit_tool(tmp_path):
 
     f.write_text("dup\nunique\ndup\n")
     r = await tool.execute({"filePath": str(f), "oldString": "dup", "newString": "x"}, ctx)
+    assert "modified after it was last read" in r.output
+
+    ctx.file_read_registry.record_read(str(f), f.stat().st_mtime)
+    r = await tool.execute({"filePath": str(f), "oldString": "dup", "newString": "x"}, ctx)
     assert "Found 2 matches" in r.output
 
 
@@ -233,6 +237,7 @@ def test_apply_patch_tool_basic():
 async def test_apply_patch_add(tmp_path):
     tool = ApplyPatchTool()
     ctx = ToolContext(cwd=str(tmp_path))
+    ctx.file_read_registry.record_read(str(tmp_path / "hello.txt"), None)
     r = await tool.execute({
         "patchText": "*** Add File: hello.txt\n+Hello world\n+Second line\n"
     }, ctx)
@@ -247,6 +252,7 @@ async def test_apply_patch_delete(tmp_path):
     f.write_text("content")
     tool = ApplyPatchTool()
     ctx = ToolContext(cwd=str(tmp_path))
+    ctx.file_read_registry.record_read(str(f), f.stat().st_mtime)
     r = await tool.execute({
         "patchText": "*** Delete File: delete_me.txt\n"
     }, ctx)
@@ -394,4 +400,3 @@ async def test_bash_non_search_no_warning(tmp_path):
 
     assert "[Search guard]" not in result.output
     assert result.title == "bash [test echo]"
-

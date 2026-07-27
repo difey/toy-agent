@@ -7,7 +7,7 @@ import traceback
 
 from fastapi import HTTPException
 
-from nano_claude.core.message import ToolCall, UserMessage
+from nano_claude.core.message import DiffSummaryMessage, ToolCall
 from nano_claude.infra.session import save_current
 
 from nano_claude.interfaces.web.state import WebAppState
@@ -160,8 +160,6 @@ async def _execute_chat(state: WebAppState, message: str, response_id: str) -> N
     try:
         # Take snapshot before agent runs to detect file changes
         before_snapshot, before_content, before_binary = take_snapshot(cwd)
-        user_msg_count = sum(1 for m in session.messages if isinstance(m, UserMessage))
-        segment_key = f"seg-{user_msg_count}"
 
         await agent.run_stream(message, cwd, session=session)
 
@@ -176,7 +174,7 @@ async def _execute_chat(state: WebAppState, message: str, response_id: str) -> N
         if changed_files["files_changed"] > 0:
             git_hash = _get_git_head_hash(cwd)
             checkpoint_filename = save_checkpoint(
-                cwd, changed_files, segment_key,
+                cwd, changed_files,
                 os.path.basename(state.session_file_ref[0]),
                 git_hash,
             )
@@ -191,18 +189,31 @@ async def _execute_chat(state: WebAppState, message: str, response_id: str) -> N
             for rel_path in changed_files.get("binary", []):
                 files_list.append({"path": rel_path, "status": "binary"})
 
-            diff_summary = {
-                "segment_key": segment_key,
-                "checkpoint_filename": checkpoint_filename,
-                "summary": {
-                    "files_changed": changed_files["files_changed"],
-                    "files": files_list,
-                },
+            summary_data = {
+                "files_changed": changed_files["files_changed"],
+                "files": files_list,
             }
-            # Add to state for immediate availability
-            state.add_diff_summary(segment_key, diff_summary)
-            # Push SSE event for streaming
-            await state.push_event("diff_summary", diff_summary)
+
+            # Create DiffSummaryMessage and insert into session.messages
+            diff_msg = DiffSummaryMessage(
+                checkpoint_filename=checkpoint_filename,
+                summary=summary_data,
+            )
+            await session.add_message(diff_msg)
+
+            # Add to state for workspace panel (keyed by checkpoint_filename)
+            state.add_diff_summary(checkpoint_filename, {
+                "checkpoint_filename": checkpoint_filename,
+                "summary": summary_data,
+            })
+
+            # Push as a standard message SSE event (type: diff_summary)
+            await state.push_event("message", {
+                "role": "diff_summary",
+                "type": "diff_summary",
+                "checkpoint_filename": checkpoint_filename,
+                "summary": summary_data,
+            })
 
         # Cleanup old checkpoints
         cleanup_checkpoints(cwd)

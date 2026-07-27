@@ -176,10 +176,11 @@ button.workspace-tree-row { cursor: pointer; }
 .bubble ul, .bubble ol { padding-left: 20px; }
 .bubble li { margin: 0.15em 0; }
 .bubble h1, .bubble h2, .bubble h3, .bubble h4 { color: var(--text-bright); }
-.bubble h1 { font-size: 1.3em; }
-.bubble h2 { font-size: 1.15em; }
+.bubble h1 { font-size: 1.3em; margin-top: 0.6em; }
+.bubble h2 { font-size: 1.15em; margin-top: 0.5em; }
 .msg-timestamp { font-size: 11px; color: var(--text-dim); font-family: var(--mono); line-height: 1.4; }
-.bubble h3 { font-size: 1.05em; }
+.bubble h3 { font-size: 1.05em; margin-top: 0.4em; }
+.bubble h1:first-child, .bubble h2:first-child, .bubble h3:first-child { margin-top: 0; }
 .bubble pre { background: var(--bg3); padding: 14px; border-radius: var(--radius-sm); overflow-x: auto; font-size: 12.5px; line-height: 1.55; border: 1px solid var(--border); position: relative; }
 .bubble code { background: var(--bg3); padding: 2px 6px; border-radius: 4px; font-family: var(--mono); font-size: 0.9em; color: var(--accent3); }
 .bubble pre code { background: none; padding: 0; border-radius: 0; color: var(--text); }

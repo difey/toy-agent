@@ -202,7 +202,7 @@ class Agent:
             print("\n[CHAT] Calling LLM...")
             t0 = time.perf_counter()
             response = await self.llm.chat(
-                messages=sess.messages,
+                messages=sess.get_messages_for_llm(),
                 tools=self.tools.to_openai_tools(),
             )
             duration = time.perf_counter() - t0
@@ -254,7 +254,7 @@ class Agent:
             print("\n[STREAM] Calling LLM with streaming...")
             t0 = time.perf_counter()
             stream = self.llm.chat_stream(
-                messages=sess.messages,
+                messages=sess.get_messages_for_llm(),
                 tools=self.tools.to_openai_tools(),
             )
 

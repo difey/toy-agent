@@ -7,6 +7,7 @@ import type {
   CheckpointData,
   CurrentInfo,
   DiffSummary,
+  FileChangeItem,
   ModifiedFileItem,
   Mode,
   PermissionRequest,
@@ -429,7 +430,7 @@ export function ChatApp() {
       if (data.diff_summaries) {
         const map: Record<string, DiffSummary> = {};
         for (const ds of data.diff_summaries) {
-          map[ds.segment_key] = ds;
+          map[ds.checkpoint_filename] = ds;
         }
         setDiffSummaries(map);
       } else {
@@ -816,7 +817,7 @@ export function ChatApp() {
         const newSummaries: Record<string, DiffSummary> = {};
         if (response.current.diff_summaries) {
           for (const ds of response.current.diff_summaries) {
-            newSummaries[ds.segment_key] = ds;
+            newSummaries[ds.checkpoint_filename] = ds;
           }
         }
         return newSummaries;
@@ -1052,6 +1053,19 @@ export function ChatApp() {
             commitMessages((prev) => [...prev, resultMessage]);
           }
           scheduleScrollBottom();
+          return;
+        }
+
+        if (type === 'diff_summary') {
+          commitMessages((prev) => [...prev, {
+            role: 'diff_summary',
+            type: 'diff_summary',
+            checkpoint_filename: String(payload.checkpoint_filename ?? ''),
+            summary: payload.summary as { files_changed: number; files: FileChangeItem[] } | undefined,
+            timestamp: typeof payload.timestamp === 'number' ? payload.timestamp : undefined,
+          } as ChatMessage]);
+          scheduleScrollBottom();
+          return;
         }
       });
 
@@ -1145,12 +1159,6 @@ export function ChatApp() {
           next[flowId] = flow;
           return next;
         });
-        scheduleScrollBottom();
-      });
-
-      eventSource.addEventListener('diff_summary', (event) => {
-        const payload = JSON.parse((event as MessageEvent<string>).data) as DiffSummary;
-        setDiffSummaries((prev) => ({ ...prev, [payload.segment_key]: payload }));
         scheduleScrollBottom();
       });
 
@@ -1442,10 +1450,28 @@ export function ChatApp() {
               )}
             </div>
           ) : null}
+
+          {message.type === 'diff_summary' ? (
+            <DiffOverviewBubble
+              summary={{
+                checkpoint_filename: message.checkpoint_filename ?? '',
+                summary: message.summary ?? { files_changed: 0, files: [] },
+              }}
+              isActive={activeDiff === message.checkpoint_filename}
+              onClick={() => {
+                setActiveDiff(
+                  activeDiff === message.checkpoint_filename
+                    ? null
+                    : message.checkpoint_filename ?? null
+                );
+                setDiffFilePaths([]);
+              }}
+            />
+          ) : null}
         </div>
       );
     },
-    [collapsedCards, delegateFlowMap, forkAtMessage, isStreaming, rollbackAtMessage, subAgentFlows, toggleCard, toggleSubAgentFlow],
+    [activeDiff, collapsedCards, delegateFlowMap, forkAtMessage, isStreaming, rollbackAtMessage, subAgentFlows, toggleCard, toggleSubAgentFlow],
   );
 
   return (
@@ -1551,13 +1577,17 @@ export function ChatApp() {
               </div>
             </div>
           ) : (
-            segments.map((seg) => (
+            segments.map((seg) => {
+              // Extract diff_summary messages from foldingMessages for rendering outside ThinkingBubble
+              const diffSummaryMessages = seg.foldingMessages.filter(m => m.message.type === 'diff_summary');
+              const otherFoldingMessages = seg.foldingMessages.filter(m => m.message.type !== 'diff_summary');
+              return (
               <div key={seg.key} className="msg-group">
                 {seg.userMessage ? renderMessageNode(seg.userMessage.message, seg.userMessage.index) : null}
-                {seg.foldingMessages.length > 0 ? (
+                {otherFoldingMessages.length > 0 ? (
                   <ThinkingBubble
                     segmentKey={seg.key}
-                    messages={seg.foldingMessages}
+                    messages={otherFoldingMessages}
                     collapsed={collapsedThinkingSections[seg.key] !== false}
                     onToggle={toggleThinkingSection}
                     collapsedCards={collapsedCards}
@@ -1568,24 +1598,16 @@ export function ChatApp() {
                     truncate={truncate}
                   />
                 ) : null}
-                {seg.lastMessage ? renderMessageNode(seg.lastMessage.message, seg.lastMessage.index) : null}
-                {diffSummaries[seg.key] ? (
-                  <DiffOverviewBubble
-                    summary={diffSummaries[seg.key]}
-                    isActive={activeDiff === diffSummaries[seg.key].checkpoint_filename}
-                    onClick={() => {
-                      setActiveDiff(
-                        activeDiff === diffSummaries[seg.key].checkpoint_filename
-                          ? null
-                          : diffSummaries[seg.key].checkpoint_filename
-                      );
-                      setDiffFilePaths([]);
-                    }}
-                  />
-                ) : null}
+                {diffSummaryMessages.map(m => renderMessageNode(m.message, m.index))}
+                {seg.lastMessage && seg.lastMessage.message.type !== 'diff_summary'
+                  ? renderMessageNode(seg.lastMessage.message, seg.lastMessage.index)
+                  : null}
+                {seg.lastMessage && seg.lastMessage.message.type === 'diff_summary'
+                  ? renderMessageNode(seg.lastMessage.message, seg.lastMessage.index)
+                  : null}
               </div>
-            ))
-          )}
+              );
+            }))}
         </div>
 
         {flowEntries.map(([flowId, flow]) =>
