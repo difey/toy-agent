@@ -646,6 +646,7 @@ class InteractiveUI:
             if arg == "new":
                 save_current(self.session, self.session_file_ref[0])
                 self.session.messages.clear()
+                self.session._ensure_system_prompt(self.agent._build_system_prompt(self.cwd))
                 self.session.title = ""
                 self.session_file_ref[0] = session_path(self.cwd)
                 self.output_buffer.reset()

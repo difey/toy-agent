@@ -198,6 +198,7 @@ interface MessageSegment {
   key: string;
   userMessage: { message: ChatMessage; index: number } | null;
   foldingMessages: { message: ChatMessage; index: number }[];
+  diffSummaryMessages: { message: ChatMessage; index: number }[];
   lastMessage: { message: ChatMessage; index: number } | null;
 }
 
@@ -207,14 +208,35 @@ function buildMessageSegments(messages: ChatMessage[]): MessageSegment[] {
   const segments: MessageSegment[] = [];
   const finalize = (key: string, userMsg: ChatMessage | null, msgs: ChatMessage[], startIdx: number) => {
     const mapped = msgs.map((m, i) => ({ message: m, index: startIdx + i }));
-    if (mapped.length <= 1) {
-      segments.push({ key, userMessage: userMsg ? { message: userMsg, index: startIdx - 1 } : null, foldingMessages: [], lastMessage: mapped[0] ?? null });
-    } else {
+    const diffSummaryMessages = mapped.filter(m => m.message.type === 'diff_summary');
+    const nonDiffMessages = mapped.filter(m => m.message.type !== 'diff_summary');
+
+    if (nonDiffMessages.length === 0) {
+      // All messages are diff_summary → show all outside, nothing folded
       segments.push({
         key,
         userMessage: userMsg ? { message: userMsg, index: startIdx - 1 } : null,
-        foldingMessages: mapped.slice(0, -1),
-        lastMessage: mapped[mapped.length - 1],
+        foldingMessages: [],
+        diffSummaryMessages: mapped,
+        lastMessage: null,
+      });
+    } else if (nonDiffMessages.length === 1) {
+      // Single non-diff message → lastMessage, diff_summary outside, nothing folded
+      segments.push({
+        key,
+        userMessage: userMsg ? { message: userMsg, index: startIdx - 1 } : null,
+        foldingMessages: [],
+        diffSummaryMessages,
+        lastMessage: nonDiffMessages[0],
+      });
+    } else {
+      // Multiple non-diff messages → last one as lastMessage, rest folded, diff_summary outside
+      segments.push({
+        key,
+        userMessage: userMsg ? { message: userMsg, index: startIdx - 1 } : null,
+        foldingMessages: nonDiffMessages.slice(0, -1),
+        diffSummaryMessages,
+        lastMessage: nonDiffMessages[nonDiffMessages.length - 1],
       });
     }
   };
@@ -235,6 +257,7 @@ function buildMessageSegments(messages: ChatMessage[]): MessageSegment[] {
         key: `seg-${segCount++}`,
         userMessage: null,
         foldingMessages: [],
+        diffSummaryMessages: [],
         lastMessage: { message: msg, index: i },
       });
       segUser = null;
@@ -705,13 +728,16 @@ export function ChatApp() {
 
     const nextMode: Mode = mode === 'plan' ? 'build' : 'plan';
     try {
-      const result = await api<{ mode: Mode }>('POST', '/api/mode', { mode: nextMode });
+      const result = await api<{ mode: Mode; current: CurrentInfo }>('POST', '/api/mode', { mode: nextMode });
       setMode(result.mode);
-      await loadCurrent();
+      if (result.current) {
+        commitMessages(() => result.current.messages);
+        setSessionTitle(result.current.title || 'nanoClaude');
+      }
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Failed to switch mode');
     }
-  }, [isStreaming, loadCurrent, mode, showToast]);
+  }, [commitMessages, isStreaming, mode, showToast]);
 
   const toggleCard = useCallback((index: number) => {
     setCollapsedCards((prev) => {
@@ -736,8 +762,8 @@ export function ChatApp() {
     try {
       const response = await api<{ ok: boolean; current: CurrentInfo }>('POST', '/api/sessions');
       setCurrentSession(response.current);
-      commitMessages(() => []);
-      setSessionTitle('nanoClaude');
+      commitMessages(() => response.current.messages);
+      setSessionTitle(response.current.title || 'nanoClaude');
       await loadSessions();
       setSidebarOpen(false);
     } catch {
@@ -753,12 +779,13 @@ export function ChatApp() {
     try {
       const response = await api<{ ok: boolean; current: CurrentInfo }>('PUT', `/api/sessions/${index}`);
       setCurrentSession(response.current);
-      await loadCurrent();
+      commitMessages(() => response.current.messages);
+      setSessionTitle(response.current.title || 'nanoClaude');
       setSidebarOpen(false);
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Failed to switch session');
     }
-  }, [isStreaming, loadCurrent, showToast]);
+  }, [commitMessages, isStreaming, showToast]);
 
   const deleteSession = useCallback(async (index: number) => {
     if (isStreaming || !window.confirm('Delete this session?')) {
@@ -766,15 +793,17 @@ export function ChatApp() {
     }
 
     try {
-      await api('DELETE', `/api/sessions/${index}`);
-      await loadSessions();
-      if (currentSession?.index === index) {
-        await loadCurrent();
-      }
+      const response = await api<{ ok: boolean; current: CurrentInfo; sessions: SessionSummary[] }>(
+        'DELETE', `/api/sessions/${index}`
+      );
+      commitMessages(() => response.current.messages);
+      setSessionTitle(response.current.title || 'nanoClaude');
+      setCurrentSession(response.current);
+      setSessions(response.sessions);
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Failed to delete session');
     }
-  }, [currentSession?.index, isStreaming, loadCurrent, loadSessions, showToast]);
+  }, [commitMessages, isStreaming, showToast]);
 
   const forkAtMessage = useCallback(async (messageIndex: number) => {
     if (isStreaming) {
@@ -951,7 +980,6 @@ export function ChatApp() {
     resetFlowState();
     setInputText('');
     setIsStreaming(true);
-    commitMessages((prev) => [...prev, { role: 'user', type: 'text', content: text }]);
     scheduleScrollBottom();
 
     try {
@@ -965,9 +993,16 @@ export function ChatApp() {
         throw new Error(errorData.detail || 'Chat request failed');
       }
 
-      const data = (await response.json()) as ChatResponse;
+      const data = (await response.json()) as ChatResponse & { current?: CurrentInfo };
       if (!data.response_id) {
         throw new Error('No response_id');
+      }
+
+      // Use backend response: shows user message with timestamp
+      const currentInfo = data.current;
+      if (currentInfo) {
+        commitMessages(() => currentInfo.messages);
+        setSessionTitle(currentInfo.title || 'nanoClaude');
       }
 
       closeEventSource();
@@ -979,12 +1014,6 @@ export function ChatApp() {
         const payload = JSON.parse((event as MessageEvent<string>).data) as Record<string, unknown>;
         const role = (payload.role as ChatMessage['role'] | undefined) ?? 'assistant';
         const type = (payload.type as ChatMessage['type'] | undefined) ?? 'text';
-
-        if (role === 'user' && type === 'text') {
-          commitMessages((prev) => [...prev, { role: 'user', type: 'text', content: String(payload.content ?? '') }]);
-          scheduleScrollBottom();
-          return;
-        }
 
         if (role === 'assistant' && type === 'text') {
           commitMessages((prev) => {
@@ -1578,16 +1607,13 @@ export function ChatApp() {
             </div>
           ) : (
             segments.map((seg) => {
-              // Extract diff_summary messages from foldingMessages for rendering outside ThinkingBubble
-              const diffSummaryMessages = seg.foldingMessages.filter(m => m.message.type === 'diff_summary');
-              const otherFoldingMessages = seg.foldingMessages.filter(m => m.message.type !== 'diff_summary');
               return (
               <div key={seg.key} className="msg-group">
                 {seg.userMessage ? renderMessageNode(seg.userMessage.message, seg.userMessage.index) : null}
-                {otherFoldingMessages.length > 0 ? (
+                {seg.foldingMessages.length > 0 ? (
                   <ThinkingBubble
                     segmentKey={seg.key}
-                    messages={otherFoldingMessages}
+                    messages={seg.foldingMessages}
                     collapsed={collapsedThinkingSections[seg.key] !== false}
                     onToggle={toggleThinkingSection}
                     collapsedCards={collapsedCards}
@@ -1598,13 +1624,8 @@ export function ChatApp() {
                     truncate={truncate}
                   />
                 ) : null}
-                {diffSummaryMessages.map(m => renderMessageNode(m.message, m.index))}
-                {seg.lastMessage && seg.lastMessage.message.type !== 'diff_summary'
-                  ? renderMessageNode(seg.lastMessage.message, seg.lastMessage.index)
-                  : null}
-                {seg.lastMessage && seg.lastMessage.message.type === 'diff_summary'
-                  ? renderMessageNode(seg.lastMessage.message, seg.lastMessage.index)
-                  : null}
+                {seg.lastMessage ? renderMessageNode(seg.lastMessage.message, seg.lastMessage.index) : null}
+                {seg.diffSummaryMessages.map(m => renderMessageNode(m.message, m.index))}
               </div>
               );
             }))}

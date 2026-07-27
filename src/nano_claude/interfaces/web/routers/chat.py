@@ -19,11 +19,17 @@ async def api_chat(req: ChatRequest):
     if not message:
         raise HTTPException(status_code=400, detail="Message is required")
 
-    # Push user message as event
-    await state.push_event("message", {"role": "user", "type": "text", "content": message})
+    # Add user message to session first (gets proper timestamp)
+    await state.session.add_user_message(message)
 
-    response_id = await run_chat(state, message)
-    return {"response_id": response_id}
+    # Schedule agent background task
+    response_id = await run_chat(state)
+
+    # Return full current state (user message included with timestamp)
+    return {
+        "response_id": response_id,
+        "current": state.current_info(),
+    }
 
 
 @router.post("/api/stop")

@@ -541,5 +541,5 @@ def session_info(filepath: str) -> dict:
 
 
 def save_current(session: "Session", filepath: str) -> None:
-    if session.messages:
+    if any(isinstance(m, UserMessage) for m in session.messages):
         session.save(filepath)

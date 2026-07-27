@@ -82,7 +82,11 @@ async def api_delete_session(idx: int):
     err = state.delete_session_by_index(idx)
     if err:
         raise HTTPException(status_code=400, detail=err)
-    return {"ok": True, "sessions": state.sessions_list()}
+    return {
+        "ok": True,
+        "current": state.current_info(),
+        "sessions": state.sessions_list(),
+    }
 
 
 @router.delete("/api/sessions")

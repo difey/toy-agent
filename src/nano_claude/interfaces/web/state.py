@@ -64,6 +64,23 @@ class WebAppState:
             result.append(info)
         return result
 
+    def _load_session_to_current(self, filepath: str) -> bool:
+        """Load a session file into the current state.session.
+
+        Copies messages and title from the loaded session. Returns True on
+        success, False on failure (e.g. file corrupt).
+        """
+        try:
+            new_session = Session.load(filepath)
+        except Exception:
+            return False
+        self.session.messages.clear()
+        self.session.messages.extend(new_session.messages)
+        self.session.title = new_session.title
+        self.session_file_ref[0] = filepath
+        self._reload_diff_summaries()
+        return True
+
     def load_session_by_index(self, index: int) -> str | None:
         """Load a session by 1-based index. Returns error message or None."""
         files = self._refresh_sessions()
@@ -73,31 +90,54 @@ class WebAppState:
         if os.path.abspath(target) == os.path.abspath(self.session_file_ref[0]):
             return None  # already current
         save_current(self.session, self.session_file_ref[0])
-        try:
-            new_session = Session.load(target)
-        except Exception as e:
-            return f"Failed to load session: {e}"
-        self.session.messages.clear()
-        self.session.messages.extend(new_session.messages)
-        self.session.title = new_session.title
-        self.session_file_ref[0] = target
-        # Reload diff summaries for the new session
-        self._reload_diff_summaries()
+        if not self._load_session_to_current(target):
+            return f"Failed to load session: {target}"
         return None
 
+    def _resume_or_fresh(self) -> None:
+        """Switch to the most recent session, or create a fresh one.
+
+        Mirrors the logic of ``resume_or_create_session()`` but operates on
+        the existing in-memory ``state.session`` instead of returning a new
+        Session object.
+        """
+        remaining = self._refresh_sessions()
+        if remaining:
+            if not self._load_session_to_current(remaining[-1]):
+                self._create_fresh_session()
+        else:
+            self._create_fresh_session()
+
     def delete_session_by_index(self, index: int) -> str | None:
-        """Delete a session by 1-based index. Returns error message or None."""
+        """Delete a session by 1-based index.
+
+        If the active session is deleted, automatically switches to the most
+        recent remaining session. Returns error message or None.
+        """
         files = self._refresh_sessions()
         if index < 1 or index > len(files):
             return f"Invalid session number: {index}"
         target = files[index - 1]
-        if os.path.abspath(target) == os.path.abspath(self.session_file_ref[0]):
-            return "Cannot delete current active session."
+        is_current = os.path.abspath(target) == os.path.abspath(self.session_file_ref[0])
+
         try:
             os.remove(target)
-            return None
         except OSError as e:
             return f"Error: {e}"
+
+        if is_current:
+            self._resume_or_fresh()
+
+        return None
+
+    def _create_fresh_session(self) -> None:
+        """Reset to a fresh empty session."""
+        self.session.messages.clear()
+        self.session.title = ""
+        self.session_file_ref[0] = session_path(self.cwd)
+        self.diff_summaries.clear()
+        if self.agent:
+            self.session._ensure_system_prompt(self.agent._build_system_prompt(self.cwd))
 
     def fork_session(self, message_api_index: int) -> dict:
         """Fork the current session at the given user message index.
@@ -207,6 +247,8 @@ class WebAppState:
     def new_session(self) -> None:
         save_current(self.session, self.session_file_ref[0])
         self.session.messages.clear()
+        if self.agent:
+            self.session._ensure_system_prompt(self.agent._build_system_prompt(self.cwd))
         self.session.title = ""
         self.session_file_ref[0] = session_path(self.cwd)
         # Clear diff summaries for the new session

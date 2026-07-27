@@ -183,6 +183,7 @@ class Agent:
         user_message: str,
         cwd: str,
         session: Session | None = None,
+        add_user_message: bool = True,
     ) -> str:
         resolved_cwd = str(Path(cwd).resolve())
         ctx = ToolContext(
@@ -196,7 +197,8 @@ class Agent:
             skill_store=self.skill_store,
         )
         sess = self._get_or_create_session(session, ctx.cwd)
-        await sess.add_user_message(user_message)
+        if add_user_message:
+            await sess.add_user_message(user_message)
 
         while True:
             print("\n[CHAT] Calling LLM...")
@@ -235,6 +237,7 @@ class Agent:
         user_message: str,
         cwd: str,
         session: Session | None = None,
+        add_user_message: bool = True,
     ) -> None:
         resolved_cwd = str(Path(cwd).resolve())
         ctx = ToolContext(
@@ -248,7 +251,8 @@ class Agent:
             skill_store=self.skill_store,
         )
         sess = self._get_or_create_session(session, ctx.cwd)
-        await sess.add_user_message(user_message)
+        if add_user_message:
+            await sess.add_user_message(user_message)
 
         while True:
             print("\n[STREAM] Calling LLM with streaming...")

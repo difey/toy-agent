@@ -18,7 +18,7 @@ from nano_claude.interfaces.web.services.diff_service import (
 )
 
 
-async def run_chat(state: WebAppState, message: str) -> str:
+async def run_chat(state: WebAppState) -> str:
     """Schedule the agent to run in background. Returns the response_id immediately."""
     if state._running:
         raise HTTPException(status_code=409, detail="已有正在运行的回复，请先停止当前回复")
@@ -27,16 +27,16 @@ async def run_chat(state: WebAppState, message: str) -> str:
 
     state._running = True
 
-    response_id = f"chat_{id(session)}_{len(session.messages)}_{id(message)}"
+    response_id = f"chat_{id(session)}_{len(session.messages)}"
     state.create_sse_queue(response_id)
 
     # Run the agent in a background task so the response_id is returned immediately
-    task = asyncio.ensure_future(_execute_chat(state, message, response_id))
+    task = asyncio.ensure_future(_execute_chat(state, response_id))
     state._running_task = task
     return response_id
 
 
-async def _execute_chat(state: WebAppState, message: str, response_id: str) -> None:
+async def _execute_chat(state: WebAppState, response_id: str) -> None:
     """Actually execute the agent chat in the background, pushing SSE events."""
     agent = state.agent
     session = state.session
@@ -161,7 +161,9 @@ async def _execute_chat(state: WebAppState, message: str, response_id: str) -> N
         # Take snapshot before agent runs to detect file changes
         before_snapshot, before_content, before_binary = take_snapshot(cwd)
 
-        await agent.run_stream(message, cwd, session=session)
+        # Extract user message text from session (already added in chat.py)
+        user_text = session.messages[-1].content if session.messages else ""
+        await agent.run_stream(user_text, cwd, session=session, add_user_message=False)
 
         # Take snapshot after agent runs and detect changes
         after_snapshot, _after_content, after_binary = take_snapshot(cwd)
