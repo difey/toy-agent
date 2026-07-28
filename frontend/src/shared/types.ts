@@ -42,6 +42,8 @@ export interface CurrentInfo {
   setup_needed: boolean;
   messages: ChatMessage[];
   diff_summaries?: DiffSummary[];
+  active_model?: string | null;
+  active_provider?: string | null;
 }
 
 export interface QuestionOption {
@@ -124,6 +126,24 @@ export interface DiffSummary {
 export interface FileChangeItem {
   path: string;
   status: 'modified' | 'added' | 'deleted' | 'binary';
+}
+
+export interface ProviderInfo {
+  name: string;
+  type: string;
+  label: string;
+  base_url: string | null;
+  has_api_key: boolean;
+  models: string[];
+}
+
+export interface ModelItem {
+  provider: string;
+  provider_type: string;
+  provider_label: string;
+  model: string;
+  litellm_model: string;
+  display: string;
 }
 
 export interface CheckpointData {

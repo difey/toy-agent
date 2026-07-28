@@ -39,6 +39,10 @@ class Agent:
         skill_store: Any | None = None,
         mode: str = "build",
     ):
+        self.model = model
+        self.api_key = api_key
+        self.base_url = base_url
+        self.provider: str | None = None  # set by web UI when model is selected
         self.llm = LLMClient(model=model, api_key=api_key, base_url=base_url)
         self._full_tools = tools
         self.mode = mode
@@ -50,6 +54,17 @@ class Agent:
         self.on_tool_end = on_tool_end
         self.on_event_callback = on_event_callback
         self.skill_store = skill_store
+
+    def reconfigure_llm(self, model: str, api_key: str | None = None, base_url: str | None = None, provider: str | None = None) -> None:
+        """Update the model/api_key/base_url and recreate the LLM client."""
+        self.model = model
+        if api_key is not None:
+            self.api_key = api_key
+        if base_url is not None:
+            self.base_url = base_url
+        if provider is not None:
+            self.provider = provider
+        self.llm = LLMClient(model=self.model, api_key=self.api_key, base_url=self.base_url)
 
     def _get_mode_tools(self) -> ToolRegistry:
         if self.mode == "plan":

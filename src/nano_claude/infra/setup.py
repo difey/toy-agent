@@ -13,11 +13,15 @@ def load_user_config() -> dict | None:
     return data.get("default", {})
 
 
-def save_user_config(model: str, api_key: str) -> None:
+def save_user_config(model: str, api_key: str, provider: str = "") -> None:
     os.makedirs(CONFIG_DIR, exist_ok=True)
-    content = f'[default]\nmodel = "{model}"\napi_key = "{api_key}"\n'
+    lines = ["[default]"]
+    lines.append(f'model = "{model}"')
+    if provider:
+        lines.append(f'provider = "{provider}"')
+    lines.append(f'api_key = "{api_key}"')
     with open(CONFIG_FILE, "w") as f:
-        f.write(content)
+        f.write("\n".join(lines) + "\n")
 
 
 def has_user_config() -> bool:

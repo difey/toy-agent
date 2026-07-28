@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+from typing import Any
 
 from nano_claude.core.agent import Agent
 from nano_claude.core.message import UserMessage
@@ -12,6 +13,13 @@ from nano_claude.interfaces.web.services.diff_service import (
     list_checkpoints_for_session,
     rollback_to_checkpoint,
     RollbackError,
+)
+from nano_claude.interfaces.web.services.provider_service import (
+    ProviderInfo,
+    list_providers as _list_provider_files,
+    load_provider,
+    save_provider,
+    delete_provider,
 )
 
 
@@ -39,6 +47,8 @@ class WebAppState:
         self._pending_permission: dict | None = None  # {future, tool, target, resolved_path}
         # Pending question state (for question tool)
         self._pending_question: dict | None = None  # {future, header, question, options, multiple}
+        # Multi-provider state
+        self.providers: dict[str, ProviderInfo] = {}  # keyed by user-defined name
 
     # ── session helpers ─────────────────────────────────────────────────
 
@@ -259,6 +269,9 @@ class WebAppState:
         info["setup_needed"] = self.agent is None
         # Use diff_summaries from state instead of reading from disk
         info["diff_summaries"] = list(self.diff_summaries.values())
+        # Active model/provider info
+        info["active_model"] = self.agent.model if self.agent else None
+        info["active_provider"] = self.agent.provider if self.agent else None
         return info
 
     def _reload_diff_summaries(self) -> None:
@@ -273,6 +286,25 @@ class WebAppState:
     def add_diff_summary(self, checkpoint_filename: str, summary: dict) -> None:
         """Add or update a diff summary for a checkpoint."""
         self.diff_summaries[checkpoint_filename] = summary
+
+    # ── Provider helpers ────────────────────────────────────────────────
+
+    def load_providers(self) -> None:
+        """Reload all provider configs from disk into memory."""
+        providers_list = _list_provider_files()
+        self.providers.clear()
+        for p in providers_list:
+            self.providers[p.name] = p
+
+    def add_provider(self, info: ProviderInfo) -> None:
+        """Add or replace a provider in both memory and disk."""
+        save_provider(info)
+        self.providers[info.name] = info
+
+    def remove_provider(self, name: str) -> None:
+        """Remove a provider from both memory and disk."""
+        delete_provider(name)
+        self.providers.pop(name, None)
 
     # ── SSE helpers ─────────────────────────────────────────────────────
 

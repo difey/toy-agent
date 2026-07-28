@@ -82,10 +82,6 @@ def main() -> None:
     args = parser.parse_args()
 
     config = resolve_config(args.model)
-    if not config.api_key:
-        print(f"Error: No API key found for provider '{config.name}'.")
-        print(f"  Set {config.name.upper()}_API_KEY or NANO_CLAUDE_API_KEY environment variable.")
-        sys.exit(1)
 
     resolved_model = config.default_model
     resolved_cwd = _ensure_cwd(args.cwd or os.getcwd())

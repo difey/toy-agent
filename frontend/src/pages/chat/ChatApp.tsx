@@ -5,7 +5,9 @@ import { renderMarkdown } from '../../shared/markdown';
 import { DiffOverviewBubble } from './bubble/DiffOverviewBubble';
 import { SystemPromptBubble } from './bubble/SystemPromptBubble';
 import { ThinkingBubble } from './bubble/ThinkingBubble';
+import { ModelSelector } from './components/ModelSelector';
 import { PermissionOverlay } from './components/PermissionOverlay';
+import { ProviderSettingsDialog } from './components/ProviderSettingsDialog';
 import { QuestionOverlay } from './components/QuestionOverlay';
 import { SessionGroup } from './components/SessionGroup';
 import { SubAgentEventCard } from './components/SubAgentEventCard';
@@ -53,6 +55,9 @@ export function ChatApp() {
   const [collapsedThinkingSections, setCollapsedThinkingSections] = useState<Record<string, boolean>>({});
   const [subAgentFlows, setSubAgentFlows] = useState<Record<string, SubAgentFlow>>({});
   const [delegateFlowMap, setDelegateFlowMap] = useState<Record<number, string>>({});
+  const [showProviderDialog, setShowProviderDialog] = useState(false);
+  const [activeModel, setActiveModel] = useState<string | null | undefined>(null);
+  const [activeProvider, setActiveProvider] = useState<string | null | undefined>(null);
 
   const messagesRef = useRef(messages);
   const delegateFlowCounterRef = useRef(0);
@@ -150,6 +155,17 @@ export function ChatApp() {
     setDelegateFlowMap({});
     setCollapsedThinkingSections({});
     delegateFlowCounterRef.current = 0;
+  }, []);
+
+  const handleModelChanged = useCallback(async () => {
+    // Reload current info to get updated active_model/active_provider
+    try {
+      const current = await api<CurrentInfo>('GET', '/api/current');
+      setActiveModel(current.active_model);
+      setActiveProvider(current.active_provider);
+    } catch {
+      // ignore
+    }
   }, []);
 
   const {
@@ -361,6 +377,7 @@ export function ChatApp() {
   useEffect(() => {
     void loadSessions();
     void loadCurrent();
+    void handleModelChanged();
 
     const handleGlobalKeydown = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && (event.key === 'k' || event.key === 'n')) {
@@ -377,7 +394,7 @@ export function ChatApp() {
         window.clearTimeout(toastTimerRef.current);
       }
     };
-  }, [closeEventSource, loadCurrent, loadSessions]);
+  }, [closeEventSource, handleModelChanged, loadCurrent, loadSessions]);
 
   useEffect(() => {
     scheduleScrollBottom();
@@ -795,6 +812,13 @@ export function ChatApp() {
                 <span className={`mode-opt plan ${mode === 'plan' ? 'active' : ''}`}>📋 Plan</span>
                 <span className={`mode-opt build ${mode === 'build' ? 'active' : ''}`}>🔨 Build</span>
               </div>
+              <ModelSelector
+                activeModel={activeModel}
+                activeProvider={activeProvider}
+                onOpenProviderSettings={() => setShowProviderDialog(true)}
+                onModelChanged={handleModelChanged}
+                disabled={isStreaming}
+              />
             </div>
 
             {!isStreaming ? (
@@ -894,6 +918,13 @@ export function ChatApp() {
           </div>
         </div>
       </aside>
+
+      {showProviderDialog ? (
+        <ProviderSettingsDialog
+          onClose={() => setShowProviderDialog(false)}
+          onProvidersChanged={handleModelChanged}
+        />
+      ) : null}
 
       <PermissionOverlay
         activePermission={activePermission}
