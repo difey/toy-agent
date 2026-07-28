@@ -7,6 +7,8 @@ from typing import Any
 from nano_claude.core.agent import Agent
 from nano_claude.core.message import UserMessage
 from nano_claude.infra.session import Session, list_sessions, save_current, session_info, session_path
+from nano_claude.infra.session_service import resume_or_create_session
+from nano_claude.infra.bootstrap import build_agent
 
 from nano_claude.interfaces.web.serializers import serialize_messages_for_api
 from nano_claude.interfaces.web.services.diff_service import (
@@ -49,6 +51,19 @@ class WebAppState:
         self._pending_question: dict | None = None  # {future, header, question, options, multiple}
         # Multi-provider state
         self.providers: dict[str, ProviderInfo] = {}  # keyed by user-defined name
+
+    def initialize(self, cwd: str) -> None:
+        """Web UI 启动时一次性初始化 state。
+
+        只接受外部传入的 cwd，其余（agent、session 等）从磁盘/配置读取。
+        """
+        self.cwd = cwd
+        self.agent = build_agent(cwd=self.cwd, mode="build")
+        session, session_file = resume_or_create_session(self.cwd)
+        self.session = session
+        self.session_file_ref[0] = session_file
+        self._reload_diff_summaries()
+        self.load_providers()
 
     # ── session helpers ─────────────────────────────────────────────────
 

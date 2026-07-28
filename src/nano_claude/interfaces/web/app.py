@@ -6,9 +6,6 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from nano_claude.core.agent import Agent
-from nano_claude.infra.session import Session
-
 from nano_claude.interfaces.web.routers import chat, diffs, pages, providers, sessions, system
 from nano_claude.interfaces.web.state import state
 
@@ -44,22 +41,14 @@ app = create_app()
 # ── Server startup ──────────────────────────────────────────────────────
 
 def start_web_ui(
-    agent: Agent | None,
     cwd: str,
-    session: Session,
-    session_file: str,
     *,
     host: str = "127.0.0.1",
     port: int = 8080,
     open_browser: bool = True,
 ) -> None:
-    """Start the web server using Uvicorn. This is meant to be run from cli.py."""
-    state.agent = agent
-    state.cwd = cwd
-    state.session = session
-    state.session_file_ref[0] = session_file
-    # Load diff summaries for the current session
-    state._reload_diff_summaries()
+    """Start the web server using Uvicorn. 只接受 cwd，state 自行初始化其余部分。"""
+    state.initialize(cwd=cwd)
 
     import webbrowser
 
