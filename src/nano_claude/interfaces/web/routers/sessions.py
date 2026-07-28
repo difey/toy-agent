@@ -4,14 +4,14 @@ import os
 
 from fastapi import APIRouter, HTTPException
 
-from nano_claude.infra.session import Session, session_info
+from nano_claude.core.session import Session, session_info
+from nano_claude.core.state import state
 
 from nano_claude.interfaces.web.serializers import serialize_messages_for_api
 from nano_claude.interfaces.web.services.diff_service import (
     list_checkpoints_for_session,
     RollbackError,
 )
-from nano_claude.interfaces.web.state import state
 
 router = APIRouter()
 

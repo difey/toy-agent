@@ -5,13 +5,13 @@ import subprocess
 from fastapi import APIRouter, HTTPException, Query
 
 from nano_claude.core.message import SystemMessage, UserMessage
+from nano_claude.core.state import state
 
 from nano_claude.interfaces.web.services.plan_service import (
     get_plan_doc,
     get_workspace_panel,
     resolve_latest_plan,
 )
-from nano_claude.interfaces.web.state import state
 
 router = APIRouter()
 

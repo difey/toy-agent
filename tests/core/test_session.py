@@ -1,6 +1,6 @@
 import pytest
 
-from nano_claude.infra.session import Session, estimate_tokens, message_tokens
+from nano_claude.core.session import Session, estimate_tokens, message_tokens
 
 
 def test_estimate_tokens():
@@ -216,6 +216,5 @@ async def test_collapse_mode_switches_add_message():
     removed = await s.add_message(_plan_msg())
     assert removed == 2  # 前 2 条模式切换被折叠
     assert len(s.messages) == 2  # user_msg + 最后一条 plan
-
 
 

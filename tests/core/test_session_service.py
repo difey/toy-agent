@@ -1,9 +1,8 @@
-from nano_claude.infra.session import Session, save_current, session_path
-from nano_claude.infra.session_service import resume_or_create_session
+from nano_claude.core.session import Session, resume_or_create_session, save_current, session_path
 
 
 def test_resume_or_create_session_creates_new_when_none_exist(tmp_path, monkeypatch):
-    import nano_claude.infra.session as session_mod
+    import nano_claude.core.session as session_mod
 
     session_dir = tmp_path / "sessions"
     monkeypatch.setattr(session_mod, "SESSION_DIR", str(session_dir))
@@ -18,7 +17,7 @@ def test_resume_or_create_session_creates_new_when_none_exist(tmp_path, monkeypa
 
 
 def test_resume_or_create_session_resumes_most_recent(tmp_path, monkeypatch):
-    import nano_claude.infra.session as session_mod
+    import nano_claude.core.session as session_mod
 
     session_dir = tmp_path / "sessions"
     monkeypatch.setattr(session_mod, "SESSION_DIR", str(session_dir))

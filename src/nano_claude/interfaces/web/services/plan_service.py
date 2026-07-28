@@ -4,7 +4,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from nano_claude.infra.session import get_plan_dir
+from nano_claude.core.session import get_plan_dir
 
 MIN_GIT_STATUS_LINE_LENGTH = 4
 

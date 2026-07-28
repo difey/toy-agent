@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, HTTPException
 
-from nano_claude.interfaces.web.state import state
+from nano_claude.core.state import state
 from nano_claude.interfaces.web.services.diff_service import (
     get_checkpoint, list_checkpoints,
 )

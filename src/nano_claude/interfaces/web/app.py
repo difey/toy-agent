@@ -6,8 +6,8 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
+from nano_claude.core.state import state
 from nano_claude.interfaces.web.routers import chat, diffs, pages, providers, sessions, system
-from nano_claude.interfaces.web.state import state
 
 _DIST_ASSETS_DIR = Path(__file__).resolve().parent / "static" / "dist" / "assets"
 

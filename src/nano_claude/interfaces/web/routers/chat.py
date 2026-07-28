@@ -3,9 +3,9 @@
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
+from nano_claude.core.state import state
 from nano_claude.interfaces.web.models import ChatRequest
 from nano_claude.interfaces.web.services.chat_service import run_chat, sse_event_generator
-from nano_claude.interfaces.web.state import state
 
 router = APIRouter()
 

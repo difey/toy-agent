@@ -20,7 +20,7 @@ from nano_claude.core.message import (
     ToolResult,
     UserMessage,
 )
-from nano_claude.infra.session import Session
+from nano_claude.core.session import Session
 from nano_claude.core.tool_contracts import ToolContext, ToolExecResult
 from nano_claude.core.tool_registry import ToolRegistry
 

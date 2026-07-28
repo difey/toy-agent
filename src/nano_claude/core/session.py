@@ -502,6 +502,18 @@ def list_sessions(cwd: str) -> list[str]:
     return sorted(glob.glob(pattern))
 
 
+def resume_or_create_session(cwd: str) -> tuple[Session, str]:
+    """Load the most recent session for ``cwd``, or create a new one."""
+    existing = list_sessions(cwd)
+    if existing:
+        last_path = existing[-1]
+        try:
+            return Session.load(last_path), last_path
+        except Exception:
+            pass
+    return Session(), session_path(cwd)
+
+
 def get_session_dir(cwd: str) -> str:
     """Return the base session directory path for a given cwd."""
     return _ensure_session_dir(cwd)

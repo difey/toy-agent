@@ -4,6 +4,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
+from nano_claude.core.state import state
 from nano_claude.infra.setup import save_user_config
 from nano_claude.interfaces.web.services.provider_service import (
     ProviderInfo,
@@ -12,7 +13,6 @@ from nano_claude.interfaces.web.services.provider_service import (
     get_provider_label,
     resolve_litellm_model,
 )
-from nano_claude.interfaces.web.state import state
 
 logger = logging.getLogger(__name__)
 

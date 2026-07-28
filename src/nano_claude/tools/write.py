@@ -4,9 +4,9 @@ from nano_claude.core.tool_contracts import (
     ToolContext,
     ToolExecResult,
 )
+from nano_claude.core.session import get_plan_dir
 from nano_claude.core.tool_registry import Tool
 from nano_claude.core.path_utils import check_file_permission, resolve_safe_path
-from nano_claude.infra.session import get_plan_dir
 
 class WriteTool(Tool):
     @property

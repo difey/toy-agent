@@ -17,7 +17,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from nano_claude.infra.session import get_diff_dir
+from nano_claude.core.session import get_diff_dir
 
 _CHECKPOINT_VERSION = 2
 _MAX_KEEP = 10

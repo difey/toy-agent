@@ -8,9 +8,8 @@ import traceback
 from fastapi import HTTPException
 
 from nano_claude.core.message import DiffSummaryMessage, ToolCall
-from nano_claude.infra.session import save_current
-
-from nano_claude.interfaces.web.state import WebAppState
+from nano_claude.core.session import save_current
+from nano_claude.core.state import WebAppState
 
 from nano_claude.interfaces.web.services.diff_service import (
     take_snapshot, detect_file_changes, save_checkpoint, cleanup_checkpoints,

@@ -6,8 +6,14 @@ from typing import Any
 
 from nano_claude.core.agent import Agent
 from nano_claude.core.message import UserMessage
-from nano_claude.infra.session import Session, list_sessions, save_current, session_info, session_path
-from nano_claude.infra.session_service import resume_or_create_session
+from nano_claude.core.session import (
+    Session,
+    list_sessions,
+    resume_or_create_session,
+    save_current,
+    session_info,
+    session_path,
+)
 from nano_claude.infra.bootstrap import build_agent
 
 from nano_claude.interfaces.web.serializers import serialize_messages_for_api

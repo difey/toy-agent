@@ -4,9 +4,9 @@ import pytest
 
 from nano_claude.core.agent import Agent
 from nano_claude.core.message import AssistantMessage, TextDelta, ToolCall, ToolCallBegin, ToolCallArgDelta
+from nano_claude.core.session import Session
 from nano_claude.core.tool_contracts import ToolContext
 from nano_claude.core.tool_registry import ToolRegistry
-from nano_claude.infra.session import Session
 from nano_claude.tools import BashTool, WriteTool
 
 
@@ -207,6 +207,5 @@ async def test_agent_multi_turn_with_session():
         await agent.run_stream("create file B", "/tmp", session=session)
         assert "Created file B." in "".join(collected_text)
         assert len(session.messages) > 2
-
 
 
