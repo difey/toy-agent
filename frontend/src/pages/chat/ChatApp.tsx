@@ -2,399 +2,60 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 
 import { api } from '../../shared/api';
 import { renderMarkdown } from '../../shared/markdown';
+import { DiffOverviewBubble } from './bubble/DiffOverviewBubble';
+import { SystemPromptBubble } from './bubble/SystemPromptBubble';
+import { ThinkingBubble } from './bubble/ThinkingBubble';
+import { PermissionOverlay } from './components/PermissionOverlay';
+import { QuestionOverlay } from './components/QuestionOverlay';
+import { SessionGroup } from './components/SessionGroup';
+import { SubAgentEventCard } from './components/SubAgentEventCard';
+import { Toast } from './components/Toast';
+import { useChatData } from './hooks/useChatData';
+import { useChatPanelResizers } from './hooks/useChatPanelResizers';
+import { useChatQuestionPermission } from './hooks/useChatQuestionPermission';
+import { useChatSessionActions } from './hooks/useChatSessionActions';
+import { useChatStreaming } from './hooks/useChatStreaming';
+import { useChatTheme } from './hooks/useChatTheme';
+import {
+  buildMessageSegments,
+  buildModifiedFileTree,
+  collectFolderPaths,
+  formatModifiedTimestamp,
+  formatMsgTimestamp,
+  groupSessions,
+  truncate,
+  type FileTreeNode,
+} from './utils/chatHelpers';
 import type {
   ChatMessage,
-  CheckpointData,
   CurrentInfo,
   DiffSummary,
-  FileChangeItem,
-  ModifiedFileItem,
   Mode,
-  PermissionRequest,
-  PlanDocListItem,
-  QuestionDialog,
   SessionSummary,
-  SubAgent,
-  SubAgentEvent,
   SubAgentFlow,
-  WorkspacePanelResponse,
 } from '../../shared/types';
 
-interface ChatResponse {
-  response_id: string;
-}
-
-const SIDEBAR_WIDTH_STORAGE_KEY = 'sidebar-width';
-const MIN_SIDEBAR_WIDTH = 200;
-const MAX_SIDEBAR_WIDTH = 520;
-const DEFAULT_SIDEBAR_WIDTH = 280;
-const WORKSPACE_WIDTH_STORAGE_KEY = 'workspace-width';
-const MIN_WORKSPACE_WIDTH = 240;
-const MAX_WORKSPACE_WIDTH = 560;
-const DEFAULT_WORKSPACE_WIDTH = 320;
-const PLAN_DOCS_HEIGHT_STORAGE_KEY = 'plan-docs-height';
-const MIN_PLAN_DOCS_HEIGHT = 120;
-const MIN_MODIFIED_FILES_HEIGHT = 140;
-const DEFAULT_PLAN_DOCS_HEIGHT = 220;
-const WORKSPACE_SECTION_RESIZER_SIZE = 6;
-const INPUT_AREA_HEIGHT_STORAGE_KEY = 'input-area-height';
-const MIN_INPUT_AREA_HEIGHT = 180;
-const DEFAULT_INPUT_AREA_HEIGHT = 200;
-const INPUT_AREA_RESIZER_SIZE = 6;
-const MIN_CHAT_HEIGHT = 180;
-const MAX_STORED_PANEL_HEIGHT = 2000;
-const SEVEN_DAYS_SEC = 7 * 24 * 60 * 60;
 const BYTES_IN_KIBIBYTE = 1024;
 const TREE_INDENT_PER_LEVEL = 16;
 const TREE_FOLDER_BASE_INDENT = 12;
 const TREE_FILE_BASE_INDENT = 36;
-const TIMESTAMP_FORMATTER = new Intl.DateTimeFormat(undefined, {
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  hour12: false,
-});
-const MSG_TIMESTAMP_FORMATTER = new Intl.DateTimeFormat(undefined, {
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hour12: false,
-});
-function formatMsgTimestamp(ts: number | undefined | null): string {
-  if (!ts || ts === 0) return '';
-  return MSG_TIMESTAMP_FORMATTER.format(new Date(ts * 1000));
-}
-function readStoredDimension(storageKey: string, minValue: number, maxValue: number, defaultValue: number): number {
-  const stored = Number(localStorage.getItem(storageKey));
-  if (Number.isFinite(stored) && stored >= minValue && stored <= maxValue) {
-    return stored;
-  }
-  return defaultValue;
-}
-
-function readStoredSidebarWidth(): number {
-  return readStoredDimension(SIDEBAR_WIDTH_STORAGE_KEY, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH, DEFAULT_SIDEBAR_WIDTH);
-}
-
-function readStoredWorkspaceWidth(): number {
-  return readStoredDimension(WORKSPACE_WIDTH_STORAGE_KEY, MIN_WORKSPACE_WIDTH, MAX_WORKSPACE_WIDTH, DEFAULT_WORKSPACE_WIDTH);
-}
-
-function readStoredPlanDocsHeight(): number {
-  return readStoredDimension(PLAN_DOCS_HEIGHT_STORAGE_KEY, MIN_PLAN_DOCS_HEIGHT, MAX_STORED_PANEL_HEIGHT, DEFAULT_PLAN_DOCS_HEIGHT);
-}
-
-function readStoredInputAreaHeight(): number {
-  return readStoredDimension(INPUT_AREA_HEIGHT_STORAGE_KEY, MIN_INPUT_AREA_HEIGHT, MAX_STORED_PANEL_HEIGHT, DEFAULT_INPUT_AREA_HEIGHT);
-}
-
-function detectSystemDark(): boolean {
-  return window.matchMedia('(prefers-color-scheme: dark)').matches;
-}
-
-function readStoredTheme(): boolean {
-  const stored = localStorage.getItem('theme');
-  return stored !== null ? stored === 'dark' : detectSystemDark();
-}
-
-function applyTheme(dark: boolean) {
-  const theme = dark ? 'dark' : 'light';
-  document.documentElement.setAttribute('data-theme', theme);
-  localStorage.setItem('theme', theme);
-}
-
-function truncate(text: string, max: number): string {
-  if (text.length > max) {
-    return `${text.slice(0, max)}\n... (truncated)`;
-  }
-  return text;
-}
-
-function cloneFlow(flow: SubAgentFlow): SubAgentFlow {
-  return {
-    ...flow,
-    agents: flow.agents.map((agent) => ({ ...agent, events: [...agent.events] })),
-  };
-}
-
-function groupSessions(sessions: SessionSummary[]): { recent: SessionSummary[]; older: SessionSummary[] } {
-  const now = Date.now() / 1000;
-  const threshold = now - SEVEN_DAYS_SEC;
-
-  const recent: SessionSummary[] = [];
-  const older: SessionSummary[] = [];
-
-  for (const s of sessions) {
-    const ts = s.updated_at || s.created_at || 0;
-    if (ts >= threshold) {
-      recent.push(s);
-    } else {
-      older.push(s);
-    }
-  }
-
-  return { recent, older };
-}
-
-function SessionGroup({
-  title,
-  defaultOpen,
-  sessions,
-  onSwitch,
-  onDelete,
-  isStreaming,
-}: {
-  title: string;
-  defaultOpen: boolean;
-  sessions: SessionSummary[];
-  onSwitch: (sessionId: string) => void;
-  onDelete: (sessionId: string) => void;
-  isStreaming: boolean;
-}) {
-  const [collapsed, setCollapsed] = useState(!defaultOpen);
-
-  return (
-    <div className="session-group">
-      <div className="session-group-header" onClick={() => setCollapsed(!collapsed)}>
-        <span className="collapse-arrow">{collapsed ? '▸' : '▾'}</span>
-        <span className="session-group-title">{title}</span>
-        <span className="session-group-count">({sessions.length})</span>
-      </div>
-      {!collapsed && sessions.map((session) => (
-        <div
-          key={session.id}
-          className={`session-item ${session.is_current ? 'active' : ''}`}
-          onClick={() => onSwitch(session.id)}
-        >
-          <div className="info">
-            <div className="title">{session.title || '(untitled)'}</div>
-            <div className="meta">{session.messages} msgs</div>
-          </div>
-          <button
-            className="del-btn"
-            onClick={(event) => {
-              event.stopPropagation();
-              onDelete(session.id);
-            }}
-            title="Delete session"
-          >
-            ✕
-          </button>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-interface FileTreeNode {
-  name: string;
-  path: string;
-  type: 'folder' | 'file';
-  status?: string;
-  children?: FileTreeNode[];
-}
-
-function formatModifiedTimestamp(value: number | null | undefined): string {
-  if (!value) {
-    return '';
-  }
-  return TIMESTAMP_FORMATTER.format(new Date(value * 1000));
-}
-
-function buildModifiedFileTree(files: ModifiedFileItem[]): FileTreeNode[] {
-  const root: FileTreeNode[] = [];
-
-  for (const file of files) {
-    const segments = file.path.split('/').filter(Boolean);
-    if (segments.length === 0) {
-      continue;
-    }
-
-    let currentLevel = root;
-    let currentPath = '';
-    segments.forEach((segment, index) => {
-      currentPath = currentPath ? `${currentPath}/${segment}` : segment;
-      const isFile = index === segments.length - 1;
-      let existing = currentLevel.find((node) => node.name === segment && node.type === (isFile ? 'file' : 'folder'));
-
-      if (existing) {
-        if (!isFile && existing.children) {
-          currentLevel = existing.children;
-        }
-        return;
-      }
-
-      existing = isFile
-        ? { name: segment, path: currentPath, type: 'file', status: file.status }
-        : { name: segment, path: currentPath, type: 'folder', children: [] };
-      currentLevel.push(existing);
-      if (!isFile) {
-        currentLevel = existing.children ?? [];
-      }
-    });
-  }
-
-  const normalize = (nodes: FileTreeNode[]): FileTreeNode[] =>
-    nodes
-      .map((node) => (
-        node.type === 'folder'
-          ? { ...node, children: normalize(node.children ?? []) }
-          : node
-      ))
-      .sort((left, right) => {
-        if (left.type !== right.type) {
-          return left.type === 'folder' ? -1 : 1;
-        }
-        return left.name.localeCompare(right.name);
-      });
-
-  return normalize(root);
-}
-
-function collectFolderPaths(nodes: FileTreeNode[]): string[] {
-  return nodes.flatMap((node) => (
-    node.type === 'folder'
-      ? [node.path, ...collectFolderPaths(node.children ?? [])]
-      : []
-  ));
-}
-
-interface MessageSegment {
-  key: string;
-  userMessage: { message: ChatMessage; index: number } | null;
-  foldingMessages: { message: ChatMessage; index: number }[];
-  diffSummaryMessages: { message: ChatMessage; index: number }[];
-  lastMessage: { message: ChatMessage; index: number } | null;
-}
-
-function buildMessageSegments(messages: ChatMessage[]): MessageSegment[] {
-  if (messages.length === 0) return [];
-
-  const segments: MessageSegment[] = [];
-  const finalize = (key: string, userMsg: ChatMessage | null, msgs: ChatMessage[], startIdx: number) => {
-    const mapped = msgs.map((m, i) => ({ message: m, index: startIdx + i }));
-    const diffSummaryMessages = mapped.filter(m => m.message.type === 'diff_summary');
-    const nonDiffMessages = mapped.filter(m => m.message.type !== 'diff_summary');
-
-    if (nonDiffMessages.length === 0) {
-      // All messages are diff_summary → show all outside, nothing folded
-      segments.push({
-        key,
-        userMessage: userMsg ? { message: userMsg, index: startIdx - 1 } : null,
-        foldingMessages: [],
-        diffSummaryMessages: mapped,
-        lastMessage: null,
-      });
-    } else if (nonDiffMessages.length === 1) {
-      // Single non-diff message → lastMessage, diff_summary outside, nothing folded
-      segments.push({
-        key,
-        userMessage: userMsg ? { message: userMsg, index: startIdx - 1 } : null,
-        foldingMessages: [],
-        diffSummaryMessages,
-        lastMessage: nonDiffMessages[0],
-      });
-    } else {
-      // Multiple non-diff messages → last one as lastMessage, rest folded, diff_summary outside
-      segments.push({
-        key,
-        userMessage: userMsg ? { message: userMsg, index: startIdx - 1 } : null,
-        foldingMessages: nonDiffMessages.slice(0, -1),
-        diffSummaryMessages,
-        lastMessage: nonDiffMessages[nonDiffMessages.length - 1],
-      });
-    }
-  };
-
-  let segUser: ChatMessage | null = null;
-  let segMsgs: ChatMessage[] = [];
-  let segStartIdx = 0;
-  let segCount = 0;
-
-  for (let i = 0; i < messages.length; i++) {
-    const msg = messages[i];
-    if (msg.role === 'system' && msg.type === 'system') {
-      // System message: finalize current segment, then emit a standalone system segment
-      if (segUser !== null || segMsgs.length > 0) {
-        finalize(`seg-${segCount++}`, segUser, segMsgs, segStartIdx);
-      }
-      segments.push({
-        key: `seg-${segCount++}`,
-        userMessage: null,
-        foldingMessages: [],
-        diffSummaryMessages: [],
-        lastMessage: { message: msg, index: i },
-      });
-      segUser = null;
-      segMsgs = [];
-      segStartIdx = i + 1;
-    } else if (msg.role === 'user' && msg.type === 'text') {
-      if (segUser !== null || segMsgs.length > 0) {
-        finalize(`seg-${segCount++}`, segUser, segMsgs, segStartIdx);
-      }
-      segUser = msg;
-      segMsgs = [];
-      segStartIdx = i + 1;
-    } else {
-      segMsgs.push(msg);
-    }
-  }
-  if (segUser !== null || segMsgs.length > 0) {
-    finalize(`seg-${segCount}`, segUser, segMsgs, segStartIdx);
-  }
-
-  return segments;
-}
 
 export function ChatApp() {
-  const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [currentSession, setCurrentSession] = useState<CurrentInfo | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [inputText, setInputText] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [sidebarWidth, setSidebarWidth] = useState(readStoredSidebarWidth);
-  const [isResizing, setIsResizing] = useState(false);
-  const resizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
-  const [workspaceWidth, setWorkspaceWidth] = useState(readStoredWorkspaceWidth);
-  const [isWorkspaceResizing, setIsWorkspaceResizing] = useState(false);
-  const workspaceResizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
-  const [planDocsHeight, setPlanDocsHeight] = useState(readStoredPlanDocsHeight);
-  const [isPlanDocsResizing, setIsPlanDocsResizing] = useState(false);
-  const planDocsResizeStateRef = useRef<{ startY: number; startHeight: number } | null>(null);
-  const [inputAreaHeight, setInputAreaHeight] = useState(readStoredInputAreaHeight);
-  const [isInputAreaResizing, setIsInputAreaResizing] = useState(false);
-  const inputAreaResizeStateRef = useRef<{ startY: number; startHeight: number } | null>(null);
   const [sessionTitle, setSessionTitle] = useState('nanoClaude');
   const [mode, setMode] = useState<Mode>('build');
-  const [planDocs, setPlanDocs] = useState<PlanDocListItem[]>([]);
-  const [modifiedFiles, setModifiedFiles] = useState<ModifiedFileItem[]>([]);
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
-  const [darkMode, setDarkMode] = useState(readStoredTheme);
   const [toast, setToast] = useState({ visible: false, message: '' });
   const [collapsedCards, setCollapsedCards] = useState<Record<number, boolean>>({});
   const [collapsedThinkingSections, setCollapsedThinkingSections] = useState<Record<string, boolean>>({});
   const [subAgentFlows, setSubAgentFlows] = useState<Record<string, SubAgentFlow>>({});
   const [delegateFlowMap, setDelegateFlowMap] = useState<Record<number, string>>({});
-  const [activeQuestion, setActiveQuestion] = useState<QuestionDialog | null>(null);
-  const [questionAnswers, setQuestionAnswers] = useState<string[]>([]);
-  const [customAnswer, setCustomAnswer] = useState('');
-  const [activePermission, setActivePermission] = useState<PermissionRequest | null>(null);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [diffSummaries, setDiffSummaries] = useState<Record<string, DiffSummary>>({});
-  const [activeDiff, setActiveDiff] = useState<string | null>(null);
-  const [diffFilePaths, setDiffFilePaths] = useState<string[]>([]);
 
   const messagesRef = useRef(messages);
-  const activeQuestionRef = useRef(activeQuestion);
-  const eventSourceRef = useRef<EventSource | null>(null);
   const delegateFlowCounterRef = useRef(0);
-  const questionQueueRef = useRef<QuestionDialog[]>([]);
   const toastTimerRef = useRef<number | null>(null);
   const chatContainerRef = useRef<HTMLDivElement | null>(null);
   const mainPanelRef = useRef<HTMLDivElement | null>(null);
@@ -405,13 +66,55 @@ export function ChatApp() {
   const newSessionRef = useRef<() => Promise<void>>(async () => {});
   const workspacePanelRef = useRef<HTMLElement | null>(null);
 
+  const { darkMode, toggleTheme } = useChatTheme();
+
+  const {
+    activeQuestion,
+    questionAnswers,
+    customAnswer,
+    activePermission,
+    setCustomAnswer,
+    toggleQuestionOption,
+    selectCustomOption,
+    submitQuestion,
+    cancelQuestion,
+    permissionDeny,
+    permissionAllow,
+    permissionAlwaysAllow,
+    enqueueQuestion,
+    receivePermissionRequest,
+    clearAfterStreamDone,
+    resetInteractionState,
+  } = useChatQuestionPermission({ customInputRef });
+
+  const {
+    sidebarWidth,
+    workspaceWidth,
+    planDocsHeight,
+    inputAreaHeight,
+    isResizing,
+    isWorkspaceResizing,
+    isPlanDocsResizing,
+    isInputAreaResizing,
+    handleResizeStart,
+    handleWorkspaceResizeStart,
+    handlePlanDocsResizeStart,
+    handleInputAreaResizeStart,
+    resetSidebarWidth,
+    resetWorkspaceWidth,
+    resetPlanDocsHeight,
+    resetInputAreaHeight,
+  } = useChatPanelResizers({
+    mainPanelRef,
+    chatHeaderRef,
+    streamingIndicatorRef,
+    workspacePanelRef,
+    isStreaming,
+  });
+
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
-
-  useEffect(() => {
-    activeQuestionRef.current = activeQuestion;
-  }, [activeQuestion]);
 
   const isInputDisabled = isStreaming || activeQuestion !== null || activePermission !== null;
 
@@ -449,101 +152,34 @@ export function ChatApp() {
     delegateFlowCounterRef.current = 0;
   }, []);
 
-  const resetInteractionState = useCallback(() => {
-    resetFlowState();
-    setActivePermission(null);
-    setActiveQuestion(null);
-    setQuestionAnswers([]);
-    setCustomAnswer('');
-    questionQueueRef.current = [];
-  }, [resetFlowState]);
-
-  const closeEventSource = useCallback(() => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-      eventSourceRef.current = null;
-    }
-  }, []);
-
-  const loadSessions = useCallback(async () => {
-    try {
-      const nextSessions = await api<SessionSummary[]>('GET', '/api/sessions');
-      setSessions(nextSessions);
-    } catch {
-      showToast('Failed to load sessions');
-    }
-  }, [showToast]);
-
-  const refreshWorkspace = useCallback(async () => {
-    setActiveDiff(null);
-    setDiffFilePaths([]);
-    setIsRefreshing(true);
-    try {
-      const data = await api<WorkspacePanelResponse>('GET', '/api/workspace-panel');
-      setPlanDocs(data.plan_docs ?? []);
-      setModifiedFiles(data.modified_files ?? []);
-    } catch {
-      setPlanDocs([]);
-      setModifiedFiles([]);
-    } finally {
-      setIsRefreshing(false);
-    }
-  }, []);
-
-  const loadWorkspacePanel = useCallback(async () => {
-    try {
-      const data = await api<WorkspacePanelResponse>('GET', '/api/workspace-panel');
-      setPlanDocs(data.plan_docs ?? []);
-      setModifiedFiles(data.modified_files ?? []);
-    } catch {
-      setPlanDocs([]);
-      setModifiedFiles([]);
-    }
-  }, []);
-
-  const loadCurrent = useCallback(async () => {
-    try {
-      const data = await api<CurrentInfo>('GET', '/api/current');
-      setCurrentSession(data);
-      setSessionTitle(data.title || 'nanoClaude');
-      setMode(data.mode || 'build');
-      commitMessages((prev) => {
-        const nextMessages = data.messages || [];
-        return JSON.stringify(prev) === JSON.stringify(nextMessages) ? prev : nextMessages;
-      });
-      const initialCollapsed: Record<number, boolean> = {};
-      (data.messages || []).forEach((msg, i) => {
-        if (msg.type === 'tool_start' || msg.type === 'tool_result') {
-          initialCollapsed[i] = true;
-        }
-      });
-      setCollapsedCards(initialCollapsed);
-      resetFlowState();
-      // Load diff summaries for the current session
-      if (data.diff_summaries) {
-        const map: Record<string, DiffSummary> = {};
-        for (const ds of data.diff_summaries) {
-          map[ds.checkpoint_filename] = ds;
-        }
-        setDiffSummaries(map);
-      } else {
-        setDiffSummaries({});
-      }
-      await loadSessions();
-      await loadWorkspacePanel();
-      scheduleScrollBottom();
-    } catch {
-      showToast('Failed to load current session');
-    }
-  }, [commitMessages, loadSessions, loadWorkspacePanel, resetFlowState, scheduleScrollBottom, showToast]);
-
-  const toggleTheme = useCallback(() => {
-    setDarkMode((prev) => {
-      const next = !prev;
-      applyTheme(next);
-      return next;
-    });
-  }, []);
+  const {
+    sessions,
+    planDocs,
+    modifiedFiles,
+    isRefreshing,
+    diffSummaries,
+    activeDiff,
+    diffFilePaths,
+    activeDiffFiles,
+    setSessions,
+    setCurrentSession,
+    setDiffSummaries,
+    setActiveDiff,
+    setDiffFilePaths,
+    setActiveDiffFiles,
+    loadSessions,
+    loadWorkspacePanel,
+    refreshWorkspace,
+    loadCurrent,
+  } = useChatData({
+    commitMessages,
+    resetFlowState,
+    scheduleScrollBottom,
+    showToast,
+    setMode,
+    setSessionTitle,
+    setCollapsedCards,
+  });
 
   const openPlanDoc = useCallback((filename?: string | null) => {
     const url = filename ? `/plan-view?filename=${encodeURIComponent(filename)}` : '/plan-view';
@@ -553,234 +189,6 @@ export function ChatApp() {
   const toggleFolder = useCallback((path: string) => {
     setExpandedFolders((prev) => ({ ...prev, [path]: !prev[path] }));
   }, []);
-
-  const clampPlanDocsHeight = useCallback((height: number) => {
-    const containerHeight = workspacePanelRef.current?.clientHeight;
-    if (!containerHeight) {
-      return Math.max(MIN_PLAN_DOCS_HEIGHT, height);
-    }
-    const maxHeight = Math.max(0, containerHeight - MIN_MODIFIED_FILES_HEIGHT - WORKSPACE_SECTION_RESIZER_SIZE);
-    const minHeight = Math.min(MIN_PLAN_DOCS_HEIGHT, maxHeight);
-    return Math.min(maxHeight, Math.max(minHeight, height));
-  }, []);
-
-  const clampInputAreaHeight = useCallback((height: number) => {
-    const containerHeight = mainPanelRef.current?.clientHeight;
-    if (!containerHeight) {
-      return Math.max(MIN_INPUT_AREA_HEIGHT, height);
-    }
-    const headerHeight = chatHeaderRef.current?.offsetHeight ?? 0;
-    const streamingHeight = streamingIndicatorRef.current?.offsetHeight ?? 0;
-    const maxHeight = Math.max(0, containerHeight - headerHeight - streamingHeight - MIN_CHAT_HEIGHT - INPUT_AREA_RESIZER_SIZE);
-    const minHeight = Math.min(MIN_INPUT_AREA_HEIGHT, maxHeight);
-    return Math.min(maxHeight, Math.max(minHeight, height));
-  }, []);
-
-  const handleResizeMove = useCallback((event: MouseEvent) => {
-    const state = resizeStateRef.current;
-    if (!state) {
-      return;
-    }
-    const delta = event.clientX - state.startX;
-    const nextWidth = Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, state.startWidth + delta));
-    setSidebarWidth(nextWidth);
-  }, []);
-
-  const handleResizeEnd = useCallback(() => {
-    resizeStateRef.current = null;
-    setIsResizing(false);
-    document.body.style.removeProperty('cursor');
-    document.body.style.removeProperty('user-select');
-    window.removeEventListener('mousemove', handleResizeMove);
-    window.removeEventListener('mouseup', handleResizeEnd);
-    setSidebarWidth((current) => {
-      localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(current));
-      return current;
-    });
-  }, [handleResizeMove]);
-
-  const handleResizeStart = useCallback(
-    (event: React.MouseEvent<HTMLDivElement>) => {
-      event.preventDefault();
-      resizeStateRef.current = { startX: event.clientX, startWidth: sidebarWidth };
-      setIsResizing(true);
-      document.body.style.cursor = 'col-resize';
-      document.body.style.userSelect = 'none';
-      window.addEventListener('mousemove', handleResizeMove);
-      window.addEventListener('mouseup', handleResizeEnd);
-    },
-    [handleResizeEnd, handleResizeMove, sidebarWidth],
-  );
-
-  const handleWorkspaceResizeMove = useCallback((event: MouseEvent) => {
-    const state = workspaceResizeStateRef.current;
-    if (!state) {
-      return;
-    }
-    const delta = event.clientX - state.startX;
-    const nextWidth = Math.min(MAX_WORKSPACE_WIDTH, Math.max(MIN_WORKSPACE_WIDTH, state.startWidth - delta));
-    setWorkspaceWidth(nextWidth);
-  }, []);
-
-  const handleWorkspaceResizeEnd = useCallback(() => {
-    workspaceResizeStateRef.current = null;
-    setIsWorkspaceResizing(false);
-    document.body.style.removeProperty('cursor');
-    document.body.style.removeProperty('user-select');
-    window.removeEventListener('mousemove', handleWorkspaceResizeMove);
-    window.removeEventListener('mouseup', handleWorkspaceResizeEnd);
-    setWorkspaceWidth((current) => {
-      localStorage.setItem(WORKSPACE_WIDTH_STORAGE_KEY, String(current));
-      return current;
-    });
-  }, [handleWorkspaceResizeMove]);
-
-  const handleWorkspaceResizeStart = useCallback(
-    (event: React.MouseEvent<HTMLDivElement>) => {
-      event.preventDefault();
-      workspaceResizeStateRef.current = { startX: event.clientX, startWidth: workspaceWidth };
-      setIsWorkspaceResizing(true);
-      document.body.style.cursor = 'col-resize';
-      document.body.style.userSelect = 'none';
-      window.addEventListener('mousemove', handleWorkspaceResizeMove);
-      window.addEventListener('mouseup', handleWorkspaceResizeEnd);
-    },
-    [handleWorkspaceResizeEnd, handleWorkspaceResizeMove, workspaceWidth],
-  );
-
-  const handlePlanDocsResizeMove = useCallback((event: MouseEvent) => {
-    const state = planDocsResizeStateRef.current;
-    if (!state) {
-      return;
-    }
-    const delta = event.clientY - state.startY;
-    setPlanDocsHeight(clampPlanDocsHeight(state.startHeight - delta));
-  }, [clampPlanDocsHeight]);
-
-  const handlePlanDocsResizeEnd = useCallback(() => {
-    planDocsResizeStateRef.current = null;
-    setIsPlanDocsResizing(false);
-    document.body.style.removeProperty('cursor');
-    document.body.style.removeProperty('user-select');
-    window.removeEventListener('mousemove', handlePlanDocsResizeMove);
-    window.removeEventListener('mouseup', handlePlanDocsResizeEnd);
-    setPlanDocsHeight((current) => {
-      const next = clampPlanDocsHeight(current);
-      localStorage.setItem(PLAN_DOCS_HEIGHT_STORAGE_KEY, String(next));
-      return next;
-    });
-  }, [clampPlanDocsHeight, handlePlanDocsResizeMove]);
-
-  const handlePlanDocsResizeStart = useCallback(
-    (event: React.MouseEvent<HTMLDivElement>) => {
-      event.preventDefault();
-      planDocsResizeStateRef.current = { startY: event.clientY, startHeight: planDocsHeight };
-      setIsPlanDocsResizing(true);
-      document.body.style.cursor = 'row-resize';
-      document.body.style.userSelect = 'none';
-      window.addEventListener('mousemove', handlePlanDocsResizeMove);
-      window.addEventListener('mouseup', handlePlanDocsResizeEnd);
-    },
-    [handlePlanDocsResizeEnd, handlePlanDocsResizeMove, planDocsHeight],
-  );
-
-  const handleInputAreaResizeMove = useCallback((event: MouseEvent) => {
-    const state = inputAreaResizeStateRef.current;
-    if (!state) {
-      return;
-    }
-    const delta = event.clientY - state.startY;
-    setInputAreaHeight(clampInputAreaHeight(state.startHeight - delta));
-  }, [clampInputAreaHeight]);
-
-  const handleInputAreaResizeEnd = useCallback(() => {
-    inputAreaResizeStateRef.current = null;
-    setIsInputAreaResizing(false);
-    document.body.style.removeProperty('cursor');
-    document.body.style.removeProperty('user-select');
-    window.removeEventListener('mousemove', handleInputAreaResizeMove);
-    window.removeEventListener('mouseup', handleInputAreaResizeEnd);
-    setInputAreaHeight((current) => {
-      const next = clampInputAreaHeight(current);
-      localStorage.setItem(INPUT_AREA_HEIGHT_STORAGE_KEY, String(next));
-      return next;
-    });
-  }, [clampInputAreaHeight, handleInputAreaResizeMove]);
-
-  const handleInputAreaResizeStart = useCallback(
-    (event: React.MouseEvent<HTMLDivElement>) => {
-      event.preventDefault();
-      inputAreaResizeStateRef.current = { startY: event.clientY, startHeight: inputAreaHeight };
-      setIsInputAreaResizing(true);
-      document.body.style.cursor = 'row-resize';
-      document.body.style.userSelect = 'none';
-      window.addEventListener('mousemove', handleInputAreaResizeMove);
-      window.addEventListener('mouseup', handleInputAreaResizeEnd);
-    },
-    [handleInputAreaResizeEnd, handleInputAreaResizeMove, inputAreaHeight],
-  );
-
-  useEffect(() => {
-    return () => {
-      window.removeEventListener('mousemove', handleResizeMove);
-      window.removeEventListener('mouseup', handleResizeEnd);
-      window.removeEventListener('mousemove', handleWorkspaceResizeMove);
-      window.removeEventListener('mouseup', handleWorkspaceResizeEnd);
-      window.removeEventListener('mousemove', handlePlanDocsResizeMove);
-      window.removeEventListener('mouseup', handlePlanDocsResizeEnd);
-      window.removeEventListener('mousemove', handleInputAreaResizeMove);
-      window.removeEventListener('mouseup', handleInputAreaResizeEnd);
-    };
-  }, [handleInputAreaResizeEnd, handleInputAreaResizeMove, handlePlanDocsResizeEnd, handlePlanDocsResizeMove, handleResizeEnd, handleResizeMove, handleWorkspaceResizeEnd, handleWorkspaceResizeMove]);
-
-  useEffect(() => {
-    const syncPlanDocsHeight = () => {
-      setPlanDocsHeight((current) => clampPlanDocsHeight(current));
-    };
-    syncPlanDocsHeight();
-    window.addEventListener('resize', syncPlanDocsHeight);
-    return () => {
-      window.removeEventListener('resize', syncPlanDocsHeight);
-    };
-  }, [clampPlanDocsHeight]);
-
-  useEffect(() => {
-    setInputAreaHeight((current) => clampInputAreaHeight(current));
-  }, [clampInputAreaHeight, isStreaming]);
-
-  useEffect(() => {
-    const syncInputAreaHeight = () => {
-      setInputAreaHeight((current) => clampInputAreaHeight(current));
-    };
-    syncInputAreaHeight();
-    window.addEventListener('resize', syncInputAreaHeight);
-    return () => {
-      window.removeEventListener('resize', syncInputAreaHeight);
-    };
-  }, [clampInputAreaHeight]);
-
-  useEffect(() => {
-    if (!activeDiff) {
-      setDiffFilePaths([]);
-      return;
-    }
-    setDiffFilePaths([]);
-    api<CheckpointData>('GET', `/api/diffs/${encodeURIComponent(activeDiff)}`)
-      .then((data) => {
-        // Collect all file paths from the checkpoint's files object
-        const paths: string[] = [];
-        if (data.files) {
-          paths.push(...Object.keys(data.files.modified || {}));
-          paths.push(...Object.keys(data.files.deleted || {}));
-          paths.push(...(data.files.added || []));
-          paths.push(...(data.files.binary || []));
-        }
-        setDiffFilePaths(paths);
-      })
-      .catch(() => {
-        setDiffFilePaths([]);
-      });
-  }, [activeDiff]);
 
   const openVSCode = useCallback(async () => {
     try {
@@ -823,191 +231,29 @@ export function ChatApp() {
     }));
   }, []);
 
-  const newSession = useCallback(async () => {
-    if (isStreaming) {
-      return;
-    }
-
-    resetInteractionState();
-    try {
-      const response = await api<{ ok: boolean; current: CurrentInfo }>('POST', '/api/sessions');
-      setCurrentSession(response.current);
-      commitMessages(() => response.current.messages);
-      setSessionTitle(response.current.title || 'nanoClaude');
-      await loadSessions();
-      setSidebarOpen(false);
-    } catch {
-      showToast('Failed to create session');
-    }
-  }, [commitMessages, isStreaming, loadSessions, resetInteractionState, showToast]);
-
-  const switchSession = useCallback(async (sessionId: string) => {
-    if (isStreaming) {
-      return;
-    }
-
-    try {
-      const response = await api<{ ok: boolean; current: CurrentInfo }>('PUT', `/api/sessions/${encodeURIComponent(sessionId)}`);
-      setCurrentSession(response.current);
-      commitMessages(() => response.current.messages);
-      setSessionTitle(response.current.title || 'nanoClaude');
-      setSidebarOpen(false);
-      await loadSessions();
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Failed to switch session');
-    }
-  }, [commitMessages, isStreaming, loadSessions, showToast]);
-
-  const deleteSession = useCallback(async (sessionId: string) => {
-    if (isStreaming || !window.confirm('Delete this session?')) {
-      return;
-    }
-
-    try {
-      const response = await api<{ ok: boolean; current: CurrentInfo; sessions: SessionSummary[] }>(
-        'DELETE', `/api/sessions/${encodeURIComponent(sessionId)}`
-      );
-      commitMessages(() => response.current.messages);
-      setSessionTitle(response.current.title || 'nanoClaude');
-      setCurrentSession(response.current);
-      setSessions(response.sessions);
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Failed to delete session');
-    }
-  }, [commitMessages, isStreaming, showToast]);
-
-  const forkAtMessage = useCallback(async (messageIndex: number) => {
-    if (isStreaming) {
-      return;
-    }
-
-    try {
-      const response = await api<{ ok: boolean; current: CurrentInfo }>(
-        'POST', '/api/sessions/fork', { message_index: messageIndex },
-      );
-      setCurrentSession(response.current);
-      commitMessages(() => response.current.messages);
-      setSessionTitle(response.current.title || 'nanoClaude');
-      await loadSessions();
-      showToast('Forked new session');
-      scheduleScrollBottom();
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Failed to fork session');
-    }
-  }, [commitMessages, isStreaming, loadSessions, showToast, scheduleScrollBottom]);
-
-  const rollbackAtMessage = useCallback(async (messageIndex: number) => {
-    if (isStreaming) {
-      return;
-    }
-
-    if (!window.confirm('确定要回滚吗？\n\n将撤销此消息之后的所有文件更改（跳过二进制文件），并删除此消息之后的所有消息。')) {
-      return;
-    }
-
-    try {
-      const response = await api<{ ok: boolean; current: CurrentInfo }>(
-        'POST', '/api/sessions/rollback', { message_index: messageIndex },
-      );
-      setCurrentSession(response.current);
-      commitMessages(() => response.current.messages);
-      setSessionTitle(response.current.title || 'nanoClaude');
-      setDiffSummaries((prev) => {
-        // Keep only diff summaries for segments that still exist
-        const newSummaries: Record<string, DiffSummary> = {};
-        if (response.current.diff_summaries) {
-          for (const ds of response.current.diff_summaries) {
-            newSummaries[ds.checkpoint_filename] = ds;
-          }
-        }
-        return newSummaries;
-      });
-      setActiveDiff(null);
-      setDiffFilePaths([]);
-      await loadSessions();
-      await loadWorkspacePanel();
-      showToast('回滚成功');
-      scheduleScrollBottom();
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : '回滚失败');
-    }
-  }, [commitMessages, isStreaming, loadSessions, loadWorkspacePanel, showToast, scheduleScrollBottom]);
-
-  const toggleQuestionOption = useCallback((label: string) => {
-    setQuestionAnswers((prev) => {
-      if (activeQuestionRef.current?.multiple) {
-        return prev.includes(label) ? prev.filter((entry) => entry !== label) : [...prev, label];
-      }
-      return [label];
-    });
-  }, []);
-
-  const selectCustomOption = useCallback(() => {
-    setQuestionAnswers(['__custom__']);
-    window.requestAnimationFrame(() => {
-      customInputRef.current?.focus();
-    });
-  }, []);
-
-  const showNextOrCloseQuestion = useCallback(() => {
-    const nextQuestion = questionQueueRef.current.shift() ?? null;
-    setActiveQuestion(nextQuestion);
-    setQuestionAnswers([]);
-    setCustomAnswer('');
-  }, []);
-
-  const clearPermission = useCallback(() => {
-    setActivePermission(null);
-    if (questionQueueRef.current.length > 0) {
-      const nextQuestion = questionQueueRef.current.shift() ?? null;
-      setActiveQuestion(nextQuestion);
-      setQuestionAnswers([]);
-      setCustomAnswer('');
-    }
-  }, []);
-
-  const sendPermissionDecision = useCallback(async (decision: 'allow' | 'deny' | 'allow_always') => {
-    try {
-      await fetch('/api/permission-response', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ decision }),
-      });
-    } catch {
-      // Best-effort only; the backend manages timeout fallback.
-    }
-    clearPermission();
-  }, [clearPermission]);
-
-  const permissionDeny = useCallback(() => void sendPermissionDecision('deny'), [sendPermissionDecision]);
-  const permissionAllow = useCallback(() => void sendPermissionDecision('allow'), [sendPermissionDecision]);
-  const permissionAlwaysAllow = useCallback(() => void sendPermissionDecision('allow_always'), [sendPermissionDecision]);
-
-  const submitQuestion = useCallback(async () => {
-    let answer = questionAnswers;
-    if (answer.includes('__custom__')) {
-      answer = [customAnswer.trim() || '(skipped)'];
-    }
-    if (answer.length === 0) {
-      answer = ['(skipped)'];
-    }
-
-    await fetch('/api/question-answer', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ answer }),
-    });
-    showNextOrCloseQuestion();
-  }, [customAnswer, questionAnswers, showNextOrCloseQuestion]);
-
-  const cancelQuestion = useCallback(() => {
-    void fetch('/api/question-answer', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ answer: ['(skipped)'] }),
-    });
-    showNextOrCloseQuestion();
-  }, [showNextOrCloseQuestion]);
+  const {
+    newSession,
+    switchSession,
+    deleteSession,
+    forkAtMessage,
+    rollbackAtMessage,
+  } = useChatSessionActions({
+    isStreaming,
+    commitMessages,
+    setCurrentSession,
+    setSessionTitle,
+    setSessions,
+    setDiffSummaries,
+    setActiveDiff,
+    setDiffFilePaths,
+    loadSessions,
+    loadWorkspacePanel,
+    scheduleScrollBottom,
+    showToast,
+    resetInteractionState,
+    resetFlowState,
+    setSidebarOpen,
+  });
 
   const toggleSubAgentFlow = useCallback((flowId: string | null) => {
     if (!flowId) {
@@ -1047,261 +293,30 @@ export function ChatApp() {
     });
   }, [commitMessages]);
 
-  const startChatStream = useCallback(async (text: string) => {
-    resetFlowState();
-    setInputText('');
-    setIsStreaming(true);
-    scheduleScrollBottom();
-
-    try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text }),
-      });
-      if (!response.ok) {
-        const errorData = (await response.json()) as { detail?: string };
-        throw new Error(errorData.detail || 'Chat request failed');
-      }
-
-      const data = (await response.json()) as ChatResponse & { current?: CurrentInfo };
-      if (!data.response_id) {
-        throw new Error('No response_id');
-      }
-
-      // Use backend response: shows user message with timestamp
-      const currentInfo = data.current;
-      if (currentInfo) {
-        commitMessages(() => currentInfo.messages);
-        setSessionTitle(currentInfo.title || 'nanoClaude');
-      }
-
-      closeEventSource();
-      const eventSource = new EventSource(`/api/events?response_id=${encodeURIComponent(data.response_id)}`);
-      eventSourceRef.current = eventSource;
-      let toolPlaceholder: number | null = null;
-
-      eventSource.addEventListener('message', (event) => {
-        const payload = JSON.parse((event as MessageEvent<string>).data) as Record<string, unknown>;
-        const role = (payload.role as ChatMessage['role'] | undefined) ?? 'assistant';
-        const type = (payload.type as ChatMessage['type'] | undefined) ?? 'text';
-
-        if (role === 'assistant' && type === 'text') {
-          commitMessages((prev) => {
-            const next = [...prev];
-            const last = next[next.length - 1];
-            if (last && last.role === 'assistant' && last.type === 'text') {
-              next[next.length - 1] = { ...last, content: last.content + String(payload.content ?? '') };
-            } else {
-              next.push({ role: 'assistant', type: 'text', content: String(payload.content ?? '') });
-            }
-            return next;
-          });
-          scheduleScrollBottom();
-          return;
-        }
-
-        if (type === 'tool_start') {
-          const toolMessage: ChatMessage = {
-            role: 'assistant',
-            type: 'tool_start',
-            name: String(payload.name ?? ''),
-            arguments: (payload.arguments as Record<string, unknown> | undefined) ?? {},
-            content: '',
-          };
-          toolPlaceholder = messagesRef.current.length;
-          commitMessages((prev) => [...prev, toolMessage]);
-          setCollapsedCards((prev) => ({ ...prev, [toolPlaceholder as number]: true }));
-
-          if (toolMessage.name === 'delegate') {
-            delegateFlowCounterRef.current += 1;
-            const flowId = `delegate_${delegateFlowCounterRef.current}`;
-            setDelegateFlowMap((prev) => ({ ...prev, [toolPlaceholder as number]: flowId }));
-            setSubAgentFlows((prev) => ({
-              ...prev,
-              [flowId]: { agents: [], visible: true, done: false },
-            }));
-          }
-
-          scheduleScrollBottom();
-          return;
-        }
-
-        if (type === 'tool_result') {
-          const resultMessage: ChatMessage = {
-            role: 'tool',
-            type: 'tool_result',
-            name: String(payload.name ?? payload.title ?? ''),
-            title: String(payload.title ?? ''),
-            content: String(payload.content ?? ''),
-            flow_id: typeof payload.flow_id === 'string' ? payload.flow_id : '',
-          };
-
-          if (toolPlaceholder !== null) {
-            const placeholderIndex = toolPlaceholder;
-            commitMessages((prev) => {
-              const next = [...prev];
-              next[placeholderIndex] = resultMessage;
-              return next;
-            });
-            setCollapsedCards((prev) => ({ ...prev, [placeholderIndex]: true }));
-            if (resultMessage.flow_id) {
-              setDelegateFlowMap((prev) => ({ ...prev, [placeholderIndex]: resultMessage.flow_id as string }));
-            }
-            toolPlaceholder = null;
-          } else {
-            commitMessages((prev) => [...prev, resultMessage]);
-          }
-          scheduleScrollBottom();
-          return;
-        }
-
-        if (type === 'diff_summary') {
-          commitMessages((prev) => [...prev, {
-            role: 'diff_summary',
-            type: 'diff_summary',
-            checkpoint_filename: String(payload.checkpoint_filename ?? ''),
-            summary: payload.summary as { files_changed: number; files: FileChangeItem[] } | undefined,
-            timestamp: typeof payload.timestamp === 'number' ? payload.timestamp : undefined,
-          } as ChatMessage]);
-          scheduleScrollBottom();
-          return;
-        }
-      });
-
-      eventSource.addEventListener('question', (event) => {
-        const payload = JSON.parse((event as MessageEvent<string>).data) as QuestionDialog;
-        if (activeQuestionRef.current === null) {
-          setActiveQuestion(payload);
-          setQuestionAnswers([]);
-          setCustomAnswer('');
-        } else {
-          questionQueueRef.current.push(payload);
-        }
-        scheduleScrollBottom();
-      });
-
-      eventSource.addEventListener('permission_request', (event) => {
-        const payload = JSON.parse((event as MessageEvent<string>).data) as PermissionRequest;
-        if (activeQuestionRef.current !== null) {
-          questionQueueRef.current.unshift(activeQuestionRef.current);
-          setActiveQuestion(null);
-          setQuestionAnswers([]);
-          setCustomAnswer('');
-        }
-        setActivePermission(payload);
-        scheduleScrollBottom();
-      });
-
-      eventSource.addEventListener('sub_agent_message', (event) => {
-        const payload = JSON.parse((event as MessageEvent<string>).data) as {
-          flow_id?: string;
-          agent_id?: string;
-          type?: string;
-          content?: string;
-          name?: string;
-          title?: string;
-          arguments?: Record<string, unknown>;
-        };
-        const flowId = payload.flow_id;
-        const agentId = payload.agent_id;
-        if (!flowId || !agentId) {
-          return;
-        }
-
-        setSubAgentFlows((prev) => {
-          const next = { ...prev };
-          const flow = cloneFlow(next[flowId] ?? { agents: [], visible: true, done: false });
-          let agent: SubAgent | undefined = flow.agents.find((entry) => entry.id === agentId);
-          if (!agent) {
-            agent = { id: agentId, status: 'running', events: [] };
-            flow.agents.push(agent);
-          }
-
-          const eventType = payload.type ?? '';
-          if (eventType === 'start') {
-            agent.status = 'running';
-          } else if (eventType === 'reasoning') {
-            const lastEvent = agent.events[agent.events.length - 1];
-            if (lastEvent?.type === 'reasoning') {
-              lastEvent.content = `${lastEvent.content ?? ''}${payload.content ?? ''}`;
-            } else {
-              agent.events.push({ type: 'reasoning', content: payload.content ?? '' });
-            }
-          } else if (eventType === 'tool_start') {
-            agent.events.push({
-              type: 'tool_start',
-              name: payload.name ?? '',
-              arguments: payload.arguments ?? {},
-            });
-          } else if (eventType === 'tool_end') {
-            agent.events.push({
-              type: 'tool_result',
-              name: payload.name ?? payload.title ?? '',
-              title: payload.title ?? '',
-              content: payload.content ?? '',
-            });
-          } else if (eventType === 'end') {
-            agent.status = 'done';
-            if (flow.agents.every((entry) => entry.status !== 'running')) {
-              flow.done = true;
-              flow.visible = false;
-            }
-          } else if (eventType === 'error') {
-            agent.status = 'error';
-            agent.events.push({ type: 'error', content: payload.content ?? '' });
-            if (flow.agents.every((entry) => entry.status !== 'running')) {
-              flow.done = true;
-              flow.visible = false;
-            }
-          }
-
-          next[flowId] = flow;
-          return next;
-        });
-        scheduleScrollBottom();
-      });
-
-      eventSource.addEventListener('done', async () => {
-        closeEventSource();
-        setActivePermission(null);
-        questionQueueRef.current = [];
-        setIsStreaming(false);
-        updateLastAssistantMessage((last) => (last.content.trim() ? last : null));
-        try {
-          await loadSessions();
-        } catch {
-          // loadSessions already handles errors.
-        }
-        void loadWorkspacePanel();
-        scheduleScrollBottom();
-      });
-
-      eventSource.addEventListener('error', async (event) => {
-        let message = 'Connection error';
-        try {
-          const data = JSON.parse((event as MessageEvent<string>).data) as { message?: string };
-          message = data.message || message;
-        } catch {
-          // Keep the fallback message.
-        }
-        closeEventSource();
-        setIsStreaming(false);
-        updateLastAssistantMessage((last) => ({ ...last, content: `${last.content}\n\n⚠️ Error: ${message}` }));
-        scheduleScrollBottom();
-        try {
-          await loadSessions();
-        } catch {
-          // loadSessions already handles errors.
-        }
-        void loadWorkspacePanel();
-      });
-    } catch (error) {
-      updateLastAssistantMessage(() => ({ role: 'assistant', type: 'text', content: `Error: ${error instanceof Error ? error.message : 'Unknown error'}` }));
-      setIsStreaming(false);
-      showToast(error instanceof Error ? error.message : 'Failed to send message');
-    }
-  }, [closeEventSource, commitMessages, loadSessions, loadWorkspacePanel, resetFlowState, scheduleScrollBottom, showToast, updateLastAssistantMessage]);
+  const {
+    startChatStream,
+    stopResponse,
+    closeEventSource,
+  } = useChatStreaming({
+    commitMessages,
+    messagesRef,
+    delegateFlowCounterRef,
+    setCollapsedCards,
+    setDelegateFlowMap,
+    setSubAgentFlows,
+    setInputText,
+    setIsStreaming,
+    setSessionTitle,
+    resetFlowState,
+    scheduleScrollBottom,
+    enqueueQuestion,
+    receivePermissionRequest,
+    clearAfterStreamDone,
+    loadSessions,
+    loadWorkspacePanel,
+    updateLastAssistantMessage,
+    showToast,
+  });
 
   const sendMessage = useCallback(async () => {
     const text = inputText.trim();
@@ -1326,28 +341,12 @@ export function ChatApp() {
     await startChatStream('请执行当前plan');
   }, [isStreaming, loadCurrent, showToast, startChatStream]);
 
-  const stopResponse = useCallback(async () => {
-    try {
-      await fetch('/api/stop', { method: 'POST' });
-    } catch {
-      // Best effort; frontend still stops listening locally.
-    }
-    closeEventSource();
-    setIsStreaming(false);
-    updateLastAssistantMessage((last) => (last.content.trim() ? last : null));
-    scheduleScrollBottom();
-  }, [closeEventSource, scheduleScrollBottom, updateLastAssistantMessage]);
-
   const handleInputKeydown = useCallback((event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
       void sendMessage();
     }
   }, [sendMessage]);
-
-  useEffect(() => {
-    applyTheme(darkMode);
-  }, [darkMode]);
 
   useEffect(() => {
     newSessionRef.current = newSession;
@@ -1388,9 +387,11 @@ export function ChatApp() {
   const segments = useMemo(() => buildMessageSegments(messages), [messages]);
 
   const filteredFiles = useMemo(() => {
-    if (!activeDiff || diffFilePaths.length === 0) return modifiedFiles;
-    return modifiedFiles.filter(mf => diffFilePaths.includes(mf.path));
-  }, [modifiedFiles, activeDiff, diffFilePaths]);
+    if (!activeDiff) {
+      return modifiedFiles;
+    }
+    return activeDiffFiles;
+  }, [modifiedFiles, activeDiff, activeDiffFiles]);
   const modifiedFileTree = useMemo(() => buildModifiedFileTree(filteredFiles), [filteredFiles]);
 
   const unexecutedPlans = useMemo(() => {
@@ -1565,6 +566,7 @@ export function ChatApp() {
                     : message.checkpoint_filename ?? null
                 );
                 setDiffFilePaths([]);
+                setActiveDiffFiles([]);
               }}
             />
           ) : null}
@@ -1640,10 +642,7 @@ export function ChatApp() {
         id="sidebar-resizer"
         className={isResizing ? 'resizing' : ''}
         onMouseDown={handleResizeStart}
-        onDoubleClick={() => {
-          setSidebarWidth(DEFAULT_SIDEBAR_WIDTH);
-          localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(DEFAULT_SIDEBAR_WIDTH));
-        }}
+        onDoubleClick={resetSidebarWidth}
         role="separator"
         aria-orientation="vertical"
         aria-label="Resize sidebar"
@@ -1695,6 +694,7 @@ export function ChatApp() {
                     subAgentFlows={subAgentFlows}
                     onToggleSubAgentFlow={toggleSubAgentFlow}
                     truncate={truncate}
+                    formatTimestamp={formatMsgTimestamp}
                   />
                 ) : null}
                 {seg.lastMessage ? renderMessageNode(seg.lastMessage.message, seg.lastMessage.index) : null}
@@ -1765,11 +765,7 @@ export function ChatApp() {
           id="input-area-resizer"
           className={isInputAreaResizing ? 'resizing' : ''}
           onMouseDown={handleInputAreaResizeStart}
-          onDoubleClick={() => {
-            const next = clampInputAreaHeight(DEFAULT_INPUT_AREA_HEIGHT);
-            setInputAreaHeight(next);
-            localStorage.setItem(INPUT_AREA_HEIGHT_STORAGE_KEY, String(next));
-          }}
+          onDoubleClick={resetInputAreaHeight}
           role="separator"
           aria-orientation="horizontal"
           aria-label="Resize input area"
@@ -1824,10 +820,7 @@ export function ChatApp() {
         id="workspace-resizer"
         className={isWorkspaceResizing ? 'resizing' : ''}
         onMouseDown={handleWorkspaceResizeStart}
-        onDoubleClick={() => {
-          setWorkspaceWidth(DEFAULT_WORKSPACE_WIDTH);
-          localStorage.setItem(WORKSPACE_WIDTH_STORAGE_KEY, String(DEFAULT_WORKSPACE_WIDTH));
-        }}
+        onDoubleClick={resetWorkspaceWidth}
         role="separator"
         aria-orientation="vertical"
         aria-label="Resize workspace panel"
@@ -1863,11 +856,7 @@ export function ChatApp() {
           id="workspace-section-resizer"
           className={isPlanDocsResizing ? 'resizing' : ''}
           onMouseDown={handlePlanDocsResizeStart}
-          onDoubleClick={() => {
-            const next = clampPlanDocsHeight(DEFAULT_PLAN_DOCS_HEIGHT);
-            setPlanDocsHeight(next);
-            localStorage.setItem(PLAN_DOCS_HEIGHT_STORAGE_KEY, String(next));
-          }}
+          onDoubleClick={resetPlanDocsHeight}
           role="separator"
           aria-orientation="horizontal"
           aria-label="Resize plan docs panel"
@@ -1906,392 +895,26 @@ export function ChatApp() {
         </div>
       </aside>
 
-      {activePermission ? (
-        <div id="permission-overlay">
-          <div className="permission-card">
-            <div className="p-header">🔒 File Access Permission Request</div>
-            <div className="p-body">
-              <div style={{ marginBottom: 10 }}>
-                <strong>Tool:</strong>
-                <span style={{ fontFamily: 'var(--mono)', color: 'var(--accent)', marginLeft: 6 }}>{activePermission.tool}</span>
-                wants to access a file outside the working directory.
-              </div>
-              <div className="p-path-block">
-                <div className="p-path-label">Requested Path</div>
-                <div className="p-path-value">{activePermission.target}</div>
-              </div>
-              <div className="p-path-block" style={{ marginTop: 2 }}>
-                <div className="p-path-label">Resolved Path</div>
-                <div className="p-path-value" style={{ color: 'var(--accent4)' }}>
-                  {activePermission.resolved_path}
-                </div>
-              </div>
-              <div className="p-cwd">
-                📁 Working Directory: <span style={{ color: 'var(--text-bright)', fontFamily: 'var(--mono)' }}>{activePermission.cwd}</span>
-              </div>
-            </div>
-            <div className="p-actions">
-              <button className="p-btn deny" onClick={permissionDeny}>
-                Deny
-              </button>
-              <button className="p-btn allow" onClick={permissionAllow}>
-                Allow
-              </button>
-              <button className="p-btn always" onClick={permissionAlwaysAllow}>
-                Always Allow
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <PermissionOverlay
+        activePermission={activePermission}
+        onDeny={permissionDeny}
+        onAllow={permissionAllow}
+        onAlwaysAllow={permissionAlwaysAllow}
+      />
 
-      {activeQuestion ? (
-        <div id="question-overlay" onClick={(event) => event.target === event.currentTarget && cancelQuestion()}>
-          <div className="question-card">
-            <div className="q-header">{activeQuestion.header}</div>
-            <div className="q-body">{activeQuestion.question}</div>
-            <div className="q-options">
-              {activeQuestion.options.map((option, index) => {
-                const selected = questionAnswers.includes(option.label);
-                return (
-                  <label
-                    key={`${option.label}-${index}`}
-                    className={`q-option ${selected ? 'selected' : ''}`}
-                    onClick={() => toggleQuestionOption(option.label)}
-                  >
-                    <input
-                      type={activeQuestion.multiple ? 'checkbox' : 'radio'}
-                      name={`q-opt-${index}`}
-                      checked={selected}
-                      onChange={() => toggleQuestionOption(option.label)}
-                      onClick={(event) => event.stopPropagation()}
-                    />
-                    <span style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                      <span className="q-label">{option.label}</span>
-                      {option.description ? <span className="q-desc">{option.description}</span> : null}
-                    </span>
-                  </label>
-                );
-              })}
+      <QuestionOverlay
+        activeQuestion={activeQuestion}
+        questionAnswers={questionAnswers}
+        customAnswer={customAnswer}
+        customInputRef={customInputRef}
+        onToggleOption={toggleQuestionOption}
+        onSelectCustomOption={selectCustomOption}
+        onSetCustomAnswer={setCustomAnswer}
+        onCancel={cancelQuestion}
+        onSubmit={() => void submitQuestion()}
+      />
 
-              <div className={`q-option ${questionAnswers.includes('__custom__') ? 'selected' : ''}`} onClick={selectCustomOption}>
-                <input
-                  type="radio"
-                  name="q-custom"
-                  checked={questionAnswers.includes('__custom__')}
-                  onChange={selectCustomOption}
-                  onClick={(event) => event.stopPropagation()}
-                />
-                <span style={{ display: 'flex', flexDirection: 'column', gap: 1, flex: 1 }}>
-                  <span className="q-label">Custom (type your own answer)</span>
-                  {questionAnswers.includes('__custom__') ? (
-                    <textarea
-                      ref={customInputRef}
-                      value={customAnswer}
-                      className="q-custom-input"
-                      placeholder="Type your answer here..."
-                      onChange={(event) => setCustomAnswer(event.target.value)}
-                      onClick={(event) => event.stopPropagation()}
-                    />
-                  ) : null}
-                </span>
-              </div>
-            </div>
-            <div className="q-actions">
-              <button className="q-btn cancel" onClick={cancelQuestion}>
-                Skip
-              </button>
-              <button className="q-btn submit" onClick={() => void submitQuestion()}>
-                Submit
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      <div id="toast" className={toast.visible ? 'show' : ''}>
-        {toast.message}
-      </div>
-    </div>
-  );
-}
-
-function DiffOverviewBubble({
-  summary, isActive, onClick,
-}: {
-  summary: DiffSummary; isActive: boolean; onClick: () => void;
-}) {
-  return (
-    <div className="diff-overview">
-      <div className={`diff-overview-card ${isActive ? 'active' : ''}`} onClick={onClick}>
-        <span className="diff-overview-icon">📝</span>
-        <span className="diff-overview-stats">
-          <span className="diff-stat-files">{summary.summary.files_changed} file{summary.summary.files_changed !== 1 ? 's' : ''}</span>
-        </span>
-        <span className="diff-overview-arrow">{isActive ? '▾' : '▸'}</span>
-      </div>
-    </div>
-  );
-}
-
-function SystemPromptBubble({ content }: { content: string }) {
-  const [expanded, setExpanded] = useState(false);
-
-  return (
-    <div className="system-prompt-overview">
-      <div
-        className={`system-prompt-card ${expanded ? 'expanded' : ''}`}
-        onClick={() => setExpanded(!expanded)}
-      >
-        <span className="system-prompt-icon">⚙️</span>
-        <span className="system-prompt-label">System Prompt</span>
-        {expanded ? <span className="system-prompt-badge">visible</span> : null}
-        <span className="system-prompt-arrow">{expanded ? '▾' : '▸'}</span>
-      </div>
-      {expanded ? (
-        <div className="system-prompt-body">
-          <pre>{content}</pre>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function DiffDetailView({ diffFilename }: { diffFilename: string }) {
-  const [diffData, setDiffData] = useState<CheckpointData | null>(null);
-  const [diffError, setDiffError] = useState(false);
-
-  useEffect(() => {
-    setDiffData(null);
-    setDiffError(false);
-    api<CheckpointData>('GET', `/api/diffs/${encodeURIComponent(diffFilename)}`)
-      .then((data) => {
-        setDiffData(data);
-      })
-      .catch(() => {
-        setDiffError(true);
-      });
-  }, [diffFilename]);
-
-  if (!diffData) {
-    return (
-      <div className="diff-loading">
-        <div className="spinner" />
-        <span>{diffError ? 'Failed to load diff' : 'Loading diff...'}</span>
-      </div>
-    );
-  }
-
-  const files = diffData.files || {};
-  const fileList: { path: string; status: string }[] = [];
-
-  for (const path of Object.keys(files.modified || {})) {
-    fileList.push({ path, status: 'modified' });
-  }
-  for (const path of Object.keys(files.deleted || {})) {
-    fileList.push({ path, status: 'deleted' });
-  }
-  for (const path of files.added || []) {
-    fileList.push({ path, status: 'added' });
-  }
-  for (const path of files.binary || []) {
-    fileList.push({ path, status: 'binary' });
-  }
-
-  const statusIcon: Record<string, string> = {
-    added: '🆕',
-    deleted: '🗑️',
-    modified: '📄',
-    binary: '🗄️',
-  };
-
-  return (
-    <div className="diff-detail-view">
-      {fileList.length === 0 ? (
-        <div className="workspace-panel-empty">No file changes in this checkpoint</div>
-      ) : (
-        fileList.map((file) => (
-          <div key={file.path} className="diff-file-item">
-            <div className="diff-file-header">
-              <span>
-                {statusIcon[file.status] || '📄'}
-              </span>
-              <span className="diff-file-name">{file.path}</span>
-              {file.status === 'binary' ? (
-                <span className="diff-binary-badge">(binary)</span>
-              ) : (
-                <span className={`diff-file-status status-${file.status}`}>{file.status}</span>
-              )}
-            </div>
-          </div>
-        ))
-      )}
-      {fileList.length > 0 ? (
-        <div className="diff-detail-footer">
-          <span className="diff-stat-files">{diffData.summary.files_changed} files</span>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function SubAgentEventCard({ event }: { event: SubAgentEvent }) {
-  const [collapsed, setCollapsed] = useState(true);
-  const toggle = useCallback(() => setCollapsed((prev) => !prev), []);
-
-  if (event.type === 'reasoning') {
-    return <div className="sub-agent-reasoning">{event.content}</div>;
-  }
-
-  if (event.type === 'tool_start') {
-    return (
-      <div className="tool-card args" style={{ margin: '4px 0' }}>
-        <div className="tool-card-header" onClick={toggle}>
-          <span className="collapse-arrow">{collapsed ? '▸' : '▾'}</span>
-          <span className="badge run">▶ {event.name}</span>
-          <span style={{ color: 'var(--text-dim)' }}>tool call</span>
-        </div>
-        {!collapsed && event.arguments && Object.keys(event.arguments).length > 0 ? (
-          <div className="tool-card-body">{JSON.stringify(event.arguments, null, 2)}</div>
-        ) : null}
-      </div>
-    );
-  }
-
-  if (event.type === 'tool_result') {
-    return (
-      <div className="tool-card result" style={{ margin: '4px 0' }}>
-        <div className="tool-card-header" onClick={toggle}>
-          <span className="collapse-arrow">{collapsed ? '▸' : '▾'}</span>
-          <span className="badge done">✔ {event.name || event.title || 'done'}</span>
-          <span style={{ color: 'var(--text-dim)' }}>result</span>
-        </div>
-        {!collapsed ? <div className="tool-card-body">{event.content || ''}</div> : null}
-      </div>
-    );
-  }
-
-  if (event.type === 'error') {
-    return (
-      <div className="tool-card error-card" style={{ margin: '4px 0' }}>
-        <div className="tool-card-header" onClick={toggle}>
-          <span className="collapse-arrow">{collapsed ? '▸' : '▾'}</span>
-          <span className="badge error">✗ error</span>
-        </div>
-        {!collapsed ? <div className="tool-card-body">{event.content}</div> : null}
-      </div>
-    );
-  }
-
-  return null;
-}
-
-function ThinkingBubble({
-  segmentKey,
-  messages,
-  collapsed,
-  onToggle,
-  collapsedCards,
-  onToggleCard,
-  delegateFlowMap,
-  subAgentFlows,
-  onToggleSubAgentFlow,
-  truncate,
-}: {
-  segmentKey: string;
-  messages: { message: ChatMessage; index: number }[];
-  collapsed: boolean;
-  onToggle: (key: string) => void;
-  collapsedCards: Record<number, boolean>;
-  onToggleCard: (index: number) => void;
-  delegateFlowMap: Record<number, string>;
-  subAgentFlows: Record<string, SubAgentFlow>;
-  onToggleSubAgentFlow: (flowId: string | null) => void;
-  truncate: (text: string, max: number) => string;
-}) {
-  const count = messages.length;
-
-  return (
-    <div className="thinking-bubble">
-      <div className="thinking-bubble-header" onClick={() => onToggle(segmentKey)}>
-        <span className="collapse-arrow">{collapsed ? '▸' : '▾'}</span>
-        <span className="thinking-bubble-icon">💭</span>
-        <span className="thinking-bubble-label">思考过程</span>
-        <span className="thinking-bubble-count">({count} 条消息)</span>
-      </div>
-      {!collapsed ? (
-        <div className="thinking-bubble-body">
-          {messages.map(({ message, index }) => (
-            <div key={`${message.role}-${message.type}-${index}`} className={`msg ${message.role || 'assistant'}`}>
-              {message.role === 'user' && message.type === 'text' ? (
-                <div className="bubble">
-                  <div className="msg-timestamp">{formatMsgTimestamp(message.timestamp)}</div>
-                  {message.content}
-                </div>
-              ) : null}
-
-              {message.role === 'assistant' && message.type === 'text' ? (
-                <div className="bubble">
-                  <div className="msg-timestamp">{formatMsgTimestamp(message.timestamp)}</div>
-                  <div dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }} />
-                </div>
-              ) : null}
-
-              {message.type === 'tool_start' ? (
-                <div className="tool-card args">
-                  <div className="tool-card-header" onClick={() => onToggleCard(index)}>
-                    <span className="collapse-arrow">{collapsedCards[index] !== false ? '▸' : '▾'}</span>
-                    <span className="badge run">▶ {message.name}</span>
-                    <span style={{ color: 'var(--text-dim)' }}>tool call</span>
-                    <span className="msg-timestamp" style={{ marginLeft: 'auto', marginRight: 8 }}>{formatMsgTimestamp(message.timestamp)}</span>
-                  </div>
-                  {collapsedCards[index] !== false ? null : (
-                    <div className="tool-card-body">{JSON.stringify(message.arguments ?? {}, null, 2)}</div>
-                  )}
-                </div>
-              ) : null}
-
-              {message.type === 'tool_result' ? (
-                <div className="tool-card result">
-                  <div className="tool-card-header" onClick={() => onToggleCard(index)}>
-                    <span className="collapse-arrow">{collapsedCards[index] !== false ? '▸' : '▾'}</span>
-                    <span className="badge done">✔ {message.name || message.title || 'done'}</span>
-                    <span style={{ color: 'var(--text-dim)' }}>result</span>
-                    <span className="msg-timestamp" style={{ marginLeft: 'auto', marginRight: 8 }}>{formatMsgTimestamp(message.timestamp)}</span>
-                    {message.name === 'delegate' ? (
-                      <button
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onToggleSubAgentFlow(delegateFlowMap[index] || null);
-                        }}
-                        style={{
-                          marginLeft: 'auto',
-                          background: 'none',
-                          border: '1px solid var(--border)',
-                          borderRadius: 4,
-                          color: (delegateFlowMap[index] && subAgentFlows[delegateFlowMap[index]]?.visible) ? 'var(--accent)' : 'var(--text-dim)',
-                          borderColor: (delegateFlowMap[index] && subAgentFlows[delegateFlowMap[index]]?.visible) ? 'var(--accent)' : 'var(--border)',
-                          cursor: 'pointer',
-                          fontSize: 11,
-                          padding: '2px 8px',
-                          transition: 'all 0.12s',
-                          whiteSpace: 'nowrap',
-                        }}
-                        title={(delegateFlowMap[index] && subAgentFlows[delegateFlowMap[index]]?.visible) ? 'Hide sub-agent execution flow' : 'Show sub-agent execution flow'}
-                      >
-                        {(delegateFlowMap[index] && subAgentFlows[delegateFlowMap[index]]?.visible) ? '▲ Hide Agents' : '▼ Show Agents'}
-                      </button>
-                    ) : null}
-                  </div>
-                  {collapsedCards[index] !== false ? null : (
-                    <div className="tool-card-body">{truncate(message.content || '', 2000)}</div>
-                  )}
-                </div>
-              ) : null}
-            </div>
-          ))}
-        </div>
-      ) : null}
+      <Toast visible={toast.visible} message={toast.message} />
     </div>
   );
 }
