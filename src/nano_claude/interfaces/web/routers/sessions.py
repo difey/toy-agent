@@ -8,7 +8,7 @@ from nano_claude.core.session import Session, session_info
 from nano_claude.core.state import state
 
 from nano_claude.interfaces.web.serializers import serialize_messages_for_api
-from nano_claude.interfaces.web.services.diff_service import (
+from nano_claude.core.diff_service import (
     list_checkpoints_for_session,
     RollbackError,
 )
@@ -91,7 +91,7 @@ async def api_delete_session(name: str):
 @router.delete("/api/sessions")
 async def api_delete_all_sessions():
     files = state._refresh_sessions()
-    current_abs = os.path.abspath(state.session_file_ref[0])
+    current_abs = os.path.abspath(state.session.filepath)
     deleted = 0
     for f in files:
         if os.path.abspath(f) != current_abs:

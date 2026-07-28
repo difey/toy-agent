@@ -11,7 +11,7 @@ from nano_claude.core.message import DiffSummaryMessage, ToolCall
 from nano_claude.core.session import save_current
 from nano_claude.core.state import WebAppState
 
-from nano_claude.interfaces.web.services.diff_service import (
+from nano_claude.core.diff_service import (
     take_snapshot, detect_file_changes, save_checkpoint, cleanup_checkpoints,
     _get_git_head_hash,
 )
@@ -176,7 +176,7 @@ async def _execute_chat(state: WebAppState, response_id: str) -> None:
             git_hash = _get_git_head_hash(cwd)
             checkpoint_filename = save_checkpoint(
                 cwd, changed_files,
-                os.path.basename(state.session_file_ref[0]),
+                os.path.basename(state.session.filepath),
                 git_hash,
             )
             # Build simplified file list for the frontend
@@ -232,7 +232,7 @@ async def _execute_chat(state: WebAppState, response_id: str) -> None:
         agent.permission_callback = original_permission
         agent.ask_user_callback = original_ask_user
         agent.on_event_callback = original_on_event
-        save_current(session, state.session_file_ref[0])
+        save_current(session, state.session.filepath)
         state._running = False
         state._running_task = None
 

@@ -17,7 +17,7 @@ from nano_claude.core.session import (
 from nano_claude.infra.bootstrap import build_agent
 
 from nano_claude.interfaces.web.serializers import serialize_messages_for_api
-from nano_claude.interfaces.web.services.diff_service import (
+from nano_claude.core.diff_service import (
     list_checkpoints_for_session,
     rollback_to_checkpoint,
     RollbackError,
@@ -38,13 +38,6 @@ class WebAppState:
         self.agent: Agent | None = None
         self.cwd: str = ""
         self.session: Session | None = None
-        # Mutable "reference" to current session file path.
-        # We intentionally store it as a single-item list so different
-        # components can share and update the same container via [0]
-        # (plain str rebinding would not propagate across holders).
-        self.session_file_ref: list[str] = [""]
-        # Diff summaries for current session, keyed by checkpoint_filename
-        self.diff_summaries: dict[str, dict] = {}
         # SSE queues: keyed by response_id
         self._sse_queues: dict[str, asyncio.Queue] = {}
         self._running_response_id: str | None = None
@@ -67,7 +60,7 @@ class WebAppState:
         self.agent = build_agent(cwd=self.cwd, mode="build")
         session, session_file = resume_or_create_session(self.cwd)
         self.session = session
-        self.session_file_ref[0] = session_file
+        self.session.filepath = session_file
         self._reload_diff_summaries()
         self.load_providers()
 
@@ -85,7 +78,7 @@ class WebAppState:
 
     def sessions_list(self) -> list[dict]:
         files = self._refresh_sessions()
-        current_abs = os.path.abspath(self.session_file_ref[0])
+        current_abs = os.path.abspath(self.session.filepath)
         result = []
         for f in files:
             info = session_info(f)
@@ -110,7 +103,6 @@ class WebAppState:
         except Exception:
             return False
         self.session.load_messages_from(new_session)
-        self.session_file_ref[0] = filepath
         self._reload_diff_summaries()
         return True
 
@@ -119,9 +111,9 @@ class WebAppState:
         target = self._find_session_by_name(name)
         if target is None:
             return f"Invalid session: {name}"
-        if os.path.abspath(target) == os.path.abspath(self.session_file_ref[0]):
+        if os.path.abspath(target) == os.path.abspath(self.session.filepath):
             return None  # already current
-        save_current(self.session, self.session_file_ref[0])
+        save_current(self.session, self.session.filepath)
         if not self._load_session_to_current(target):
             return f"Failed to load session: {target}"
         return None
@@ -149,7 +141,7 @@ class WebAppState:
         target = self._find_session_by_name(name)
         if target is None:
             return f"Invalid session: {name}"
-        is_current = os.path.abspath(target) == os.path.abspath(self.session_file_ref[0])
+        is_current = os.path.abspath(target) == os.path.abspath(self.session.filepath)
 
         try:
             os.remove(target)
@@ -164,8 +156,7 @@ class WebAppState:
     def _create_fresh_session(self) -> None:
         """Reset to a fresh empty session."""
         self.session.clear_messages()
-        self.session_file_ref[0] = session_path(self.cwd)
-        self.diff_summaries.clear()
+        self.session.filepath = session_path(self.cwd)
         if self.agent:
             self.session._ensure_system_prompt(self.agent._build_system_prompt(self.cwd))
 
@@ -183,7 +174,7 @@ class WebAppState:
         Returns:
             The current_info dict for the new forked session.
         """
-        save_current(self.session, self.session_file_ref[0])
+        save_current(self.session, self.session.filepath)
 
         # Convert API message array index to user-text-only index.
         # The API array has tool_start/tool_result entries expanded, so
@@ -201,7 +192,6 @@ class WebAppState:
         new_path = session_path(self.cwd)
         forked.save(new_path)
         self.session.load_messages_from(forked)
-        self.session_file_ref[0] = new_path
         # Reload diff summaries for the new fork
         self._reload_diff_summaries()
         return self.current_info()
@@ -221,7 +211,7 @@ class WebAppState:
             dict with ``current`` (CurrentInfo), ``skipped_files``, and
             ``errors`` keys.
         """
-        save_current(self.session, self.session_file_ref[0])
+        save_current(self.session, self.session.filepath)
 
         # ── 1. Find the target user message's timestamp ──────────────
         api_messages = serialize_messages_for_api(self.session.messages)
@@ -234,7 +224,7 @@ class WebAppState:
             raise ValueError("Target message has no timestamp")
 
         # ── 2. Restore files via checkpoint rollback ─────────────────
-        session_file_basename = os.path.basename(self.session_file_ref[0])
+        session_file_basename = os.path.basename(self.session.filepath)
         hash_error = None
         try:
             skipped, errors = rollback_to_checkpoint(
@@ -264,7 +254,7 @@ class WebAppState:
         self.session.truncate_messages(cutoff_idx)
 
         # ── 4. Save and reload diff summaries ───────────────────────────
-        save_current(self.session, self.session_file_ref[0])
+        save_current(self.session, self.session.filepath)
         self._reload_diff_summaries()
         info = self.current_info()
         info["skipped_files"] = skipped
@@ -273,23 +263,21 @@ class WebAppState:
         return info
 
     def new_session(self) -> None:
-        save_current(self.session, self.session_file_ref[0])
+        save_current(self.session, self.session.filepath)
         self.session.clear_messages()
         if self.agent:
             self.session._ensure_system_prompt(self.agent._build_system_prompt(self.cwd))
-        self.session_file_ref[0] = session_path(self.cwd)
-        # Clear diff summaries for the new session
-        self.diff_summaries.clear()
+        self.session.filepath = session_path(self.cwd)
 
     def current_info(self) -> dict:
-        info = session_info(self.session_file_ref[0])
+        info = session_info(self.session.filepath)
         info["is_current"] = True
         info["id"] = info["name"]
         info["messages"] = serialize_messages_for_api(self.session.messages)
         info["mode"] = self.agent.mode if self.agent else "build"
         info["setup_needed"] = self.agent is None
-        # Use diff_summaries from state instead of reading from disk
-        info["diff_summaries"] = list(self.diff_summaries.values())
+        # Use diff_summaries cached on the session instead of reading from disk
+        info["diff_summaries"] = list(self.session.diff_summaries.values())
         # Active model/provider info
         info["active_model"] = self.agent.model if self.agent else None
         info["active_provider"] = self.agent.provider if self.agent else None
@@ -297,16 +285,14 @@ class WebAppState:
 
     def _reload_diff_summaries(self) -> None:
         """Reload diff summaries from disk for the current session."""
-        session_basename = os.path.basename(self.session_file_ref[0])
+        session_basename = os.path.basename(self.session.filepath)
         summaries = list_checkpoints_for_session(self.cwd, session_basename)
         # Build a dict keyed by checkpoint_filename for easy lookup
-        self.diff_summaries.clear()
-        for summary in summaries:
-            self.diff_summaries[summary["checkpoint_filename"]] = summary
+        self.session.set_diff_summaries({s["checkpoint_filename"]: s for s in summaries})
 
     def add_diff_summary(self, checkpoint_filename: str, summary: dict) -> None:
         """Add or update a diff summary for a checkpoint."""
-        self.diff_summaries[checkpoint_filename] = summary
+        self.session.add_diff_summary(checkpoint_filename, summary)
 
     # ── Provider helpers ────────────────────────────────────────────────
 

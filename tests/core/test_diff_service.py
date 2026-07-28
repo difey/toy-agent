@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from nano_claude.interfaces.web.services import diff_service
+from nano_claude.core import diff_service
 
 
 def test_list_checkpoints_for_session_supports_legacy_diff_filename(tmp_path, monkeypatch):

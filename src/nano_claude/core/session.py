@@ -84,6 +84,11 @@ class Session:
         self.updated_at: float = now
         if system_prompt:
             self.messages.append(SystemMessage(content=system_prompt))
+        # Runtime-only state (not persisted in the session JSON file):
+        # the on-disk path this session was loaded from / last saved to,
+        # and a cache of diff/checkpoint summaries for the workspace panel.
+        self.filepath: str = ""
+        self.diff_summaries: dict[str, dict] = {}
 
     async def _generate_title(self, content: str) -> str:
         """Generate a concise session title, using AI summarizer when available."""
@@ -256,6 +261,7 @@ class Session:
             ],
         }
         Path(path).write_text(json.dumps(data, ensure_ascii=False, indent=2))
+        self.filepath = path
 
     def fork(self, message_api_index: int) -> "Session":
         """Create a new Session containing messages up to (but not including)
@@ -312,18 +318,30 @@ class Session:
         self.title = other.title
         self.created_at = other.created_at
         self.updated_at = other.updated_at
+        self.filepath = other.filepath
+        self.diff_summaries = dict(other.diff_summaries)
 
     def clear_messages(self) -> None:
-        """清空所有消息，重置标题和时间戳。"""
+        """清空所有消息，重置标题、时间戳和运行时缓存(filepath/diff_summaries)。"""
         self.messages.clear()
         self.title = ""
         now = time.time()
         self.created_at = now
         self.updated_at = now
+        self.filepath = ""
+        self.diff_summaries.clear()
 
     def truncate_messages(self, cutoff: int) -> None:
         """截断消息到指定索引位置。"""
         self.messages = self.messages[:cutoff]
+
+    def set_diff_summaries(self, summaries: dict[str, dict]) -> None:
+        """整体替换 diff_summaries 缓存（通常由磁盘 checkpoint 重新扫描后调用）。"""
+        self.diff_summaries = summaries
+
+    def add_diff_summary(self, checkpoint_filename: str, summary: dict) -> None:
+        """新增/更新单条 diff summary。"""
+        self.diff_summaries[checkpoint_filename] = summary
 
     @classmethod
     def load(cls, path: str) -> "Session":
@@ -356,6 +374,7 @@ class Session:
             if session.created_at == 0.0:
                 session.created_at = session.updated_at
 
+        session.filepath = path
         return session
 
 
