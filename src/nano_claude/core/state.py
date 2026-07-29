@@ -221,7 +221,8 @@ class SessionRuntime:
     def timeline(self) -> list[dict]:
         return build_timeline(self.session.messages)
 
-    def _timeline_index_to_user_index(self, message_timeline_index: int) -> int:
+    def _timeline_index_to_user_message_count(self, message_timeline_index: int) -> int:
+        """Count user text messages that appear before a timeline index."""
         timeline = self.timeline()
         user_msg_index = 0
         for i, item in enumerate(timeline):
@@ -232,6 +233,14 @@ class SessionRuntime:
         return user_msg_index
 
     def _rollback_cutoff_index(self, message_timeline_index: int) -> int:
+        """Return the session-message cutoff that keeps the target user message.
+
+        Timeline items are flattened for clients, while rollback truncation happens
+        against the original ``Session.messages`` list. This helper first counts
+        how many user messages have been seen up to the selected timeline item,
+        then finds the matching user message in ``Session.messages`` and returns
+        the index immediately after it so the user prompt is preserved.
+        """
         timeline = self.timeline()
         target_user_count = 0
         for i, item in enumerate(timeline):
@@ -255,7 +264,7 @@ class SessionRuntime:
     def fork_session(self, message_timeline_index: int) -> dict:
         cwd = self._cwd_getter()
         save_current(self.session, self.session.filepath)
-        user_msg_index = self._timeline_index_to_user_index(message_timeline_index)
+        user_msg_index = self._timeline_index_to_user_message_count(message_timeline_index)
         forked = self.session.fork(user_msg_index)
         new_path = session_path(cwd)
         forked.save(new_path)

@@ -12,6 +12,7 @@ with a "binary": true flag and are skipped during rollback.
 import hashlib
 import json
 import os
+import re
 import subprocess
 import uuid
 from datetime import datetime, timezone
@@ -22,6 +23,9 @@ from nano_claude.core.session import get_diff_dir
 _CHECKPOINT_VERSION = 2
 _MAX_KEEP = 10
 _DIFF_TIMESTAMP_FMT = "%Y-%m-%dT%H-%M-%S"
+_CHECKPOINT_FILENAME_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-[0-9a-f]{8}\.json$"
+)
 
 
 # ── Hashing helpers ────────────────────────────────────────────────────────
@@ -291,14 +295,17 @@ def get_checkpoint(cwd: str, checkpoint_filename: str) -> dict | None:
         not checkpoint_filename
         or os.path.basename(checkpoint_filename) != checkpoint_filename
         or os.path.isabs(checkpoint_filename)
+        or _CHECKPOINT_FILENAME_RE.fullmatch(checkpoint_filename) is None
     ):
         return None
-    diff_dir = get_diff_dir(cwd)
-    filepath = os.path.join(diff_dir, checkpoint_filename)
-    if not os.path.isfile(filepath):
+    diff_dir = Path(get_diff_dir(cwd)).resolve()
+    filepath = (diff_dir / checkpoint_filename).resolve()
+    if diff_dir not in filepath.parents:
+        return None
+    if not filepath.is_file():
         return None
     try:
-        return json.loads(Path(filepath).read_text(encoding="utf-8"))
+        return json.loads(filepath.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return None
 

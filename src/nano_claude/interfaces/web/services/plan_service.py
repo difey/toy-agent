@@ -109,6 +109,8 @@ def list_modified_files(cwd: str) -> list[dict]:
 
 
 def get_workspace_panel(cwd: str, diff_summaries: list[dict] | None = None, active_diff: str | None = None) -> dict:
+    # ``get_checkpoint()`` enforces filename validation for ``active_diff`` before
+    # any file is read, so this wrapper only forwards the selected checkpoint id.
     checkpoint = get_checkpoint(cwd, active_diff) if active_diff else None
     return {
         "plan_docs": list_plan_docs(cwd),

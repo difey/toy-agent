@@ -39,6 +39,14 @@ export function useChatData({
   const [diffFilePaths, setDiffFilePaths] = useState<string[]>([]);
   const [activeDiffFiles, setActiveDiffFiles] = useState<ModifiedFileItem[]>([]);
 
+  const buildDiffSummaryMap = useCallback((summaries: DiffSummary[] | undefined) => {
+    const map: Record<string, DiffSummary> = {};
+    for (const ds of summaries ?? []) {
+      map[ds.checkpoint_filename] = ds;
+    }
+    return map;
+  }, []);
+
   const applyCurrentView = useCallback((data: CurrentInfo) => {
     setCurrentSession(data);
     setSessions(data.session_catalog.sessions ?? []);
@@ -61,12 +69,8 @@ export function useChatData({
     setActiveDiff(data.workspace.active_diff ?? null);
     setActiveDiffFiles(data.workspace.active_diff_files ?? []);
     setDiffFilePaths((data.workspace.active_diff_files ?? []).map((file) => file.path));
-    const map: Record<string, DiffSummary> = {};
-    for (const ds of data.workspace.diff_summaries ?? []) {
-      map[ds.checkpoint_filename] = ds;
-    }
-    setDiffSummaries(map);
-  }, [commitMessages, resetFlowState, setCollapsedCards, setMode, setSessionTitle]);
+    setDiffSummaries(buildDiffSummaryMap(data.workspace.diff_summaries));
+  }, [buildDiffSummaryMap, commitMessages, resetFlowState, setCollapsedCards, setMode, setSessionTitle]);
 
   const loadSessions = useCallback(async () => {
     try {
@@ -82,16 +86,12 @@ export function useChatData({
       const data = await api<CurrentInfo>('GET', '/api/current');
       setPlanDocs(data.workspace.plan_docs ?? []);
       setModifiedFiles(data.workspace.modified_files ?? []);
-      const map: Record<string, DiffSummary> = {};
-      for (const ds of data.workspace.diff_summaries ?? []) {
-        map[ds.checkpoint_filename] = ds;
-      }
-      setDiffSummaries(map);
+      setDiffSummaries(buildDiffSummaryMap(data.workspace.diff_summaries));
     } catch {
       setPlanDocs([]);
       setModifiedFiles([]);
     }
-  }, []);
+  }, [buildDiffSummaryMap]);
 
   const refreshWorkspace = useCallback(async () => {
     setActiveDiff(null);
@@ -102,18 +102,14 @@ export function useChatData({
       const data = await api<CurrentInfo>('GET', '/api/current');
       setPlanDocs(data.workspace.plan_docs ?? []);
       setModifiedFiles(data.workspace.modified_files ?? []);
-      const map: Record<string, DiffSummary> = {};
-      for (const ds of data.workspace.diff_summaries ?? []) {
-        map[ds.checkpoint_filename] = ds;
-      }
-      setDiffSummaries(map);
+      setDiffSummaries(buildDiffSummaryMap(data.workspace.diff_summaries));
     } catch {
       setPlanDocs([]);
       setModifiedFiles([]);
     } finally {
       setIsRefreshing(false);
     }
-  }, []);
+  }, [buildDiffSummaryMap]);
 
   const loadCurrent = useCallback(async () => {
     try {
