@@ -231,6 +231,27 @@ class SessionRuntime:
                 user_msg_index += 1
         return user_msg_index
 
+    def _rollback_cutoff_index(self, message_timeline_index: int) -> int:
+        timeline = self.timeline()
+        target_user_count = 0
+        for i, item in enumerate(timeline):
+            if item.get("role") == "user" and item.get("type") == "text":
+                target_user_count += 1
+            if i == message_timeline_index:
+                break
+
+        if target_user_count == 0:
+            return len(self.session.messages)
+
+        seen_users = 0
+        for i, msg in enumerate(self.session.messages):
+            if isinstance(msg, UserMessage) and isinstance(msg.content, str):
+                seen_users += 1
+                if seen_users == target_user_count:
+                    return i + 1
+
+        return len(self.session.messages)
+
     def fork_session(self, message_timeline_index: int) -> dict:
         cwd = self._cwd_getter()
         save_current(self.session, self.session.filepath)
@@ -266,17 +287,7 @@ class SessionRuntime:
             hash_error = str(e)
             skipped, errors = [], [hash_error]
 
-        user_msg_index = self._timeline_index_to_user_index(message_timeline_index)
-        user_text_count = 0
-        cutoff_idx = len(self.session.messages)
-        for i, msg in enumerate(self.session.messages):
-            if isinstance(msg, UserMessage) and isinstance(msg.content, str):
-                if user_text_count == user_msg_index:
-                    cutoff_idx = i
-                    break
-                user_text_count += 1
-
-        self.session.truncate_messages(cutoff_idx)
+        self.session.truncate_messages(self._rollback_cutoff_index(message_timeline_index))
         save_current(self.session, self.session.filepath)
         self.reload_diff_summaries()
         info = self.current_meta()

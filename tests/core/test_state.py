@@ -102,3 +102,27 @@ def test_current_view_exposes_pending_interaction(tmp_path):
         assert view["interaction"]["pending_permission"]["tool"] == "read"
     finally:
         loop.close()
+
+
+def test_rollback_cutoff_keeps_target_user_message(tmp_path):
+    app_state = WebAppState()
+    app_state.cwd = str(tmp_path)
+    app_state.agent = SimpleNamespace(
+        mode="build",
+        model="gpt-test",
+        provider="test-provider",
+        _build_system_prompt=lambda _cwd: "system prompt",
+    )
+
+    session = Session(system_prompt="system prompt", title="Test Session")
+    session.messages.extend([
+        UserMessage(content="first"),
+        AssistantMessage(content="reply 1"),
+        UserMessage(content="second"),
+        AssistantMessage(content="reply 2"),
+    ])
+    session.filepath = str(tmp_path / "session.json")
+    session.save(session.filepath)
+    app_state.session_runtime._session = session
+
+    assert app_state.session_runtime._rollback_cutoff_index(3) == 4

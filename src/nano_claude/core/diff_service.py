@@ -287,6 +287,12 @@ def save_checkpoint(
 
 def get_checkpoint(cwd: str, checkpoint_filename: str) -> dict | None:
     """Read and return a specific checkpoint file."""
+    if (
+        not checkpoint_filename
+        or os.path.basename(checkpoint_filename) != checkpoint_filename
+        or os.path.isabs(checkpoint_filename)
+    ):
+        return None
     diff_dir = get_diff_dir(cwd)
     filepath = os.path.join(diff_dir, checkpoint_filename)
     if not os.path.isfile(filepath):

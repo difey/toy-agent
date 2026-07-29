@@ -79,11 +79,9 @@ export function useChatData({
 
   const loadWorkspacePanel = useCallback(async () => {
     try {
-      const data = await api<CurrentInfo>('GET', `/api/current${activeDiff ? `?active_diff=${encodeURIComponent(activeDiff)}` : ''}`);
+      const data = await api<CurrentInfo>('GET', '/api/current');
       setPlanDocs(data.workspace.plan_docs ?? []);
       setModifiedFiles(data.workspace.modified_files ?? []);
-      setActiveDiffFiles(data.workspace.active_diff_files ?? []);
-      setDiffFilePaths((data.workspace.active_diff_files ?? []).map((file) => file.path));
       const map: Record<string, DiffSummary> = {};
       for (const ds of data.workspace.diff_summaries ?? []) {
         map[ds.checkpoint_filename] = ds;
@@ -92,10 +90,8 @@ export function useChatData({
     } catch {
       setPlanDocs([]);
       setModifiedFiles([]);
-      setActiveDiffFiles([]);
-      setDiffFilePaths([]);
     }
-  }, [activeDiff]);
+  }, []);
 
   const refreshWorkspace = useCallback(async () => {
     setActiveDiff(null);
