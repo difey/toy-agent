@@ -7,11 +7,7 @@ from fastapi import APIRouter, HTTPException, Query
 from nano_claude.core.message import SystemMessage, UserMessage
 from nano_claude.core.state import state
 
-from nano_claude.interfaces.web.services.plan_service import (
-    get_plan_doc,
-    get_workspace_panel,
-    resolve_latest_plan,
-)
+from nano_claude.interfaces.web.services.plan_service import get_plan_doc, resolve_latest_plan
 
 router = APIRouter()
 
@@ -76,11 +72,11 @@ async def api_plan_doc(filename: str | None = Query(default=None)):
 
 
 @router.get("/api/workspace-panel")
-async def api_workspace_panel():
+async def api_workspace_panel(active_diff: str | None = Query(default=None)):
     """Return plan-doc and modified-file metadata for the right-side panel."""
-    return get_workspace_panel(state.cwd)
+    return state.workspace_view(active_diff)
 
 
 @router.get("/api/current")
-async def api_current():
-    return state.current_info()
+async def api_current(active_diff: str | None = Query(default=None)):
+    return state.current_view(active_diff)

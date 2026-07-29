@@ -10,7 +10,6 @@ import type {
   Mode,
   PlanDocListItem,
   SessionSummary,
-  WorkspacePanelResponse,
 } from '../../../shared/types';
 
 export function useChatData({
@@ -40,6 +39,35 @@ export function useChatData({
   const [diffFilePaths, setDiffFilePaths] = useState<string[]>([]);
   const [activeDiffFiles, setActiveDiffFiles] = useState<ModifiedFileItem[]>([]);
 
+  const applyCurrentView = useCallback((data: CurrentInfo) => {
+    setCurrentSession(data);
+    setSessions(data.session_catalog.sessions ?? []);
+    setSessionTitle(data.session_meta.title || 'nanoClaude');
+    setMode(data.app.mode || 'build');
+    commitMessages((prev) => {
+      const nextMessages = data.conversation.timeline || [];
+      return JSON.stringify(prev) === JSON.stringify(nextMessages) ? prev : nextMessages;
+    });
+    const initialCollapsed: Record<number, boolean> = {};
+    (data.conversation.timeline || []).forEach((msg, i) => {
+      if (msg.type === 'tool_start' || msg.type === 'tool_result') {
+        initialCollapsed[i] = true;
+      }
+    });
+    setCollapsedCards(initialCollapsed);
+    resetFlowState();
+    setPlanDocs(data.workspace.plan_docs ?? []);
+    setModifiedFiles(data.workspace.modified_files ?? []);
+    setActiveDiff(data.workspace.active_diff ?? null);
+    setActiveDiffFiles(data.workspace.active_diff_files ?? []);
+    setDiffFilePaths((data.workspace.active_diff_files ?? []).map((file) => file.path));
+    const map: Record<string, DiffSummary> = {};
+    for (const ds of data.workspace.diff_summaries ?? []) {
+      map[ds.checkpoint_filename] = ds;
+    }
+    setDiffSummaries(map);
+  }, [commitMessages, resetFlowState, setCollapsedCards, setMode, setSessionTitle]);
+
   const loadSessions = useCallback(async () => {
     try {
       const nextSessions = await api<SessionSummary[]>('GET', '/api/sessions');
@@ -51,14 +79,23 @@ export function useChatData({
 
   const loadWorkspacePanel = useCallback(async () => {
     try {
-      const data = await api<WorkspacePanelResponse>('GET', '/api/workspace-panel');
-      setPlanDocs(data.plan_docs ?? []);
-      setModifiedFiles(data.modified_files ?? []);
+      const data = await api<CurrentInfo>('GET', `/api/current${activeDiff ? `?active_diff=${encodeURIComponent(activeDiff)}` : ''}`);
+      setPlanDocs(data.workspace.plan_docs ?? []);
+      setModifiedFiles(data.workspace.modified_files ?? []);
+      setActiveDiffFiles(data.workspace.active_diff_files ?? []);
+      setDiffFilePaths((data.workspace.active_diff_files ?? []).map((file) => file.path));
+      const map: Record<string, DiffSummary> = {};
+      for (const ds of data.workspace.diff_summaries ?? []) {
+        map[ds.checkpoint_filename] = ds;
+      }
+      setDiffSummaries(map);
     } catch {
       setPlanDocs([]);
       setModifiedFiles([]);
+      setActiveDiffFiles([]);
+      setDiffFilePaths([]);
     }
-  }, []);
+  }, [activeDiff]);
 
   const refreshWorkspace = useCallback(async () => {
     setActiveDiff(null);
@@ -66,9 +103,14 @@ export function useChatData({
     setActiveDiffFiles([]);
     setIsRefreshing(true);
     try {
-      const data = await api<WorkspacePanelResponse>('GET', '/api/workspace-panel');
-      setPlanDocs(data.plan_docs ?? []);
-      setModifiedFiles(data.modified_files ?? []);
+      const data = await api<CurrentInfo>('GET', '/api/current');
+      setPlanDocs(data.workspace.plan_docs ?? []);
+      setModifiedFiles(data.workspace.modified_files ?? []);
+      const map: Record<string, DiffSummary> = {};
+      for (const ds of data.workspace.diff_summaries ?? []) {
+        map[ds.checkpoint_filename] = ds;
+      }
+      setDiffSummaries(map);
     } catch {
       setPlanDocs([]);
       setModifiedFiles([]);
@@ -80,37 +122,12 @@ export function useChatData({
   const loadCurrent = useCallback(async () => {
     try {
       const data = await api<CurrentInfo>('GET', '/api/current');
-      setCurrentSession(data);
-      setSessionTitle(data.title || 'nanoClaude');
-      setMode(data.mode || 'build');
-      commitMessages((prev) => {
-        const nextMessages = data.messages || [];
-        return JSON.stringify(prev) === JSON.stringify(nextMessages) ? prev : nextMessages;
-      });
-      const initialCollapsed: Record<number, boolean> = {};
-      (data.messages || []).forEach((msg, i) => {
-        if (msg.type === 'tool_start' || msg.type === 'tool_result') {
-          initialCollapsed[i] = true;
-        }
-      });
-      setCollapsedCards(initialCollapsed);
-      resetFlowState();
-      if (data.diff_summaries) {
-        const map: Record<string, DiffSummary> = {};
-        for (const ds of data.diff_summaries) {
-          map[ds.checkpoint_filename] = ds;
-        }
-        setDiffSummaries(map);
-      } else {
-        setDiffSummaries({});
-      }
-      await loadSessions();
-      await loadWorkspacePanel();
+      applyCurrentView(data);
       scheduleScrollBottom();
     } catch {
       showToast('Failed to load current session');
     }
-  }, [commitMessages, loadSessions, loadWorkspacePanel, resetFlowState, scheduleScrollBottom, setCollapsedCards, setMode, setSessionTitle, showToast]);
+  }, [applyCurrentView, scheduleScrollBottom, showToast]);
 
   useEffect(() => {
     if (!activeDiff) {
@@ -118,31 +135,10 @@ export function useChatData({
       setActiveDiffFiles([]);
       return;
     }
-    setDiffFilePaths([]);
-    setActiveDiffFiles([]);
     api<CheckpointData>('GET', `/api/diffs/${encodeURIComponent(activeDiff)}`)
       .then((data) => {
-        const paths: string[] = [];
-        const files: ModifiedFileItem[] = [];
-        if (data.files) {
-          for (const path of Object.keys(data.files.modified || {})) {
-            paths.push(path);
-            files.push({ path, status: 'modified' });
-          }
-          for (const path of Object.keys(data.files.deleted || {})) {
-            paths.push(path);
-            files.push({ path, status: 'deleted' });
-          }
-          for (const path of data.files.added || []) {
-            paths.push(path);
-            files.push({ path, status: 'added' });
-          }
-          for (const path of data.files.binary || []) {
-            paths.push(path);
-            files.push({ path, status: 'binary' });
-          }
-        }
-        setDiffFilePaths(paths);
+        const files = data.files_list ?? [];
+        setDiffFilePaths(files.map((file) => file.path));
         setActiveDiffFiles(files);
       })
       .catch(() => {
@@ -171,5 +167,6 @@ export function useChatData({
     loadWorkspacePanel,
     refreshWorkspace,
     loadCurrent,
+    applyCurrentView,
   };
 }

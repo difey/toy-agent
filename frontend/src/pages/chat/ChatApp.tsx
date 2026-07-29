@@ -161,8 +161,8 @@ export function ChatApp() {
     // Reload current info to get updated active_model/active_provider
     try {
       const current = await api<CurrentInfo>('GET', '/api/current');
-      setActiveModel(current.active_model);
-      setActiveProvider(current.active_provider);
+      setActiveModel(current.app.active_model);
+      setActiveProvider(current.app.active_provider);
     } catch {
       // ignore
     }
@@ -173,20 +173,14 @@ export function ChatApp() {
     planDocs,
     modifiedFiles,
     isRefreshing,
-    diffSummaries,
     activeDiff,
-    diffFilePaths,
     activeDiffFiles,
-    setSessions,
-    setCurrentSession,
-    setDiffSummaries,
     setActiveDiff,
     setDiffFilePaths,
     setActiveDiffFiles,
-    loadSessions,
-    loadWorkspacePanel,
     refreshWorkspace,
     loadCurrent,
+    applyCurrentView,
   } = useChatData({
     commitMessages,
     resetFlowState,
@@ -225,13 +219,12 @@ export function ChatApp() {
       const result = await api<{ mode: Mode; current: CurrentInfo }>('POST', '/api/mode', { mode: nextMode });
       setMode(result.mode);
       if (result.current) {
-        commitMessages(() => result.current.messages);
-        setSessionTitle(result.current.title || 'nanoClaude');
+        applyCurrentView(result.current);
       }
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Failed to switch mode');
     }
-  }, [commitMessages, isStreaming, mode, showToast]);
+  }, [applyCurrentView, isStreaming, mode, showToast]);
 
   const toggleCard = useCallback((index: number) => {
     setCollapsedCards((prev) => {
@@ -255,15 +248,9 @@ export function ChatApp() {
     rollbackAtMessage,
   } = useChatSessionActions({
     isStreaming,
-    commitMessages,
-    setCurrentSession,
-    setSessionTitle,
-    setSessions,
-    setDiffSummaries,
     setActiveDiff,
     setDiffFilePaths,
-    loadSessions,
-    loadWorkspacePanel,
+    applyCurrentView,
     scheduleScrollBottom,
     showToast,
     resetInteractionState,
@@ -323,13 +310,13 @@ export function ChatApp() {
     setInputText,
     setIsStreaming,
     setSessionTitle,
+    applyCurrentView,
     resetFlowState,
     scheduleScrollBottom,
     enqueueQuestion,
     receivePermissionRequest,
     clearAfterStreamDone,
-    loadSessions,
-    loadWorkspacePanel,
+    loadCurrent,
     updateLastAssistantMessage,
     showToast,
   });
@@ -375,7 +362,6 @@ export function ChatApp() {
   // messages from the last saved session), producing a visible flicker and
   // dropping the just-sent user message until the turn finished.
   useEffect(() => {
-    void loadSessions();
     void loadCurrent();
     void handleModelChanged();
 
@@ -394,7 +380,7 @@ export function ChatApp() {
         window.clearTimeout(toastTimerRef.current);
       }
     };
-  }, [closeEventSource, handleModelChanged, loadCurrent, loadSessions]);
+  }, [closeEventSource, handleModelChanged, loadCurrent]);
 
   useEffect(() => {
     scheduleScrollBottom();

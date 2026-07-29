@@ -1,19 +1,13 @@
 import { useCallback, type Dispatch, type SetStateAction } from 'react';
 
 import { api } from '../../../shared/api';
-import type { ChatMessage, CurrentInfo, DiffSummary, SessionSummary } from '../../../shared/types';
+import type { CurrentInfo, SessionSummary } from '../../../shared/types';
 
 export function useChatSessionActions({
   isStreaming,
-  commitMessages,
-  setCurrentSession,
-  setSessionTitle,
-  setSessions,
-  setDiffSummaries,
   setActiveDiff,
   setDiffFilePaths,
-  loadSessions,
-  loadWorkspacePanel,
+  applyCurrentView,
   scheduleScrollBottom,
   showToast,
   resetInteractionState,
@@ -21,15 +15,9 @@ export function useChatSessionActions({
   setSidebarOpen,
 }: {
   isStreaming: boolean;
-  commitMessages: (updater: (prev: ChatMessage[]) => ChatMessage[]) => void;
-  setCurrentSession: Dispatch<SetStateAction<CurrentInfo | null>>;
-  setSessionTitle: Dispatch<SetStateAction<string>>;
-  setSessions: Dispatch<SetStateAction<SessionSummary[]>>;
-  setDiffSummaries: Dispatch<SetStateAction<Record<string, DiffSummary>>>;
   setActiveDiff: Dispatch<SetStateAction<string | null>>;
   setDiffFilePaths: Dispatch<SetStateAction<string[]>>;
-  loadSessions: () => Promise<void>;
-  loadWorkspacePanel: () => Promise<void>;
+  applyCurrentView: (view: CurrentInfo) => void;
   scheduleScrollBottom: () => void;
   showToast: (message: string, timeout?: number) => void;
   resetInteractionState: (resetFlowState: () => void) => void;
@@ -44,15 +32,12 @@ export function useChatSessionActions({
     resetInteractionState(resetFlowState);
     try {
       const response = await api<{ ok: boolean; current: CurrentInfo }>('POST', '/api/sessions');
-      setCurrentSession(response.current);
-      commitMessages(() => response.current.messages);
-      setSessionTitle(response.current.title || 'nanoClaude');
-      await loadSessions();
+      applyCurrentView(response.current);
       setSidebarOpen(false);
     } catch {
       showToast('Failed to create session');
     }
-  }, [commitMessages, isStreaming, loadSessions, resetFlowState, resetInteractionState, setCurrentSession, setSessionTitle, setSidebarOpen, showToast]);
+  }, [applyCurrentView, isStreaming, resetFlowState, resetInteractionState, setSidebarOpen, showToast]);
 
   const switchSession = useCallback(async (sessionId: string) => {
     if (isStreaming) {
@@ -61,15 +46,12 @@ export function useChatSessionActions({
 
     try {
       const response = await api<{ ok: boolean; current: CurrentInfo }>('PUT', `/api/sessions/${encodeURIComponent(sessionId)}`);
-      setCurrentSession(response.current);
-      commitMessages(() => response.current.messages);
-      setSessionTitle(response.current.title || 'nanoClaude');
+      applyCurrentView(response.current);
       setSidebarOpen(false);
-      await loadSessions();
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Failed to switch session');
     }
-  }, [commitMessages, isStreaming, loadSessions, setCurrentSession, setSessionTitle, setSidebarOpen, showToast]);
+  }, [applyCurrentView, isStreaming, setSidebarOpen, showToast]);
 
   const deleteSession = useCallback(async (sessionId: string) => {
     if (isStreaming || !window.confirm('Delete this session?')) {
@@ -80,14 +62,11 @@ export function useChatSessionActions({
       const response = await api<{ ok: boolean; current: CurrentInfo; sessions: SessionSummary[] }>(
         'DELETE', `/api/sessions/${encodeURIComponent(sessionId)}`,
       );
-      commitMessages(() => response.current.messages);
-      setSessionTitle(response.current.title || 'nanoClaude');
-      setCurrentSession(response.current);
-      setSessions(response.sessions);
+      applyCurrentView(response.current);
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Failed to delete session');
     }
-  }, [commitMessages, isStreaming, setCurrentSession, setSessionTitle, setSessions, showToast]);
+  }, [applyCurrentView, isStreaming, showToast]);
 
   const forkAtMessage = useCallback(async (messageIndex: number) => {
     if (isStreaming) {
@@ -98,16 +77,13 @@ export function useChatSessionActions({
       const response = await api<{ ok: boolean; current: CurrentInfo }>(
         'POST', '/api/sessions/fork', { message_index: messageIndex },
       );
-      setCurrentSession(response.current);
-      commitMessages(() => response.current.messages);
-      setSessionTitle(response.current.title || 'nanoClaude');
-      await loadSessions();
+      applyCurrentView(response.current);
       showToast('Forked new session');
       scheduleScrollBottom();
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Failed to fork session');
     }
-  }, [commitMessages, isStreaming, loadSessions, scheduleScrollBottom, setCurrentSession, setSessionTitle, showToast]);
+  }, [applyCurrentView, isStreaming, scheduleScrollBottom, showToast]);
 
   const rollbackAtMessage = useCallback(async (messageIndex: number) => {
     if (isStreaming) {
@@ -122,28 +98,15 @@ export function useChatSessionActions({
       const response = await api<{ ok: boolean; current: CurrentInfo }>(
         'POST', '/api/sessions/rollback', { message_index: messageIndex },
       );
-      setCurrentSession(response.current);
-      commitMessages(() => response.current.messages);
-      setSessionTitle(response.current.title || 'nanoClaude');
-      setDiffSummaries(() => {
-        const newSummaries: Record<string, DiffSummary> = {};
-        if (response.current.diff_summaries) {
-          for (const ds of response.current.diff_summaries) {
-            newSummaries[ds.checkpoint_filename] = ds;
-          }
-        }
-        return newSummaries;
-      });
+      applyCurrentView(response.current);
       setActiveDiff(null);
       setDiffFilePaths([]);
-      await loadSessions();
-      await loadWorkspacePanel();
       showToast('回滚成功');
       scheduleScrollBottom();
     } catch (error) {
       showToast(error instanceof Error ? error.message : '回滚失败');
     }
-  }, [commitMessages, isStreaming, loadSessions, loadWorkspacePanel, scheduleScrollBottom, setActiveDiff, setCurrentSession, setDiffFilePaths, setDiffSummaries, setSessionTitle, showToast]);
+  }, [applyCurrentView, isStreaming, scheduleScrollBottom, setActiveDiff, setDiffFilePaths, showToast]);
 
   return {
     newSession,

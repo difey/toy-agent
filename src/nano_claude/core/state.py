@@ -1,11 +1,17 @@
-"""Shared in-memory application state for the Web UI server."""
+"""Shared in-memory application state and client-facing projections."""
 
 import asyncio
 import os
-from typing import Any
+from typing import Any, Callable
 
 from nano_claude.core.agent import Agent
+from nano_claude.core.diff_service import (
+    RollbackError,
+    list_checkpoints_for_session,
+    rollback_to_checkpoint,
+)
 from nano_claude.core.message import UserMessage
+from nano_claude.core.projections import build_timeline
 from nano_claude.core.session import (
     Session,
     list_sessions,
@@ -14,63 +20,135 @@ from nano_claude.core.session import (
     session_info,
     session_path,
 )
+from nano_claude.core.workspace import build_workspace_view
 from nano_claude.infra.bootstrap import build_agent
-
-from nano_claude.interfaces.web.serializers import serialize_messages_for_api
-from nano_claude.core.diff_service import (
-    list_checkpoints_for_session,
-    rollback_to_checkpoint,
-    RollbackError,
-)
 from nano_claude.interfaces.web.services.provider_service import (
     ProviderInfo,
-    list_providers as _list_provider_files,
-    load_provider,
-    save_provider,
     delete_provider,
+    list_providers as _list_provider_files,
+    save_provider,
 )
 
 
-class WebAppState:
-    """Shared mutable state for the web UI server."""
+class InteractionState:
+    """Encapsulates pending user interaction state and its public view."""
 
     def __init__(self):
-        self.agent: Agent | None = None
-        self.cwd: str = ""
-        self.session: Session | None = None
-        # SSE queues: keyed by response_id
-        self._sse_queues: dict[str, asyncio.Queue] = {}
-        self._running_response_id: str | None = None
-        # Running state for cancellation
-        self._running: bool = False
-        self._running_task: asyncio.Task | None = None
-        # Pending permission state (for file access approval)
-        self._pending_permission: dict | None = None  # {future, tool, target, resolved_path}
-        # Pending question state (for question tool)
-        self._pending_question: dict | None = None  # {future, header, question, options, multiple}
-        # Multi-provider state
-        self.providers: dict[str, ProviderInfo] = {}  # keyed by user-defined name
+        self._pending_permission: dict | None = None
+        self._pending_question: dict | None = None
+        self._next_request_id = 1
 
-    def initialize(self, cwd: str) -> None:
-        """Web UI 启动时一次性初始化 state。
+    def _request_id(self) -> str:
+        request_id = f"req_{self._next_request_id}"
+        self._next_request_id += 1
+        return request_id
 
-        只接受外部传入的 cwd，其余（agent、session 等）从磁盘/配置读取。
-        """
-        self.cwd = cwd
-        self.agent = build_agent(cwd=self.cwd, mode="build")
-        session, session_file = resume_or_create_session(self.cwd)
-        self.session = session
-        self.session.filepath = session_file
-        self._reload_diff_summaries()
-        self.load_providers()
+    def begin_permission(
+        self,
+        future: asyncio.Future,
+        *,
+        tool: str,
+        target: str,
+        resolved_path: str,
+        cwd: str,
+    ) -> dict:
+        self._pending_permission = {
+            "future": future,
+            "request_id": self._request_id(),
+            "tool": tool,
+            "target": target,
+            "resolved_path": resolved_path,
+            "cwd": cwd,
+        }
+        return self._pending_permission
 
-    # ── session helpers ─────────────────────────────────────────────────
+    def clear_permission(self) -> None:
+        self._pending_permission = None
+
+    def begin_question(
+        self,
+        future: asyncio.Future,
+        *,
+        header: str,
+        question: str,
+        options: list[dict],
+        multiple: bool,
+    ) -> dict:
+        self._pending_question = {
+            "future": future,
+            "request_id": self._request_id(),
+            "header": header,
+            "question": question,
+            "options": options,
+            "multiple": multiple,
+        }
+        return self._pending_question
+
+    def clear_question(self) -> None:
+        self._pending_question = None
+
+    @property
+    def pending_permission(self) -> dict | None:
+        return self._pending_permission
+
+    @property
+    def pending_question(self) -> dict | None:
+        return self._pending_question
+
+    def view(self) -> dict:
+        permission_view = None
+        question_view = None
+        if self._pending_permission is not None:
+            permission_view = {
+                "request_id": self._pending_permission["request_id"],
+                "tool": self._pending_permission["tool"],
+                "target": self._pending_permission["target"],
+                "resolved_path": self._pending_permission["resolved_path"],
+                "cwd": self._pending_permission["cwd"],
+            }
+        if self._pending_question is not None:
+            question_view = {
+                "request_id": self._pending_question["request_id"],
+                "header": self._pending_question["header"],
+                "question": self._pending_question["question"],
+                "options": self._pending_question["options"],
+                "multiple": self._pending_question["multiple"],
+            }
+        return {
+            "pending_permission": permission_view,
+            "pending_question": question_view,
+        }
+
+
+class SessionRuntime:
+    """Encapsulates current session lifecycle and derived views."""
+
+    def __init__(
+        self,
+        cwd_getter: Callable[[], str],
+        agent_getter: Callable[[], Agent | None],
+    ):
+        self._cwd_getter = cwd_getter
+        self._agent_getter = agent_getter
+        self._session: Session | None = None
+
+    @property
+    def session(self) -> Session:
+        if self._session is None:
+            raise RuntimeError("Session runtime is not initialized")
+        return self._session
+
+    def initialize(self) -> None:
+        cwd = self._cwd_getter()
+        session, session_file = resume_or_create_session(cwd)
+        self._session = session
+        self._session.filepath = session_file
+        self.reload_diff_summaries()
 
     def _refresh_sessions(self) -> list[str]:
-        return list_sessions(self.cwd)
+        return list_sessions(self._cwd_getter())
 
     def _find_session_by_name(self, name: str) -> str | None:
-        """查找 session 文件名（不含扩展名）对应的完整路径。"""
         for f in self._refresh_sessions():
             if os.path.splitext(os.path.basename(f))[0] == name:
                 return f
@@ -83,9 +161,8 @@ class WebAppState:
         for f in files:
             info = session_info(f)
             info["id"] = info["name"]
-            info["is_current"] = (os.path.abspath(f) == current_abs)
+            info["is_current"] = os.path.abspath(f) == current_abs
             result.append(info)
-        # 按 updated_at（后备 created_at）降序排列
         result.sort(
             key=lambda s: s.get("updated_at") or s.get("created_at") or 0,
             reverse=True,
@@ -93,38 +170,34 @@ class WebAppState:
         return result
 
     def _load_session_to_current(self, filepath: str) -> bool:
-        """Load a session file into the current state.session.
-
-        Copies messages and title from the loaded session. Returns True on
-        success, False on failure (e.g. file corrupt).
-        """
         try:
             new_session = Session.load(filepath)
         except Exception:
             return False
         self.session.load_messages_from(new_session)
-        self._reload_diff_summaries()
+        self.reload_diff_summaries()
         return True
 
     def load_session_by_name(self, name: str) -> str | None:
-        """Load a session by filename (without extension). Returns error message or None."""
         target = self._find_session_by_name(name)
         if target is None:
             return f"Invalid session: {name}"
         if os.path.abspath(target) == os.path.abspath(self.session.filepath):
-            return None  # already current
+            return None
         save_current(self.session, self.session.filepath)
         if not self._load_session_to_current(target):
             return f"Failed to load session: {target}"
         return None
 
-    def _resume_or_fresh(self) -> None:
-        """Switch to the most recent session, or create a fresh one.
+    def _create_fresh_session(self) -> None:
+        cwd = self._cwd_getter()
+        self.session.clear_messages()
+        self.session.filepath = session_path(cwd)
+        agent = self._agent_getter()
+        if agent:
+            self.session._ensure_system_prompt(agent._build_system_prompt(cwd))
 
-        Mirrors the logic of ``resume_or_create_session()`` but operates on
-        the existing in-memory ``state.session`` instead of returning a new
-        Session object.
-        """
+    def _resume_or_fresh(self) -> None:
         remaining = self._refresh_sessions()
         if remaining:
             if not self._load_session_to_current(remaining[-1]):
@@ -133,115 +206,67 @@ class WebAppState:
             self._create_fresh_session()
 
     def delete_session_by_name(self, name: str) -> str | None:
-        """Delete a session by filename (without extension).
-
-        If the active session is deleted, automatically switches to the most
-        recent remaining session. Returns error message or None.
-        """
         target = self._find_session_by_name(name)
         if target is None:
             return f"Invalid session: {name}"
         is_current = os.path.abspath(target) == os.path.abspath(self.session.filepath)
-
         try:
             os.remove(target)
         except OSError as e:
             return f"Error: {e}"
-
         if is_current:
             self._resume_or_fresh()
-
         return None
 
-    def _create_fresh_session(self) -> None:
-        """Reset to a fresh empty session."""
-        self.session.clear_messages()
-        self.session.filepath = session_path(self.cwd)
-        if self.agent:
-            self.session._ensure_system_prompt(self.agent._build_system_prompt(self.cwd))
+    def timeline(self) -> list[dict]:
+        return build_timeline(self.session.messages)
 
-    def fork_session(self, message_api_index: int) -> dict:
-        """Fork the current session at the given user message index.
-
-        Creates a new session with all messages before the referenced user
-        message, saves it to disk, and switches the current session to it.
-
-        Args:
-            message_api_index: Zero-based index of the user message in the
-                               serialized API message array (as seen by the
-                               frontend, which includes expanded tool entries).
-
-        Returns:
-            The current_info dict for the new forked session.
-        """
-        save_current(self.session, self.session.filepath)
-
-        # Convert API message array index to user-text-only index.
-        # The API array has tool_start/tool_result entries expanded, so
-        # we need to count only user/text messages to get the correct
-        # index for Session.fork().
-        api_messages = serialize_messages_for_api(self.session.messages)
+    def _timeline_index_to_user_index(self, message_timeline_index: int) -> int:
+        timeline = self.timeline()
         user_msg_index = 0
-        for i, m in enumerate(api_messages):
-            if i == message_api_index:
+        for i, item in enumerate(timeline):
+            if i == message_timeline_index:
                 break
-            if m.get("role") == "user" and m.get("type") == "text":
+            if item.get("role") == "user" and item.get("type") == "text":
                 user_msg_index += 1
+        return user_msg_index
 
+    def fork_session(self, message_timeline_index: int) -> dict:
+        cwd = self._cwd_getter()
+        save_current(self.session, self.session.filepath)
+        user_msg_index = self._timeline_index_to_user_index(message_timeline_index)
         forked = self.session.fork(user_msg_index)
-        new_path = session_path(self.cwd)
+        new_path = session_path(cwd)
         forked.save(new_path)
         self.session.load_messages_from(forked)
-        # Reload diff summaries for the new fork
-        self._reload_diff_summaries()
-        return self.current_info()
+        self.reload_diff_summaries()
+        return self.current_meta()
 
-    def rollback_session(self, message_api_index: int) -> dict:
-        """Rollback all changes (files + messages) after the given user message.
-
-        1. Restore files via checkpoint rollback (with git hash check).
-        2. Truncate session messages after that message.
-        3. Save and return updated current_info.
-
-        Args:
-            message_api_index: Zero-based index of the user message in the
-                               serialized API message array (same as fork).
-
-        Returns:
-            dict with ``current`` (CurrentInfo), ``skipped_files``, and
-            ``errors`` keys.
-        """
+    def rollback_session(self, message_timeline_index: int) -> dict:
+        cwd = self._cwd_getter()
         save_current(self.session, self.session.filepath)
+        timeline = self.timeline()
+        if message_timeline_index < 0 or message_timeline_index >= len(timeline):
+            raise ValueError(f"Invalid message index: {message_timeline_index}")
 
-        # ── 1. Find the target user message's timestamp ──────────────
-        api_messages = serialize_messages_for_api(self.session.messages)
-        if message_api_index < 0 or message_api_index >= len(api_messages):
-            raise ValueError(f"Invalid message index: {message_api_index}")
-
-        target_msg = api_messages[message_api_index]
+        target_msg = timeline[message_timeline_index]
         target_ts: float = target_msg.get("timestamp", 0.0)
         if target_ts == 0.0:
             raise ValueError("Target message has no timestamp")
 
-        # ── 2. Restore files via checkpoint rollback ─────────────────
         session_file_basename = os.path.basename(self.session.filepath)
         hash_error = None
         try:
             skipped, errors = rollback_to_checkpoint(
-                self.cwd, target_ts, session_file_basename,
+                cwd,
+                target_ts,
+                session_file_basename,
             )
         except RollbackError as e:
             hash_error = str(e)
             skipped, errors = [], [hash_error]
 
-        # ── 3. Truncate session messages after this message ──────────
-        user_msg_index = 0
-        for i, m in enumerate(api_messages):
-            if i == message_api_index:
-                break
-            if m.get("role") == "user" and m.get("type") == "text":
-                user_msg_index += 1
-
+        user_msg_index = self._timeline_index_to_user_index(message_timeline_index)
         user_text_count = 0
         cutoff_idx = len(self.session.messages)
         for i, msg in enumerate(self.session.messages):
@@ -252,68 +277,175 @@ class WebAppState:
                 user_text_count += 1
 
         self.session.truncate_messages(cutoff_idx)
-
-        # ── 4. Save and reload diff summaries ───────────────────────────
         save_current(self.session, self.session.filepath)
-        self._reload_diff_summaries()
-        info = self.current_info()
+        self.reload_diff_summaries()
+        info = self.current_meta()
         info["skipped_files"] = skipped
         info["errors"] = errors
         info["rollback_hash_error"] = hash_error is not None
         return info
 
     def new_session(self) -> None:
+        cwd = self._cwd_getter()
         save_current(self.session, self.session.filepath)
         self.session.clear_messages()
-        if self.agent:
-            self.session._ensure_system_prompt(self.agent._build_system_prompt(self.cwd))
-        self.session.filepath = session_path(self.cwd)
+        agent = self._agent_getter()
+        if agent:
+            self.session._ensure_system_prompt(agent._build_system_prompt(cwd))
+        self.session.filepath = session_path(cwd)
 
-    def current_info(self) -> dict:
-        info = session_info(self.session.filepath)
-        info["is_current"] = True
-        info["id"] = info["name"]
-        info["messages"] = serialize_messages_for_api(self.session.messages)
-        info["mode"] = self.agent.mode if self.agent else "build"
-        info["setup_needed"] = self.agent is None
-        # Use diff_summaries cached on the session instead of reading from disk
-        info["diff_summaries"] = list(self.session.diff_summaries.values())
-        # Active model/provider info
-        info["active_model"] = self.agent.model if self.agent else None
-        info["active_provider"] = self.agent.provider if self.agent else None
-        return info
-
-    def _reload_diff_summaries(self) -> None:
-        """Reload diff summaries from disk for the current session."""
+    def reload_diff_summaries(self) -> None:
         session_basename = os.path.basename(self.session.filepath)
-        summaries = list_checkpoints_for_session(self.cwd, session_basename)
-        # Build a dict keyed by checkpoint_filename for easy lookup
+        summaries = list_checkpoints_for_session(self._cwd_getter(), session_basename)
         self.session.set_diff_summaries({s["checkpoint_filename"]: s for s in summaries})
 
     def add_diff_summary(self, checkpoint_filename: str, summary: dict) -> None:
-        """Add or update a diff summary for a checkpoint."""
         self.session.add_diff_summary(checkpoint_filename, summary)
 
-    # ── Provider helpers ────────────────────────────────────────────────
+    def diff_summaries(self) -> list[dict]:
+        return list(self.session.diff_summaries.values())
+
+    def current_meta(self) -> dict:
+        info = session_info(self.session.filepath)
+        info["is_current"] = True
+        info["id"] = info["name"]
+        return info
+
+
+class WebAppState:
+    """Shared mutable state for the web UI server."""
+
+    def __init__(self):
+        self.agent: Agent | None = None
+        self.cwd: str = ""
+        self.session_runtime = SessionRuntime(lambda: self.cwd, lambda: self.agent)
+        self.interaction = InteractionState()
+        self._sse_queues: dict[str, asyncio.Queue] = {}
+        self._running_response_id: str | None = None
+        self._running: bool = False
+        self._running_task: asyncio.Task | None = None
+        self._last_error: str | None = None
+        self.providers: dict[str, ProviderInfo] = {}
+
+    @property
+    def session(self) -> Session:
+        return self.session_runtime.session
+
+    @property
+    def _pending_permission(self) -> dict | None:
+        return self.interaction.pending_permission
+
+    @property
+    def _pending_question(self) -> dict | None:
+        return self.interaction.pending_question
+
+    def initialize(self, cwd: str) -> None:
+        self.cwd = cwd
+        self.agent = build_agent(cwd=self.cwd, mode="build")
+        self.session_runtime.initialize()
+        self.load_providers()
+
+    def _status(self) -> str:
+        if self.interaction.pending_permission is not None:
+            return "awaiting_permission"
+        if self.interaction.pending_question is not None:
+            return "awaiting_question"
+        if self._running:
+            return "running"
+        if self._last_error:
+            return "error"
+        return "idle"
+
+    def clear_error(self) -> None:
+        self._last_error = None
+
+    def set_error(self, message: str) -> None:
+        self._last_error = message
+
+    def app_view(self) -> dict:
+        return {
+            "cwd": self.cwd,
+            "mode": self.agent.mode if self.agent else "build",
+            "status": self._status(),
+            "setup_needed": self.agent is None,
+            "active_model": self.agent.model if self.agent else None,
+            "active_provider": self.agent.provider if self.agent else None,
+            "last_error": self._last_error,
+        }
+
+    def session_catalog_view(self) -> dict:
+        return {
+            "sessions": self.session_runtime.sessions_list(),
+        }
+
+    def workspace_view(self, active_diff: str | None = None) -> dict:
+        return build_workspace_view(
+            self.cwd,
+            self.session_runtime.diff_summaries(),
+            active_diff=active_diff,
+        )
+
+    def current_view(self, active_diff: str | None = None) -> dict:
+        return {
+            "app": self.app_view(),
+            "session_meta": self.session_runtime.current_meta(),
+            "session_catalog": self.session_catalog_view(),
+            "conversation": {
+                "timeline": self.session_runtime.timeline(),
+            },
+            "interaction": self.interaction.view(),
+            "workspace": self.workspace_view(active_diff),
+        }
+
+    def current_info(self) -> dict:
+        return self.current_view()
+
+    def _find_session_by_name(self, name: str) -> str | None:
+        return self.session_runtime._find_session_by_name(name)
+
+    def _refresh_sessions(self) -> list[str]:
+        return self.session_runtime._refresh_sessions()
+
+    def sessions_list(self) -> list[dict]:
+        return self.session_runtime.sessions_list()
+
+    def load_session_by_name(self, name: str) -> str | None:
+        return self.session_runtime.load_session_by_name(name)
+
+    def delete_session_by_name(self, name: str) -> str | None:
+        return self.session_runtime.delete_session_by_name(name)
+
+    def fork_session(self, message_api_index: int) -> dict:
+        self.session_runtime.fork_session(message_api_index)
+        return self.current_view()
+
+    def rollback_session(self, message_api_index: int) -> dict:
+        result = self.session_runtime.rollback_session(message_api_index)
+        current = self.current_view()
+        current["skipped_files"] = result.get("skipped_files", [])
+        current["errors"] = result.get("errors", [])
+        current["rollback_hash_error"] = result.get("rollback_hash_error", False)
+        return current
+
+    def new_session(self) -> None:
+        self.session_runtime.new_session()
+
+    def add_diff_summary(self, checkpoint_filename: str, summary: dict) -> None:
+        self.session_runtime.add_diff_summary(checkpoint_filename, summary)
 
     def load_providers(self) -> None:
-        """Reload all provider configs from disk into memory."""
         providers_list = _list_provider_files()
         self.providers.clear()
         for p in providers_list:
             self.providers[p.name] = p
 
     def add_provider(self, info: ProviderInfo) -> None:
-        """Add or replace a provider in both memory and disk."""
         save_provider(info)
         self.providers[info.name] = info
 
     def remove_provider(self, name: str) -> None:
-        """Remove a provider from both memory and disk."""
         delete_provider(name)
         self.providers.pop(name, None)
-
-    # ── SSE helpers ─────────────────────────────────────────────────────
 
     def create_sse_queue(self, response_id: str) -> asyncio.Queue:
         q: asyncio.Queue = asyncio.Queue()
@@ -330,13 +462,10 @@ class WebAppState:
             self._running_response_id = None
 
     async def push_event(self, event: str, data: dict) -> None:
-        """Push an event to the currently running SSE queue."""
         if self._running_response_id:
             q = self._sse_queues.get(self._running_response_id)
             if q:
                 await q.put((event, data))
 
-
-# ── Globally shared state instance ──────────────────────────────────────
 
 state = WebAppState()

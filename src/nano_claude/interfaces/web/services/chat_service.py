@@ -91,51 +91,54 @@ async def _execute_chat(state: WebAppState, response_id: str) -> None:
         Pushes a 'permission_request' SSE event to the frontend and waits
         for the user's decision (allow / deny / allow_always).
         """
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
+        pending = state.interaction.begin_permission(
+            future,
+            tool=tool,
+            target=target,
+            resolved_path=resolved_path,
+            cwd=cwd,
+        )
         await state.push_event("permission_request", {
+            "request_id": pending["request_id"],
             "tool": tool,
             "target": target,
             "resolved_path": resolved_path,
             "cwd": cwd,
         })
-        loop = asyncio.get_running_loop()
-        future = loop.create_future()
-        state._pending_permission = {
-            "future": future,
-            "tool": tool,
-            "target": target,
-            "resolved_path": resolved_path,
-        }
         try:
             result = await asyncio.wait_for(future, timeout=120)
             return result
         except asyncio.TimeoutError:
             return "deny"
         finally:
-            state._pending_permission = None
+            state.interaction.clear_permission()
 
     async def ask_user_callback(header: str, question: str, options: list[dict], multiple: bool) -> list[str]:
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
+        pending = state.interaction.begin_question(
+            future,
+            header=header,
+            question=question,
+            options=options,
+            multiple=multiple,
+        )
         await state.push_event("question", {
+            "request_id": pending["request_id"],
             "header": header,
             "question": question,
             "options": options,
             "multiple": multiple,
         })
-        loop = asyncio.get_running_loop()
-        future = loop.create_future()
-        state._pending_question = {
-            "future": future,
-            "header": header,
-            "question": question,
-            "options": options,
-            "multiple": multiple,
-        }
         try:
             result = await asyncio.wait_for(future, timeout=300)
             return result
         except asyncio.TimeoutError:
             return ["(skipped)"]
         finally:
-            state._pending_question = None
+            state.interaction.clear_question()
 
     async def on_event(event_type: str, data: dict):
         """Push sub-agent real-time events as SSE sub_agent_message events."""
@@ -157,6 +160,7 @@ async def _execute_chat(state: WebAppState, response_id: str) -> None:
     agent.on_event_callback = on_event
 
     try:
+        state.clear_error()
         # Take snapshot before agent runs to detect file changes
         before_snapshot, before_content, before_binary = take_snapshot(cwd)
 
@@ -224,6 +228,7 @@ async def _execute_chat(state: WebAppState, response_id: str) -> None:
         await state.push_event("done", {})
     except Exception:
         tb = traceback.format_exc()
+        state.set_error(tb)
         await state.push_event("error", {"message": tb})
     finally:
         agent.on_text_delta = original_on_text

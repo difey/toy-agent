@@ -356,6 +356,11 @@ def _build_files_list(checkpoint: dict) -> list[dict]:
     return files_list
 
 
+def list_checkpoint_files(checkpoint: dict) -> list[dict]:
+    """Return a simplified list of changed files for a checkpoint."""
+    return _build_files_list(checkpoint)
+
+
 # ── Mapping helpers ────────────────────────────────────────────────────────
 
 
