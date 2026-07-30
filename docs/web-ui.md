@@ -31,7 +31,7 @@ src/nano_claude/interfaces/web/
 ├── app.py                     ← FastAPI app factory; mounts built asset chunks
 ├── state.py                   ← WebAppState class + shared `state` singleton
 ├── models.py                  ← Pydantic request/response models
-├── serializers.py             ← core message → API dict conversion
+├── (serialization handled by core.projections.build_timeline)
 ├── routers/
 │   ├── pages.py               ← GET /, /setup, /plan-view (serves built HTML)
 │   ├── system.py              ← health, mode, vscode, plan-doc, current
@@ -39,12 +39,10 @@ src/nano_claude/interfaces/web/
 │   ├── setup.py               ← setup wizard endpoints
 │   └── chat.py                ← chat, stop, events (SSE), question/permission responses
 └── services/
-    ├── chat_service.py        ← wires core Agent callbacks to SSE events
-    ├── setup_service.py       ← builds/updates the core Agent from config
-    └── plan_service.py        ← reads/resolves the latest plan markdown
+    └── chat_service.py        ← wires core Agent callbacks to SSE events
 ```
 
-Routers only handle HTTP concerns (request parsing, status codes) and delegate business logic to `services/`, which in turn drive the `core.Agent` and `infra` session helpers.
+Routers only handle HTTP concerns (request parsing, status codes) and delegate business logic to `core/` state and services.
 
 ### Built asset serving
 
@@ -82,7 +80,6 @@ Shared mutable state (`WebAppState` class) holds:
 | `GET` | `/api/sessions/{idx}` | Get session by index |
 | `PUT` | `/api/sessions/{idx}` | Switch to session |
 | `DELETE` | `/api/sessions/{idx}` | Delete session |
-| `DELETE` | `/api/sessions` | Delete all non-current sessions |
 | `POST` | `/api/chat` | Send a message (returns response_id) |
 | `POST` | `/api/stop` | Request graceful stop of the current AI response |
 | `GET` | `/api/events` | SSE stream (consumes response_id) |

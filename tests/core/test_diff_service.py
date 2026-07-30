@@ -47,3 +47,8 @@ def test_list_checkpoints_for_session_supports_legacy_diff_filename(tmp_path, mo
     saved_mapping = json.loads(mapping_path.read_text(encoding="utf-8"))
     assert saved_mapping["version"] == 2
     assert saved_mapping["mappings"][0]["checkpoint_filename"] == checkpoint_name
+
+
+def test_get_checkpoint_rejects_path_traversal(tmp_path, monkeypatch):
+    monkeypatch.setattr(diff_service, "get_diff_dir", lambda _cwd: str(tmp_path))
+    assert diff_service.get_checkpoint("/repo", "../secrets.json") is None

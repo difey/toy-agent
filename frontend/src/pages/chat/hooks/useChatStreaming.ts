@@ -25,13 +25,13 @@ export function useChatStreaming({
   setInputText,
   setIsStreaming,
   setSessionTitle,
+  applyCurrentView,
   resetFlowState,
   scheduleScrollBottom,
   enqueueQuestion,
   receivePermissionRequest,
   clearAfterStreamDone,
-  loadSessions,
-  loadWorkspacePanel,
+  loadCurrent,
   updateLastAssistantMessage,
   showToast,
 }: {
@@ -44,13 +44,13 @@ export function useChatStreaming({
   setInputText: Dispatch<SetStateAction<string>>;
   setIsStreaming: Dispatch<SetStateAction<boolean>>;
   setSessionTitle: Dispatch<SetStateAction<string>>;
+  applyCurrentView: (view: CurrentInfo) => void;
   resetFlowState: () => void;
   scheduleScrollBottom: () => void;
   enqueueQuestion: (payload: QuestionDialog) => void;
   receivePermissionRequest: (payload: PermissionRequest) => void;
   clearAfterStreamDone: () => void;
-  loadSessions: () => Promise<void>;
-  loadWorkspacePanel: () => Promise<void>;
+  loadCurrent: () => Promise<void>;
   updateLastAssistantMessage: (updater: (message: ChatMessage) => ChatMessage | null) => void;
   showToast: (message: string, timeout?: number) => void;
 }) {
@@ -87,8 +87,8 @@ export function useChatStreaming({
 
       const currentInfo = data.current;
       if (currentInfo) {
-        commitMessages(() => currentInfo.messages);
-        setSessionTitle(currentInfo.title || 'nanoClaude');
+        applyCurrentView(currentInfo);
+        setSessionTitle(currentInfo.session_meta.title || 'nanoClaude');
       }
 
       closeEventSource();
@@ -270,11 +270,10 @@ export function useChatStreaming({
         setIsStreaming(false);
         updateLastAssistantMessage((last) => (last.content.trim() ? last : null));
         try {
-          await loadSessions();
+          await loadCurrent();
         } catch {
-          // loadSessions already handles errors.
+          // loadCurrent already handles errors.
         }
-        void loadWorkspacePanel();
         scheduleScrollBottom();
       });
 
@@ -290,19 +289,13 @@ export function useChatStreaming({
         setIsStreaming(false);
         updateLastAssistantMessage((last) => ({ ...last, content: `${last.content}\n\n⚠️ Error: ${message}` }));
         scheduleScrollBottom();
-        try {
-          await loadSessions();
-        } catch {
-          // loadSessions already handles errors.
-        }
-        void loadWorkspacePanel();
       });
     } catch (error) {
       updateLastAssistantMessage(() => ({ role: 'assistant', type: 'text', content: `Error: ${error instanceof Error ? error.message : 'Unknown error'}` }));
       setIsStreaming(false);
       showToast(error instanceof Error ? error.message : 'Failed to send message');
     }
-  }, [clearAfterStreamDone, closeEventSource, commitMessages, delegateFlowCounterRef, enqueueQuestion, loadSessions, loadWorkspacePanel, messagesRef, receivePermissionRequest, resetFlowState, scheduleScrollBottom, setCollapsedCards, setDelegateFlowMap, setInputText, setIsStreaming, setSessionTitle, setSubAgentFlows, showToast, updateLastAssistantMessage]);
+  }, [applyCurrentView, clearAfterStreamDone, closeEventSource, commitMessages, delegateFlowCounterRef, enqueueQuestion, loadCurrent, messagesRef, receivePermissionRequest, resetFlowState, scheduleScrollBottom, setCollapsedCards, setDelegateFlowMap, setInputText, setIsStreaming, setSessionTitle, setSubAgentFlows, showToast, updateLastAssistantMessage]);
 
   const stopResponse = useCallback(async () => {
     try {

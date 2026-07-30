@@ -5,7 +5,6 @@ from fastapi.responses import StreamingResponse
 
 from nano_claude.core.state import state
 from nano_claude.interfaces.web.models import ChatRequest
-from nano_claude.interfaces.web.services.chat_service import run_chat, sse_event_generator
 
 router = APIRouter()
 
@@ -23,7 +22,10 @@ async def api_chat(req: ChatRequest):
     await state.session.add_user_message(message)
 
     # Schedule agent background task
-    response_id = await run_chat(state)
+    try:
+        response_id = await state.run_chat()
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
 
     # Return full current state (user message included with timestamp)
     return {
@@ -35,37 +37,31 @@ async def api_chat(req: ChatRequest):
 @router.post("/api/stop")
 async def api_stop():
     """Cancel the current AI response task."""
-    if not state._running or state._running_task is None:
-        return {"ok": True, "already_stopped": True}
-    state._running_task.cancel()
-    return {"ok": True}
+    already_stopped = not state.stop_running()
+    return {"ok": True, "already_stopped": already_stopped}
 
 
 @router.post("/api/question-answer")
 async def api_question_answer(body: dict):
-    if state._pending_question is None:
-        raise HTTPException(status_code=400, detail="No pending question")
     answer = body.get("answer")
     if answer is None:
         raise HTTPException(status_code=400, detail="Missing 'answer' field")
-    if isinstance(answer, str):
-        answer = [answer]
-    future = state._pending_question["future"]
-    if not future.done():
-        future.set_result(answer)
+    try:
+        state.respond_question(answer)
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return {"ok": True}
 
 
 @router.post("/api/permission-response")
 async def api_permission_response(body: dict):
-    if state._pending_permission is None:
-        raise HTTPException(status_code=400, detail="No pending permission request")
     decision = body.get("decision")
-    if decision not in ("allow", "deny", "allow_always"):
-        raise HTTPException(status_code=400, detail="Decision must be 'allow', 'deny', or 'allow_always'")
-    future = state._pending_permission["future"]
-    if not future.done():
-        future.set_result(decision)
+    if not decision:
+        raise HTTPException(status_code=400, detail="Missing 'decision' field")
+    try:
+        state.respond_permission(decision)
+    except (RuntimeError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return {"ok": True}
 
 
@@ -76,7 +72,7 @@ async def api_events(response_id: str = Query(...)):
         raise HTTPException(status_code=404, detail="Response stream not found")
 
     return StreamingResponse(
-        sse_event_generator(state, response_id),
+        state.sse_event_generator(response_id),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

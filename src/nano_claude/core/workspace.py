@@ -1,9 +1,10 @@
-"""Plan-document service — plan docs + modified-file metadata for the web UI."""
+"""Workspace-side state projections shared across clients."""
 
 import os
 import subprocess
 from pathlib import Path
 
+from nano_claude.core.diff_service import get_checkpoint, list_checkpoint_files
 from nano_claude.core.session import get_plan_dir
 
 MIN_GIT_STATUS_LINE_LENGTH = 4
@@ -28,7 +29,6 @@ def _list_plan_files(cwd: str) -> list[Path]:
 
 
 def list_plan_docs(cwd: str) -> list[dict]:
-    """Return all plan documents in reverse chronological order."""
     return [
         {
             "filename": doc.name,
@@ -39,7 +39,7 @@ def list_plan_docs(cwd: str) -> list[dict]:
     ]
 
 
-def _resolve_requested_plan(cwd: str, filename: str | None) -> Path | None:
+def resolve_requested_plan(cwd: str, filename: str | None) -> Path | None:
     if not filename:
         latest = _latest_plan_file(cwd)
         if latest is not None:
@@ -54,8 +54,7 @@ def _resolve_requested_plan(cwd: str, filename: str | None) -> Path | None:
 
 
 def get_plan_doc(cwd: str, filename: str | None = None) -> dict:
-    """Return a selected plan document from the session directory."""
-    target = _resolve_requested_plan(cwd, filename)
+    target = resolve_requested_plan(cwd, filename)
     if target is None:
         return {"exists": False, "filename": filename, "content": None, "modified": None, "size": None}
     return {
@@ -68,7 +67,6 @@ def get_plan_doc(cwd: str, filename: str | None = None) -> dict:
 
 
 def resolve_latest_plan(cwd: str) -> None:
-    """Rename the latest .md file in the session directory to .md.resolved."""
     latest = _latest_plan_file(cwd)
     if latest is None:
         return
@@ -79,7 +77,6 @@ def resolve_latest_plan(cwd: str) -> None:
 
 
 def list_modified_files(cwd: str) -> list[dict]:
-    """Return modified/untracked files from git status for the current workspace."""
     resolved_cwd = str(Path(cwd).resolve())
     try:
         root_proc = subprocess.run(
@@ -113,9 +110,25 @@ def list_modified_files(cwd: str) -> list[dict]:
     return modified_files
 
 
-def get_workspace_panel(cwd: str) -> dict:
-    """Return the right-panel data for the main chat page."""
+def build_active_diff_files(cwd: str, checkpoint_filename: str | None) -> list[dict]:
+    if not checkpoint_filename:
+        return []
+    checkpoint = get_checkpoint(cwd, checkpoint_filename)
+    if checkpoint is None:
+        return []
+    return list_checkpoint_files(checkpoint)
+
+
+def build_workspace_view(
+    cwd: str,
+    diff_summaries: list[dict],
+    active_diff: str | None = None,
+) -> dict:
+    active_diff_files = build_active_diff_files(cwd, active_diff)
     return {
         "plan_docs": list_plan_docs(cwd),
         "modified_files": list_modified_files(cwd),
+        "diff_summaries": diff_summaries,
+        "active_diff": active_diff,
+        "active_diff_files": active_diff_files,
     }

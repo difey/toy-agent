@@ -20,6 +20,7 @@ from nano_claude.core.prompts import PLAN_MODE_TOOLS, PLAN_SYSTEM_PROMPT, SYSTEM
 from nano_claude.core.tool_contracts import AskUserCallback, PermissionCallback, ToolContext, ToolExecResult
 from nano_claude.core.tool_registry import ToolRegistry
 from nano_claude.infra.llm import LLMClient
+from nano_claude.infra.setup import save_user_config
 from nano_claude.core.session import Session, get_plan_dir, get_session_dir
 
 
@@ -56,7 +57,7 @@ class Agent:
         self.skill_store = skill_store
 
     def reconfigure_llm(self, model: str, api_key: str | None = None, base_url: str | None = None, provider: str | None = None) -> None:
-        """Update the model/api_key/base_url and recreate the LLM client."""
+        """Update the model/api_key/base_url, recreate the LLM client, and persist to config."""
         self.model = model
         if api_key is not None:
             self.api_key = api_key
@@ -65,6 +66,7 @@ class Agent:
         if provider is not None:
             self.provider = provider
         self.llm = LLMClient(model=self.model, api_key=self.api_key, base_url=self.base_url)
+        save_user_config(self.model, self.api_key or "", provider=self.provider or "")
 
     def _get_mode_tools(self) -> ToolRegistry:
         if self.mode == "plan":

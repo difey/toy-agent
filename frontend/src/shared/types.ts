@@ -31,19 +31,31 @@ export interface ChatMessage {
 }
 
 export interface CurrentInfo {
-  id: string;
-  is_current: boolean;
-  title: string;
-  path: string;
-  name: string;
-  preview: string;
-  tokens: number;
-  mode: Mode;
-  setup_needed: boolean;
-  messages: ChatMessage[];
-  diff_summaries?: DiffSummary[];
-  active_model?: string | null;
-  active_provider?: string | null;
+  app: {
+    cwd: string;
+    mode: Mode;
+    status: 'idle' | 'running' | 'awaiting_permission' | 'awaiting_question' | 'error';
+    setup_needed: boolean;
+    active_model?: string | null;
+    active_provider?: string | null;
+    last_error?: string | null;
+  };
+  session_meta: SessionSummary;
+  session_catalog: {
+    sessions: SessionSummary[];
+  };
+  conversation: {
+    timeline: ChatMessage[];
+  };
+  interaction: {
+    pending_permission: (PermissionRequest & { request_id: string }) | null;
+    pending_question: (QuestionDialog & { request_id: string }) | null;
+  };
+  workspace: WorkspacePanelResponse & {
+    diff_summaries: DiffSummary[];
+    active_diff: string | null;
+    active_diff_files: ModifiedFileItem[];
+  };
 }
 
 export interface QuestionOption {
@@ -59,6 +71,7 @@ export interface QuestionDialog {
 }
 
 export interface PermissionRequest {
+  request_id?: string;
   tool: string;
   target: string;
   resolved_path: string;
@@ -113,6 +126,9 @@ export interface ModifiedFileItem {
 export interface WorkspacePanelResponse {
   plan_docs: PlanDocListItem[];
   modified_files: ModifiedFileItem[];
+  diff_summaries?: DiffSummary[];
+  active_diff?: string | null;
+  active_diff_files?: ModifiedFileItem[];
 }
 
 export interface DiffSummary {
@@ -161,4 +177,5 @@ export interface CheckpointData {
     added: string[];
     binary: string[];
   };
+  files_list?: ModifiedFileItem[];
 }

@@ -1,12 +1,18 @@
-"""Serialization helpers for converting core message objects to API-friendly dicts."""
+"""Shared state projection helpers for timeline-style client views."""
 
 import json
 
-from nano_claude.core.message import AssistantMessage, DiffSummaryMessage, SystemMessage, ToolResult, UserMessage
+from nano_claude.core.message import (
+    AssistantMessage,
+    DiffSummaryMessage,
+    SystemMessage,
+    ToolResult,
+    UserMessage,
+)
 
 
-def serialize_messages_for_api(messages) -> list[dict]:
-    """Convert session messages to a format suitable for the web frontend."""
+def build_timeline(messages) -> list[dict]:
+    """Convert session messages into a flattened, client-friendly timeline."""
     result = []
     for msg in messages:
         if isinstance(msg, SystemMessage):

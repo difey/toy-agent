@@ -4,10 +4,10 @@ import os
 
 from fastapi import APIRouter, HTTPException
 
+from nano_claude.core.projections import build_timeline
 from nano_claude.core.session import Session, session_info
 from nano_claude.core.state import state
 
-from nano_claude.interfaces.web.serializers import serialize_messages_for_api
 from nano_claude.core.diff_service import (
     list_checkpoints_for_session,
     RollbackError,
@@ -58,7 +58,7 @@ async def api_get_session(name: str):
     info = session_info(filepath)
     try:
         sess = Session.load(filepath)
-        info["messages"] = serialize_messages_for_api(sess.messages)
+        info["messages"] = build_timeline(sess.messages)
     except Exception as e:
         info["messages"] = []
         info["load_error"] = str(e)
@@ -88,16 +88,3 @@ async def api_delete_session(name: str):
     }
 
 
-@router.delete("/api/sessions")
-async def api_delete_all_sessions():
-    files = state._refresh_sessions()
-    current_abs = os.path.abspath(state.session.filepath)
-    deleted = 0
-    for f in files:
-        if os.path.abspath(f) != current_abs:
-            try:
-                os.remove(f)
-                deleted += 1
-            except OSError:
-                pass
-    return {"ok": True, "deleted": deleted, "sessions": state.sessions_list()}
