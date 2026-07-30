@@ -2,11 +2,11 @@ from types import SimpleNamespace
 
 from nano_claude.core.message import AssistantMessage, DiffSummaryMessage, ToolCall, ToolResult, UserMessage
 from nano_claude.core.session import Session
-from nano_claude.core.state import WebAppState
+from nano_claude.core.state import AppState
 
 
 def test_current_view_includes_timeline_and_workspace(tmp_path, monkeypatch):
-    app_state = WebAppState()
+    app_state = AppState()
     app_state.cwd = str(tmp_path)
     app_state.agent = SimpleNamespace(
         mode="build",
@@ -73,7 +73,7 @@ def test_current_view_includes_timeline_and_workspace(tmp_path, monkeypatch):
 
 
 def test_current_view_exposes_pending_interaction(tmp_path):
-    app_state = WebAppState()
+    app_state = AppState()
     app_state.cwd = str(tmp_path)
     app_state.agent = SimpleNamespace(
         mode="build",
@@ -105,7 +105,7 @@ def test_current_view_exposes_pending_interaction(tmp_path):
 
 
 def test_rollback_cutoff_keeps_target_user_message(tmp_path):
-    app_state = WebAppState()
+    app_state = AppState()
     app_state.cwd = str(tmp_path)
     app_state.agent = SimpleNamespace(
         mode="build",

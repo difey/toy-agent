@@ -267,7 +267,7 @@ class Session:
         """Create a new Session containing messages up to (but not including)
         the user message at the given index in the serialized API format.
 
-        The API format (serialize_messages_for_api) skips SystemMessage entries
+        The API format (build_timeline) skips SystemMessage entries
         and expands tool_calls, so we count only UserMessage (text) entries to
         locate the cut-off point.
 

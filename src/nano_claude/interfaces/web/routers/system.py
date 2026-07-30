@@ -7,8 +7,6 @@ from fastapi import APIRouter, HTTPException, Query
 from nano_claude.core.message import SystemMessage, UserMessage
 from nano_claude.core.state import state
 
-from nano_claude.interfaces.web.services.plan_service import get_plan_doc, resolve_latest_plan
-
 router = APIRouter()
 
 
@@ -32,7 +30,7 @@ async def api_set_mode(body: dict):
     if state.agent and state.session:
         # When switching from build → plan, mark the latest plan as resolved
         if mode == "plan" and state.agent.mode == "build":
-            resolve_latest_plan(state.cwd)
+            state.resolve_latest_plan()
 
         state.agent.set_mode(mode)
         # Insert transition message instead of clearing session
@@ -68,7 +66,7 @@ async def api_open_vscode():
 @router.get("/api/plan-doc")
 async def api_plan_doc(filename: str | None = Query(default=None)):
     """Return a selected plan document from the session directory."""
-    return get_plan_doc(state.cwd, filename)
+    return state.get_plan_doc(filename)
 
 
 @router.get("/api/workspace-panel")

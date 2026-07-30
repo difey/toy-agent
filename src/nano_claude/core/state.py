@@ -1,338 +1,31 @@
 """Shared in-memory application state and client-facing projections."""
 
 import asyncio
+import json
 import os
-from typing import Any, Callable
+import traceback
 
 from nano_claude.core.agent import Agent
 from nano_claude.core.diff_service import (
-    RollbackError,
-    list_checkpoints_for_session,
-    rollback_to_checkpoint,
+    _get_git_head_hash,
+    cleanup_checkpoints,
+    detect_file_changes,
+    save_checkpoint,
+    take_snapshot,
 )
-from nano_claude.core.message import UserMessage
-from nano_claude.core.projections import build_timeline
-from nano_claude.core.session import (
-    Session,
-    list_sessions,
-    resume_or_create_session,
-    save_current,
-    session_info,
-    session_path,
+from nano_claude.core.interaction_state import InteractionState
+from nano_claude.core.message import DiffSummaryMessage, ToolCall
+from nano_claude.core.provider_service import (
+    ProviderInfo,
+    ProviderManager,
 )
+from nano_claude.core.session import Session, save_current
+from nano_claude.core.session_runtime import SessionRuntime
 from nano_claude.core.workspace import build_workspace_view
 from nano_claude.infra.bootstrap import build_agent
-from nano_claude.interfaces.web.services.provider_service import (
-    ProviderInfo,
-    delete_provider,
-    list_providers as _list_provider_files,
-    save_provider,
-)
 
 
-class InteractionState:
-    """Encapsulates pending user interaction state and its public view."""
-
-    def __init__(self):
-        self._pending_permission: dict | None = None
-        self._pending_question: dict | None = None
-        self._next_request_id = 1
-
-    def _request_id(self) -> str:
-        request_id = f"req_{self._next_request_id}"
-        self._next_request_id += 1
-        return request_id
-
-    def begin_permission(
-        self,
-        future: asyncio.Future,
-        *,
-        tool: str,
-        target: str,
-        resolved_path: str,
-        cwd: str,
-    ) -> dict:
-        self._pending_permission = {
-            "future": future,
-            "request_id": self._request_id(),
-            "tool": tool,
-            "target": target,
-            "resolved_path": resolved_path,
-            "cwd": cwd,
-        }
-        return self._pending_permission
-
-    def clear_permission(self) -> None:
-        self._pending_permission = None
-
-    def begin_question(
-        self,
-        future: asyncio.Future,
-        *,
-        header: str,
-        question: str,
-        options: list[dict],
-        multiple: bool,
-    ) -> dict:
-        self._pending_question = {
-            "future": future,
-            "request_id": self._request_id(),
-            "header": header,
-            "question": question,
-            "options": options,
-            "multiple": multiple,
-        }
-        return self._pending_question
-
-    def clear_question(self) -> None:
-        self._pending_question = None
-
-    @property
-    def pending_permission(self) -> dict | None:
-        return self._pending_permission
-
-    @property
-    def pending_question(self) -> dict | None:
-        return self._pending_question
-
-    def view(self) -> dict:
-        permission_view = None
-        question_view = None
-        if self._pending_permission is not None:
-            permission_view = {
-                "request_id": self._pending_permission["request_id"],
-                "tool": self._pending_permission["tool"],
-                "target": self._pending_permission["target"],
-                "resolved_path": self._pending_permission["resolved_path"],
-                "cwd": self._pending_permission["cwd"],
-            }
-        if self._pending_question is not None:
-            question_view = {
-                "request_id": self._pending_question["request_id"],
-                "header": self._pending_question["header"],
-                "question": self._pending_question["question"],
-                "options": self._pending_question["options"],
-                "multiple": self._pending_question["multiple"],
-            }
-        return {
-            "pending_permission": permission_view,
-            "pending_question": question_view,
-        }
-
-
-class SessionRuntime:
-    """Encapsulates current session lifecycle and derived views."""
-
-    def __init__(
-        self,
-        cwd_getter: Callable[[], str],
-        agent_getter: Callable[[], Agent | None],
-    ):
-        self._cwd_getter = cwd_getter
-        self._agent_getter = agent_getter
-        self._session: Session | None = None
-
-    @property
-    def session(self) -> Session:
-        if self._session is None:
-            raise RuntimeError("Session runtime is not initialized")
-        return self._session
-
-    def initialize(self) -> None:
-        cwd = self._cwd_getter()
-        session, session_file = resume_or_create_session(cwd)
-        self._session = session
-        self._session.filepath = session_file
-        self.reload_diff_summaries()
-
-    def _refresh_sessions(self) -> list[str]:
-        return list_sessions(self._cwd_getter())
-
-    def _find_session_by_name(self, name: str) -> str | None:
-        for f in self._refresh_sessions():
-            if os.path.splitext(os.path.basename(f))[0] == name:
-                return f
-        return None
-
-    def sessions_list(self) -> list[dict]:
-        files = self._refresh_sessions()
-        current_abs = os.path.abspath(self.session.filepath)
-        result = []
-        for f in files:
-            info = session_info(f)
-            info["id"] = info["name"]
-            info["is_current"] = os.path.abspath(f) == current_abs
-            result.append(info)
-        result.sort(
-            key=lambda s: s.get("updated_at") or s.get("created_at") or 0,
-            reverse=True,
-        )
-        return result
-
-    def _load_session_to_current(self, filepath: str) -> bool:
-        try:
-            new_session = Session.load(filepath)
-        except Exception:
-            return False
-        self.session.load_messages_from(new_session)
-        self.reload_diff_summaries()
-        return True
-
-    def load_session_by_name(self, name: str) -> str | None:
-        target = self._find_session_by_name(name)
-        if target is None:
-            return f"Invalid session: {name}"
-        if os.path.abspath(target) == os.path.abspath(self.session.filepath):
-            return None
-        save_current(self.session, self.session.filepath)
-        if not self._load_session_to_current(target):
-            return f"Failed to load session: {target}"
-        return None
-
-    def _create_fresh_session(self) -> None:
-        cwd = self._cwd_getter()
-        self.session.clear_messages()
-        self.session.filepath = session_path(cwd)
-        agent = self._agent_getter()
-        if agent:
-            self.session._ensure_system_prompt(agent._build_system_prompt(cwd))
-
-    def _resume_or_fresh(self) -> None:
-        remaining = self._refresh_sessions()
-        if remaining:
-            if not self._load_session_to_current(remaining[-1]):
-                self._create_fresh_session()
-        else:
-            self._create_fresh_session()
-
-    def delete_session_by_name(self, name: str) -> str | None:
-        target = self._find_session_by_name(name)
-        if target is None:
-            return f"Invalid session: {name}"
-        is_current = os.path.abspath(target) == os.path.abspath(self.session.filepath)
-        try:
-            os.remove(target)
-        except OSError as e:
-            return f"Error: {e}"
-        if is_current:
-            self._resume_or_fresh()
-        return None
-
-    def timeline(self) -> list[dict]:
-        return build_timeline(self.session.messages)
-
-    def _timeline_index_to_user_message_count(self, message_timeline_index: int) -> int:
-        """Count user text messages that appear before a timeline index."""
-        timeline = self.timeline()
-        user_msg_index = 0
-        for i, item in enumerate(timeline):
-            if i == message_timeline_index:
-                break
-            if item.get("role") == "user" and item.get("type") == "text":
-                user_msg_index += 1
-        return user_msg_index
-
-    def _rollback_cutoff_index(self, message_timeline_index: int) -> int:
-        """Return the session-message cutoff that keeps the target user message.
-
-        Timeline items are flattened for clients, while rollback truncation happens
-        against the original ``Session.messages`` list. This helper first counts
-        how many user messages have been seen up to the selected timeline item,
-        then finds the matching user message in ``Session.messages`` and returns
-        the index immediately after it so the user prompt is preserved.
-        """
-        timeline = self.timeline()
-        target_user_count = 0
-        for i, item in enumerate(timeline):
-            if item.get("role") == "user" and item.get("type") == "text":
-                target_user_count += 1
-            if i == message_timeline_index:
-                break
-
-        if target_user_count == 0:
-            return len(self.session.messages)
-
-        seen_users = 0
-        for i, msg in enumerate(self.session.messages):
-            if isinstance(msg, UserMessage) and isinstance(msg.content, str):
-                seen_users += 1
-                if seen_users == target_user_count:
-                    return i + 1
-
-        return len(self.session.messages)
-
-    def fork_session(self, message_timeline_index: int) -> dict:
-        cwd = self._cwd_getter()
-        save_current(self.session, self.session.filepath)
-        user_msg_index = self._timeline_index_to_user_message_count(message_timeline_index)
-        forked = self.session.fork(user_msg_index)
-        new_path = session_path(cwd)
-        forked.save(new_path)
-        self.session.load_messages_from(forked)
-        self.reload_diff_summaries()
-        return self.current_meta()
-
-    def rollback_session(self, message_timeline_index: int) -> dict:
-        cwd = self._cwd_getter()
-        save_current(self.session, self.session.filepath)
-        timeline = self.timeline()
-        if message_timeline_index < 0 or message_timeline_index >= len(timeline):
-            raise ValueError(f"Invalid message index: {message_timeline_index}")
-
-        target_msg = timeline[message_timeline_index]
-        target_ts: float = target_msg.get("timestamp", 0.0)
-        if target_ts == 0.0:
-            raise ValueError("Target message has no timestamp")
-
-        session_file_basename = os.path.basename(self.session.filepath)
-        hash_error = None
-        try:
-            skipped, errors = rollback_to_checkpoint(
-                cwd,
-                target_ts,
-                session_file_basename,
-            )
-        except RollbackError as e:
-            hash_error = str(e)
-            skipped, errors = [], [hash_error]
-
-        self.session.truncate_messages(self._rollback_cutoff_index(message_timeline_index))
-        save_current(self.session, self.session.filepath)
-        self.reload_diff_summaries()
-        info = self.current_meta()
-        info["skipped_files"] = skipped
-        info["errors"] = errors
-        info["rollback_hash_error"] = hash_error is not None
-        return info
-
-    def new_session(self) -> None:
-        cwd = self._cwd_getter()
-        save_current(self.session, self.session.filepath)
-        self.session.clear_messages()
-        agent = self._agent_getter()
-        if agent:
-            self.session._ensure_system_prompt(agent._build_system_prompt(cwd))
-        self.session.filepath = session_path(cwd)
-
-    def reload_diff_summaries(self) -> None:
-        session_basename = os.path.basename(self.session.filepath)
-        summaries = list_checkpoints_for_session(self._cwd_getter(), session_basename)
-        self.session.set_diff_summaries({s["checkpoint_filename"]: s for s in summaries})
-
-    def add_diff_summary(self, checkpoint_filename: str, summary: dict) -> None:
-        self.session.add_diff_summary(checkpoint_filename, summary)
-
-    def diff_summaries(self) -> list[dict]:
-        return list(self.session.diff_summaries.values())
-
-    def current_meta(self) -> dict:
-        info = session_info(self.session.filepath)
-        info["is_current"] = True
-        info["id"] = info["name"]
-        return info
-
-
-class WebAppState:
+class AppState:
     """Shared mutable state for the web UI server."""
 
     def __init__(self):
@@ -345,25 +38,17 @@ class WebAppState:
         self._running: bool = False
         self._running_task: asyncio.Task | None = None
         self._last_error: str | None = None
-        self.providers: dict[str, ProviderInfo] = {}
+        self.providers_mgr = ProviderManager()
 
     @property
     def session(self) -> Session:
         return self.session_runtime.session
 
-    @property
-    def _pending_permission(self) -> dict | None:
-        return self.interaction.pending_permission
-
-    @property
-    def _pending_question(self) -> dict | None:
-        return self.interaction.pending_question
-
     def initialize(self, cwd: str) -> None:
         self.cwd = cwd
         self.agent = build_agent(cwd=self.cwd, mode="build")
         self.session_runtime.initialize()
-        self.load_providers()
+        self._load_providers()
 
     def _status(self) -> str:
         if self.interaction.pending_permission is not None:
@@ -453,19 +138,70 @@ class WebAppState:
     def add_diff_summary(self, checkpoint_filename: str, summary: dict) -> None:
         self.session_runtime.add_diff_summary(checkpoint_filename, summary)
 
-    def load_providers(self) -> None:
-        providers_list = _list_provider_files()
-        self.providers.clear()
-        for p in providers_list:
-            self.providers[p.name] = p
+    def respond_permission(self, decision: str) -> None:
+        self.interaction.respond_permission(decision)
 
-    def add_provider(self, info: ProviderInfo) -> None:
-        save_provider(info)
-        self.providers[info.name] = info
+    def respond_question(self, answer: str | list[str]) -> None:
+        self.interaction.respond_question(answer)
+
+    def stop_running(self) -> bool:
+        """Cancel the current AI response task. Returns True if there was a running task."""
+        if not self._running or self._running_task is None:
+            return False
+        self._running_task.cancel()
+        return True
+
+    def get_plan_doc(self, filename: str | None = None) -> dict:
+        """Read a plan document from the session's plan directory."""
+        from nano_claude.core.workspace import get_plan_doc as _get_plan_doc
+        return _get_plan_doc(self.cwd, filename)
+
+    def resolve_latest_plan(self) -> None:
+        """Rename the latest .md plan to .md.resolved."""
+        from nano_claude.core.workspace import resolve_latest_plan as _resolve_latest_plan
+        _resolve_latest_plan(self.cwd)
+
+    def _load_providers(self) -> None:
+        self.providers_mgr.get_all()  # warm the cache
+
+    def get_providers(self) -> dict[str, ProviderInfo]:
+        """Reload providers from disk and return the latest mapping."""
+        return self.providers_mgr.get_all()
+
+    async def add_provider(
+        self,
+        name: str,
+        provider_type: str,
+        api_key: str | None = None,
+        base_url: str | None = None,
+    ) -> ProviderInfo:
+        """Add a new provider via ProviderManager. Validates, fetches models, persists."""
+        return await self.providers_mgr.add(name, provider_type, api_key, base_url)
 
     def remove_provider(self, name: str) -> None:
-        delete_provider(name)
-        self.providers.pop(name, None)
+        self.providers_mgr.remove(name)
+
+    async def refresh_provider(self, name: str) -> ProviderInfo:
+        return await self.providers_mgr.refresh(name)
+
+    async def update_provider(
+        self,
+        name: str,
+        *,
+        new_type: str | None = None,
+        api_key: str | None = None,
+        base_url: str | None = None,
+    ) -> ProviderInfo:
+        return await self.providers_mgr.update(name, new_type=new_type, api_key=api_key, base_url=base_url)
+
+    def set_provider_models(self, name: str, models: list[str]) -> ProviderInfo:
+        return self.providers_mgr.set_models(name, models)
+
+    def get_provider(self, name: str) -> ProviderInfo:
+        return self.providers_mgr.get(name)
+
+    def provider_exists(self, name: str) -> bool:
+        return self.providers_mgr.exists(name)
 
     def create_sse_queue(self, response_id: str) -> asyncio.Queue:
         q: asyncio.Queue = asyncio.Queue()
@@ -487,5 +223,233 @@ class WebAppState:
             if q:
                 await q.put((event, data))
 
+    # ── Chat orchestration ──────────────────────────────────────────────
 
-state = WebAppState()
+    async def run_chat(self) -> str:
+        """Schedule the agent to run in background. Returns the response_id immediately."""
+        if self._running:
+            raise RuntimeError("已有正在运行的回复，请先停止当前回复")
+
+        session = self.session
+
+        self._running = True
+
+        response_id = f"chat_{id(session)}_{len(session.messages)}"
+        self.create_sse_queue(response_id)
+
+        task = asyncio.ensure_future(self._execute_chat(response_id))
+        self._running_task = task
+        return response_id
+
+    async def _execute_chat(self, response_id: str) -> None:
+        """Actually execute the agent chat in the background, pushing SSE events."""
+        agent = self.agent
+        session = self.session
+        cwd = self.cwd
+
+        # Set up agent callbacks to push events
+        original_on_text = agent.on_text_delta
+        original_on_tool_start = agent.on_tool_start
+        original_on_tool_end = agent.on_tool_end
+        original_permission = agent.permission_callback
+        original_ask_user = agent.ask_user_callback
+        original_on_event = agent.on_event_callback
+
+        async def on_text(text: str):
+            await self.push_event("message", {"role": "assistant", "type": "text", "content": text})
+            if original_on_text:
+                result = original_on_text(text)
+                if asyncio.iscoroutine(result):
+                    await result
+
+        async def on_tool_start(call: ToolCall):
+            await self.push_event("message", {
+                "role": "assistant",
+                "type": "tool_start",
+                "name": call.name,
+                "arguments": call.arguments,
+            })
+            if original_on_tool_start:
+                result = original_on_tool_start(call)
+                if asyncio.iscoroutine(result):
+                    await result
+
+        async def on_tool_end(name: str, title: str, output: str, metadata: dict | None = None):
+            event_data = {
+                "role": "tool",
+                "type": "tool_result",
+                "name": name,
+                "title": title,
+                "content": output,
+            }
+            if metadata and "flow_id" in metadata:
+                event_data["flow_id"] = metadata["flow_id"]
+            await self.push_event("message", event_data)
+            if original_on_tool_end:
+                result = original_on_tool_end(name, title, output, metadata)
+                if asyncio.iscoroutine(result):
+                    await result
+
+        async def permission_callback(tool: str, target: str, resolved_path: str) -> str:
+            loop = asyncio.get_running_loop()
+            future = loop.create_future()
+            pending = self.interaction.begin_permission(
+                future,
+                tool=tool,
+                target=target,
+                resolved_path=resolved_path,
+                cwd=cwd,
+            )
+            await self.push_event("permission_request", {
+                "request_id": pending["request_id"],
+                "tool": tool,
+                "target": target,
+                "resolved_path": resolved_path,
+                "cwd": cwd,
+            })
+            try:
+                result = await asyncio.wait_for(future, timeout=120)
+                return result
+            except asyncio.TimeoutError:
+                return "deny"
+            finally:
+                self.interaction.clear_permission()
+
+        async def ask_user_callback(header: str, question: str, options: list[dict], multiple: bool) -> list[str]:
+            loop = asyncio.get_running_loop()
+            future = loop.create_future()
+            pending = self.interaction.begin_question(
+                future,
+                header=header,
+                question=question,
+                options=options,
+                multiple=multiple,
+            )
+            await self.push_event("question", {
+                "request_id": pending["request_id"],
+                "header": header,
+                "question": question,
+                "options": options,
+                "multiple": multiple,
+            })
+            try:
+                result = await asyncio.wait_for(future, timeout=300)
+                return result
+            except asyncio.TimeoutError:
+                return ["(skipped)"]
+            finally:
+                self.interaction.clear_question()
+
+        async def on_event(event_type: str, data: dict):
+            await self.push_event("sub_agent_message", {
+                "flow_id": data.get("flow_id", ""),
+                "agent_id": data.get("agent_id", ""),
+                "type": event_type.replace("sub_agent_", ""),
+                "name": data.get("name", ""),
+                "arguments": data.get("arguments", {}),
+                "content": data.get("content", ""),
+                "title": data.get("title", ""),
+            })
+
+        agent.on_text_delta = on_text
+        agent.on_tool_start = on_tool_start
+        agent.on_tool_end = on_tool_end
+        agent.permission_callback = permission_callback
+        agent.ask_user_callback = ask_user_callback
+        agent.on_event_callback = on_event
+
+        try:
+            self.clear_error()
+            before_snapshot, before_content, before_binary = take_snapshot(cwd)
+
+            user_text = session.messages[-1].content if session.messages else ""
+            await agent.run_stream(user_text, cwd, session=session, add_user_message=False)
+
+            after_snapshot, _after_content, after_binary = take_snapshot(cwd)
+            binary_set = before_binary | after_binary
+            changed_files = detect_file_changes(
+                before_snapshot, after_snapshot,
+                cwd=cwd, before_content=before_content, binary_set=binary_set,
+            )
+
+            if changed_files["files_changed"] > 0:
+                git_hash = _get_git_head_hash(cwd)
+                checkpoint_filename = save_checkpoint(
+                    cwd, changed_files,
+                    os.path.basename(self.session.filepath),
+                    git_hash,
+                )
+                files_list = []
+                for rel_path in changed_files.get("modified", {}):
+                    files_list.append({"path": rel_path, "status": "modified"})
+                for rel_path in changed_files.get("deleted", {}):
+                    files_list.append({"path": rel_path, "status": "deleted"})
+                for rel_path in changed_files.get("added", []):
+                    files_list.append({"path": rel_path, "status": "added"})
+                for rel_path in changed_files.get("binary", []):
+                    files_list.append({"path": rel_path, "status": "binary"})
+
+                summary_data = {
+                    "files_changed": changed_files["files_changed"],
+                    "files": files_list,
+                }
+
+                diff_msg = DiffSummaryMessage(
+                    checkpoint_filename=checkpoint_filename,
+                    summary=summary_data,
+                )
+                await session.add_message(diff_msg)
+
+                self.add_diff_summary(checkpoint_filename, {
+                    "checkpoint_filename": checkpoint_filename,
+                    "summary": summary_data,
+                })
+
+                await self.push_event("message", {
+                    "role": "diff_summary",
+                    "type": "diff_summary",
+                    "checkpoint_filename": checkpoint_filename,
+                    "summary": summary_data,
+                })
+
+            cleanup_checkpoints(cwd)
+
+            await self.push_event("done", {})
+        except asyncio.CancelledError:
+            await self.push_event("done", {})
+        except Exception:
+            tb = traceback.format_exc()
+            self.set_error(tb)
+            await self.push_event("error", {"message": tb})
+        finally:
+            agent.on_text_delta = original_on_text
+            agent.on_tool_start = original_on_tool_start
+            agent.on_tool_end = original_on_tool_end
+            agent.permission_callback = original_permission
+            agent.ask_user_callback = original_ask_user
+            agent.on_event_callback = original_on_event
+            save_current(session, self.session.filepath)
+            self._running = False
+            self._running_task = None
+
+    async def sse_event_generator(self, response_id: str):
+        """Async generator that yields SSE-formatted events from the queue."""
+        queue = self.get_sse_queue(response_id)
+        if queue is None:
+            yield f"event: error\ndata: {json.dumps({'message': 'Response stream not found'})}\n\n"
+            return
+
+        try:
+            while True:
+                event, data = await queue.get()
+                payload = f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+                yield payload
+                if event == "done" or event == "error":
+                    break
+        except (asyncio.CancelledError, GeneratorExit):
+            pass
+        finally:
+            self.remove_sse_queue(response_id)
+
+
+state = AppState()

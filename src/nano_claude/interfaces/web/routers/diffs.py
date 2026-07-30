@@ -9,13 +9,6 @@ from nano_claude.core.diff_service import (
 
 router = APIRouter()
 
-
-@router.get("/api/diffs/list")
-async def api_list_diffs():
-    """List all checkpoints for the current session, most recent first."""
-    return list_checkpoints(state.cwd)
-
-
 @router.get("/api/diffs/{checkpoint_filename}")
 async def api_get_diff(checkpoint_filename: str):
     """Get the full contents of a specific checkpoint file."""
