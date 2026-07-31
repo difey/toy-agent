@@ -28,6 +28,9 @@ export interface ChatMessage {
     files_changed: number;
     files: FileChangeItem[];
   };
+  // Local-only marker: this user message is a follow-up interjection
+  // submitted while an AI response is running (not yet in the session).
+  pending?: boolean;
 }
 
 export interface CurrentInfo {

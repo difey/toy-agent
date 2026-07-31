@@ -23,7 +23,6 @@ from nano_claude.core.message import (
 # supports "just works" without per-provider special-casing here.
 litellm.drop_params = True
 
-
 def _get_reasoning(obj) -> str:
     if hasattr(obj, "reasoning_content") and obj.reasoning_content:
         return obj.reasoning_content

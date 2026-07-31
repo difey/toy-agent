@@ -13,6 +13,7 @@ import type {
 
 interface ChatResponse {
   response_id: string;
+  accepted?: boolean;
 }
 
 export function useChatStreaming({
@@ -55,48 +56,24 @@ export function useChatStreaming({
   showToast: (message: string, timeout?: number) => void;
 }) {
   const eventSourceRef = useRef<EventSource | null>(null);
+  const responseIdRef = useRef<string | null>(null);
 
   const closeEventSource = useCallback(() => {
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
       eventSourceRef.current = null;
     }
+    responseIdRef.current = null;
   }, []);
 
-  const startChatStream = useCallback(async (text: string) => {
-    resetFlowState();
-    setInputText('');
-    setIsStreaming(true);
-    scheduleScrollBottom();
+  const attachEventSource = useCallback((responseId: string) => {
+    closeEventSource();
+    responseIdRef.current = responseId;
+    const eventSource = new EventSource(`/api/events?response_id=${encodeURIComponent(responseId)}`);
+    eventSourceRef.current = eventSource;
+    let toolPlaceholder: number | null = null;
 
-    try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text }),
-      });
-      if (!response.ok) {
-        const errorData = (await response.json()) as { detail?: string };
-        throw new Error(errorData.detail || 'Chat request failed');
-      }
-
-      const data = (await response.json()) as ChatResponse & { current?: CurrentInfo };
-      if (!data.response_id) {
-        throw new Error('No response_id');
-      }
-
-      const currentInfo = data.current;
-      if (currentInfo) {
-        applyCurrentView(currentInfo);
-        setSessionTitle(currentInfo.session_meta.title || 'nanoClaude');
-      }
-
-      closeEventSource();
-      const eventSource = new EventSource(`/api/events?response_id=${encodeURIComponent(data.response_id)}`);
-      eventSourceRef.current = eventSource;
-      let toolPlaceholder: number | null = null;
-
-      eventSource.addEventListener('message', (event) => {
+    eventSource.addEventListener('message', (event) => {
         const payload = JSON.parse((event as MessageEvent<string>).data) as Record<string, unknown>;
         const role = (payload.role as ChatMessage['role'] | undefined) ?? 'assistant';
         const type = (payload.type as ChatMessage['type'] | undefined) ?? 'text';
@@ -290,12 +267,43 @@ export function useChatStreaming({
         updateLastAssistantMessage((last) => ({ ...last, content: `${last.content}\n\n⚠️ Error: ${message}` }));
         scheduleScrollBottom();
       });
+  }, [clearAfterStreamDone, closeEventSource, commitMessages, delegateFlowCounterRef, enqueueQuestion, loadCurrent, messagesRef, receivePermissionRequest, scheduleScrollBottom, setCollapsedCards, setDelegateFlowMap, setIsStreaming, setSubAgentFlows, updateLastAssistantMessage]);
+
+  const startChatStream = useCallback(async (text: string) => {
+    resetFlowState();
+    setInputText('');
+    setIsStreaming(true);
+    scheduleScrollBottom();
+
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text }),
+      });
+      if (!response.ok) {
+        const errorData = (await response.json()) as { detail?: string };
+        throw new Error(errorData.detail || 'Chat request failed');
+      }
+
+      const data = (await response.json()) as ChatResponse & { current?: CurrentInfo };
+      if (!data.response_id) {
+        throw new Error('No response_id');
+      }
+
+      const currentInfo = data.current;
+      if (currentInfo) {
+        applyCurrentView(currentInfo);
+        setSessionTitle(currentInfo.session_meta.title || 'nanoClaude');
+      }
+
+      attachEventSource(data.response_id);
     } catch (error) {
       updateLastAssistantMessage(() => ({ role: 'assistant', type: 'text', content: `Error: ${error instanceof Error ? error.message : 'Unknown error'}` }));
       setIsStreaming(false);
       showToast(error instanceof Error ? error.message : 'Failed to send message');
     }
-  }, [applyCurrentView, clearAfterStreamDone, closeEventSource, commitMessages, delegateFlowCounterRef, enqueueQuestion, loadCurrent, messagesRef, receivePermissionRequest, resetFlowState, scheduleScrollBottom, setCollapsedCards, setDelegateFlowMap, setInputText, setIsStreaming, setSessionTitle, setSubAgentFlows, showToast, updateLastAssistantMessage]);
+  }, [applyCurrentView, attachEventSource, resetFlowState, scheduleScrollBottom, setIsStreaming, setSessionTitle, setInputText, showToast, updateLastAssistantMessage]);
 
   const stopResponse = useCallback(async () => {
     try {
@@ -309,9 +317,46 @@ export function useChatStreaming({
     scheduleScrollBottom();
   }, [closeEventSource, scheduleScrollBottom, setIsStreaming, updateLastAssistantMessage]);
 
+  const sendFollowup = useCallback(async (text: string): Promise<boolean> => {
+    const responseId = responseIdRef.current;
+    if (!responseId) {
+      return false;
+    }
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, response_id: responseId }),
+      });
+      if (!response.ok) {
+        const errorData = (await response.json()) as { detail?: string };
+        throw new Error(errorData.detail || 'Follow-up request failed');
+      }
+
+      const data = (await response.json()) as ChatResponse & { current?: CurrentInfo };
+      // 后端监测到当前没有正在运行的回复时，会把这条消息回落为一条
+      // 新的普通消息并开启新任务：此时响应带 response_id 但无 accepted，
+      // 前端需要切换到新的 SSE 流继续接收。
+      if (data.response_id && !data.accepted) {
+        const currentInfo = data.current;
+        if (currentInfo) {
+          applyCurrentView(currentInfo);
+          setSessionTitle(currentInfo.session_meta.title || 'nanoClaude');
+        }
+        attachEventSource(data.response_id);
+      }
+      return true;
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to send follow-up');
+      return false;
+    }
+  }, [applyCurrentView, attachEventSource, setSessionTitle, showToast]);
+
   return {
     startChatStream,
     stopResponse,
+    sendFollowup,
+    getResponseId: () => responseIdRef.current,
     closeEventSource,
   };
 }

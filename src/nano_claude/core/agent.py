@@ -39,6 +39,7 @@ class Agent:
         on_event_callback: Callable | None = None,
         skill_store: Any | None = None,
         mode: str = "build",
+        interjection_source: Callable[[], list[dict]] | None = None,
     ):
         self.model = model
         self.api_key = api_key
@@ -55,6 +56,7 @@ class Agent:
         self.on_tool_end = on_tool_end
         self.on_event_callback = on_event_callback
         self.skill_store = skill_store
+        self.interjection_source = interjection_source
 
     def reconfigure_llm(self, model: str, api_key: str | None = None, base_url: str | None = None, provider: str | None = None) -> None:
         """Update the model/api_key/base_url, recreate the LLM client, and persist to config."""
@@ -247,6 +249,27 @@ class Agent:
             await self._execute_tool_calls(tool_calls, ctx, sess)
             print("[CHAT] Tool execution completed, continuing loop.")
 
+    async def _consume_interjections(self, sess: Session) -> bool:
+        """在每次 LLM 调用前消费用户插入的额外说明。
+
+        额外说明由调用方（Web UI 的 AppState）通过 ``interjection_source``
+        回调提供。这里将每条说明作为新的 user message 插入 session，
+        使 LLM 能在下一次调用中看到并纠正自身行为。
+        返回是否有额外说明被插入。
+        """
+        if self.interjection_source is None:
+            return False
+        interjections = self.interjection_source()
+        inserted = False
+        for item in interjections or []:
+            message = item.get("message")
+            if not message:
+                continue
+            print(f"[STREAM] Inserting interjection: {message[:80]}")
+            await sess.add_user_message(message)
+            inserted = True
+        return inserted
+
     async def run_stream(
         self,
         user_message: str,
@@ -270,6 +293,7 @@ class Agent:
             await sess.add_user_message(user_message)
 
         while True:
+            await self._consume_interjections(sess)
             print("\n[STREAM] Calling LLM with streaming...")
             t0 = time.perf_counter()
             stream = self.llm.chat_stream(
@@ -288,6 +312,11 @@ class Agent:
             ))
 
             if not tool_calls:
+                # 若在本次 LLM 调用期间有新的额外说明到达，消费后再跑一轮以回应它们
+                inserted = await self._consume_interjections(sess)
+                if inserted:
+                    print("[STREAM] Followup arrived during final response, continuing to address it.")
+                    continue
                 print("[STREAM] No tool calls, returning.")
                 return
 

@@ -121,7 +121,9 @@ export function ChatApp() {
     messagesRef.current = messages;
   }, [messages]);
 
-  const isInputDisabled = isStreaming || activeQuestion !== null || activePermission !== null;
+  // 回复过程中允许输入框与发送按钮继续可用，用于提交额外说明；
+  // 仅在弹出问题/权限对话框时禁用。
+  const isInputDisabled = activeQuestion !== null || activePermission !== null;
 
   const commitMessages = useCallback((updater: (prev: ChatMessage[]) => ChatMessage[]) => {
     setMessages((prev) => {
@@ -299,6 +301,7 @@ export function ChatApp() {
   const {
     startChatStream,
     stopResponse,
+    sendFollowup,
     closeEventSource,
   } = useChatStreaming({
     commitMessages,
@@ -323,11 +326,24 @@ export function ChatApp() {
 
   const sendMessage = useCallback(async () => {
     const text = inputText.trim();
-    if (!text || isStreaming) {
+    if (!text) {
+      return;
+    }
+    if (isStreaming) {
+      // 回复过程中发送的为额外说明：先本地暂存显示，再提交给后端队列。
+      commitMessages((prev) => [...prev, {
+        role: 'user',
+        type: 'text',
+        content: text,
+        pending: true,
+      }]);
+      setInputText('');
+      scheduleScrollBottom();
+      await sendFollowup(text);
       return;
     }
     await startChatStream(text);
-  }, [inputText, isStreaming, startChatStream]);
+  }, [commitMessages, inputText, isStreaming, scheduleScrollBottom, sendFollowup, setInputText, startChatStream]);
 
   const executePlan = useCallback(async (_planFilename: string) => {
     if (isStreaming) return;
@@ -464,7 +480,10 @@ export function ChatApp() {
           {message.role === 'user' && message.type === 'text' ? (
             <div className="bubble-wrapper">
               <div className="bubble">
-                <div className="msg-timestamp">{formatMsgTimestamp(message.timestamp)}</div>
+                <div className="msg-timestamp">
+                  {formatMsgTimestamp(message.timestamp)}
+                  {message.pending ? <span className="pending-badge">⏳ 已提交</span> : null}
+                </div>
                 {message.content}
               </div>
               <button
@@ -807,19 +826,28 @@ export function ChatApp() {
               />
             </div>
 
-            {!isStreaming ? (
-              showBuildButton ? (
-                <button id="send-btn" onClick={() => void executePlan(latestUnexecutedPlan!.filename)} title={latestUnexecutedPlan!.filename}>
-                  ▶ 执行计划
+            {isStreaming ? (
+              <div className="action-buttons">
+                <button
+                  id="stop-btn"
+                  className="stop-circle"
+                  onClick={() => void stopResponse()}
+                  title="停止"
+                  aria-label="Stop"
+                >
+                  <span className="stop-icon" />
                 </button>
-              ) : (
                 <button id="send-btn" onClick={() => void sendMessage()} disabled={!inputText.trim()}>
                   发送
                 </button>
-              )
+              </div>
+            ) : showBuildButton ? (
+              <button id="send-btn" onClick={() => void executePlan(latestUnexecutedPlan!.filename)} title={latestUnexecutedPlan!.filename}>
+                ▶ 执行计划
+              </button>
             ) : (
-              <button id="stop-btn" onClick={() => void stopResponse()}>
-                ⏹ 停止
+              <button id="send-btn" onClick={() => void sendMessage()} disabled={!inputText.trim()}>
+                发送
               </button>
             )}
           </div>

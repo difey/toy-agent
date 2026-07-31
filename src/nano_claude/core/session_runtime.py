@@ -1,6 +1,7 @@
 """Current session lifecycle management and derived views."""
 
 import os
+import time
 from typing import Callable
 
 from nano_claude.core.agent import Agent
@@ -32,12 +33,39 @@ class SessionRuntime:
         self._cwd_getter = cwd_getter
         self._agent_getter = agent_getter
         self._session: Session | None = None
+        # 用户在 AI 回复过程中提交的额外说明，等待 agent 在下一次 LLM 调用前消费。
+        self.pending_interjections: list[dict] = []
 
     @property
     def session(self) -> Session:
         if self._session is None:
             raise RuntimeError("Session runtime is not initialized")
         return self._session
+
+    # ── 额外说明（interjection）────────────────────────────────────────
+
+    def submit_followup(self, response_id: str, message: str, running_response_id: str | None) -> None:
+        """暂存一条回复过程中的额外说明。
+
+        仅当 response_id 与当前正在运行的回复匹配时才允许入队，否则抛出
+        RuntimeError（调用方转换为 400/409）。
+        """
+        if not running_response_id or running_response_id != response_id:
+            raise RuntimeError("没有正在运行的回复，或 response_id 不匹配")
+        self.pending_interjections.append({
+            "response_id": response_id,
+            "message": message,
+            "timestamp": time.time(),
+        })
+
+    def pop_pending_interjections(self) -> list[dict]:
+        """取出并清空所有暂存的额外说明。"""
+        items = self.pending_interjections
+        self.pending_interjections = []
+        return items
+
+    def interjections_pending(self) -> bool:
+        return bool(self.pending_interjections)
 
     def initialize(self) -> None:
         cwd = self._cwd_getter()

@@ -28,6 +28,8 @@ from nano_claude.infra.bootstrap import build_agent
 class AppState:
     """Shared mutable state for the web UI server."""
 
+    # ── Initialization ─────────────────────────────────────────────────
+
     def __init__(self):
         self.agent: Agent | None = None
         self.cwd: str = ""
@@ -50,6 +52,8 @@ class AppState:
         self.session_runtime.initialize()
         self._load_providers()
 
+    # ── Status & error ─────────────────────────────────────────────────
+
     def _status(self) -> str:
         if self.interaction.pending_permission is not None:
             return "awaiting_permission"
@@ -66,6 +70,8 @@ class AppState:
 
     def set_error(self, message: str) -> None:
         self._last_error = message
+
+    # ── View projections ───────────────────────────────────────────────
 
     def app_view(self) -> dict:
         return {
@@ -105,6 +111,8 @@ class AppState:
     def current_info(self) -> dict:
         return self.current_view()
 
+    # ── Session management ─────────────────────────────────────────────
+
     def _find_session_by_name(self, name: str) -> str | None:
         return self.session_runtime._find_session_by_name(name)
 
@@ -138,18 +146,37 @@ class AppState:
     def add_diff_summary(self, checkpoint_filename: str, summary: dict) -> None:
         self.session_runtime.add_diff_summary(checkpoint_filename, summary)
 
+    # ── Interaction (permission, question, stop) ─────────────────────
+
     def respond_permission(self, decision: str) -> None:
         self.interaction.respond_permission(decision)
 
     def respond_question(self, answer: str | list[str]) -> None:
         self.interaction.respond_question(answer)
 
+    def is_running(self) -> bool:
+        """是否有一个 AI 回复任务正在运行。"""
+        return self._running
+
+    def submit_followup(self, response_id: str, message: str) -> None:
+        """暂存一条回复过程中的额外说明。
+
+        仅当 response_id 与当前正在运行的回复匹配时才接受；否则抛出
+        RuntimeError（调用方转换为 400/409）。
+        """
+        running_response_id = self._running_response_id if self._running else None
+        self.session_runtime.submit_followup(response_id, message, running_response_id)
+
     def stop_running(self) -> bool:
         """Cancel the current AI response task. Returns True if there was a running task."""
         if not self._running or self._running_task is None:
             return False
         self._running_task.cancel()
+        # 丢弃尚未被 agent 消费的额外说明
+        self.session_runtime.pending_interjections.clear()
         return True
+
+    # ── Plan documents ────────────────────────────────────────────
 
     def get_plan_doc(self, filename: str | None = None) -> dict:
         """Read a plan document from the session's plan directory."""
@@ -160,6 +187,8 @@ class AppState:
         """Rename the latest .md plan to .md.resolved."""
         from nano_claude.core.workspace import resolve_latest_plan as _resolve_latest_plan
         _resolve_latest_plan(self.cwd)
+
+    # ── Provider management ───────────────────────────────────────
 
     def _load_providers(self) -> None:
         self.providers_mgr.get_all()  # warm the cache
@@ -202,6 +231,8 @@ class AppState:
 
     def provider_exists(self, name: str) -> bool:
         return self.providers_mgr.exists(name)
+
+    # ── SSE event streaming ────────────────────────────────────────────
 
     def create_sse_queue(self, response_id: str) -> asyncio.Queue:
         q: asyncio.Queue = asyncio.Queue()
@@ -248,12 +279,18 @@ class AppState:
         cwd = self.cwd
 
         # Set up agent callbacks to push events
-        original_on_text = agent.on_text_delta
-        original_on_tool_start = agent.on_tool_start
-        original_on_tool_end = agent.on_tool_end
-        original_permission = agent.permission_callback
-        original_ask_user = agent.ask_user_callback
-        original_on_event = agent.on_event_callback
+        original_on_text = agent.on_text_delta # type: ignore
+        original_on_tool_start = agent.on_tool_start # type: ignore
+        original_on_tool_end = agent.on_tool_end # type: ignore
+        original_permission = agent.permission_callback # type: ignore
+        original_ask_user = agent.ask_user_callback # type: ignore
+        original_on_event = agent.on_event_callback # type: ignore
+        original_interjection_source = agent.interjection_source # type: ignore
+
+        def interjection_source():
+            # 返回待处理的额外说明（response_id + message），供 agent 在
+            # 下一次 LLM 调用前将其作为 user message 插入 session。
+            return self.session_runtime.pop_pending_interjections()
 
         async def on_text(text: str):
             await self.push_event("message", {"role": "assistant", "type": "text", "content": text})
@@ -351,12 +388,13 @@ class AppState:
                 "title": data.get("title", ""),
             })
 
-        agent.on_text_delta = on_text
-        agent.on_tool_start = on_tool_start
-        agent.on_tool_end = on_tool_end
-        agent.permission_callback = permission_callback
-        agent.ask_user_callback = ask_user_callback
-        agent.on_event_callback = on_event
+        agent.on_text_delta = on_text  # type: ignore
+        agent.on_tool_start = on_tool_start  # type: ignore
+        agent.on_tool_end = on_tool_end  # type: ignore
+        agent.permission_callback = permission_callback  # type: ignore
+        agent.ask_user_callback = ask_user_callback  # type: ignore
+        agent.on_event_callback = on_event  # type: ignore
+        agent.interjection_source = interjection_source  # type: ignore
 
         try:
             self.clear_error()
@@ -428,9 +466,12 @@ class AppState:
             agent.permission_callback = original_permission
             agent.ask_user_callback = original_ask_user
             agent.on_event_callback = original_on_event
+            agent.interjection_source = original_interjection_source
             save_current(session, self.session.filepath)
             self._running = False
             self._running_task = None
+
+    # ── SSE event consumer (read side) ──────────────────────────────────
 
     async def sse_event_generator(self, response_id: str):
         """Async generator that yields SSE-formatted events from the queue."""

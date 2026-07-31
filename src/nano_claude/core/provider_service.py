@@ -33,7 +33,7 @@ class ProviderValidationError(ProviderError):
 
 PROVIDER_DEFAULTS: dict[str, dict[str, str | None]] = {
     "openai": {"base_url": None},
-    "deepseek": {"base_url": "https://api.deepseek.com/v1"},
+    "deepseek": {"base_url": "https://api.deepseek.com"},
     "anthropic": {"base_url": "https://api.anthropic.com/v1"},
     "ollama": {"base_url": "http://localhost:11434/v1"},
     "custom": {"base_url": None},
@@ -142,7 +142,7 @@ async def _fetch_openai_compatible_models(
         return []
     headers = {"Accept": "application/json"}
     if api_key:
-        headers["Authorization"] = f"******"
+        headers["Authorization"] = f"Bearer {api_key}"
     async with httpx.AsyncClient(timeout=15) as client:
         resp = await client.get(url, headers=headers)
         resp.raise_for_status()

@@ -5,6 +5,9 @@ from pydantic import BaseModel
 
 class ChatRequest(BaseModel):
     message: str
+    # 回复过程中的额外说明：携带当前正在运行的 response_id。
+    # 为空时表示发起一轮新对话。
+    response_id: str | None = None
 
 
 class SessionInfo(BaseModel):

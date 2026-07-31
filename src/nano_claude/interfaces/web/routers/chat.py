@@ -18,6 +18,25 @@ async def api_chat(req: ChatRequest):
     if not message:
         raise HTTPException(status_code=400, detail="Message is required")
 
+    # 若携带 response_id，则视为回复过程中的额外说明，仅暂存到队列，
+    # 由正在运行的 agent 在合适时机插入 session。
+    if req.response_id:
+        try:
+            state.submit_followup(req.response_id, message)
+        except RuntimeError:
+            # 若当前没有正在运行的回复（说明流已结束、response_id 过期），
+            # 回落到正常路径，把这条消息当作新的普通消息发送；
+            # 否则（正在运行但 response_id 不匹配）视为异常。
+            if not state.is_running():
+                pass
+            else:
+                raise HTTPException(status_code=409, detail="正在运行的回复与 response_id 不匹配")
+        else:
+            return {
+                "response_id": req.response_id,
+                "accepted": True,
+            }
+
     # Add user message to session first (gets proper timestamp)
     await state.session.add_user_message(message)
 
