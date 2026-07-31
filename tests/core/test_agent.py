@@ -5,7 +5,7 @@ import pytest
 from nano_claude.core.agent import Agent
 from nano_claude.core.message import AssistantMessage, TextDelta, ToolCall, ToolCallBegin, ToolCallArgDelta
 from nano_claude.core.session import Session
-from nano_claude.core.tool_contracts import ToolContext
+from nano_claude.core.tool_contracts import AgentCallbacks, ToolContext
 from nano_claude.core.tool_registry import ToolRegistry
 from nano_claude.tools import BashTool, WriteTool
 
@@ -91,7 +91,7 @@ async def test_agent_stream_simple_reply():
         model="gpt-4o",
         tools=registry,
         api_key="test-key",
-        on_text_delta=lambda t: collected_text.append(t),
+        callbacks=AgentCallbacks(on_text_delta=lambda t: collected_text.append(t)),
     )
 
     with patch.object(agent.llm, "chat_stream") as mock_stream:
@@ -116,9 +116,11 @@ async def test_agent_stream_with_tool_call():
         model="gpt-4o",
         tools=registry,
         api_key="test-key",
-        on_text_delta=lambda t: collected_text.append(t),
-        on_tool_start=lambda tc: tool_starts.append(tc.name),
-        on_tool_end=lambda n, t, o, *_: tool_ends.append((n, t)),
+        callbacks=AgentCallbacks(
+            on_text_delta=lambda t: collected_text.append(t),
+            on_tool_start=lambda tc: tool_starts.append(tc.name),
+            on_tool_end=lambda n, t, o, *_: tool_ends.append((n, t)),
+        ),
     )
 
     with patch.object(agent.llm, "chat_stream") as mock_stream:
@@ -149,7 +151,9 @@ async def test_agent_stream_unknown_tool():
         model="gpt-4o",
         tools=registry,
         api_key="test-key",
-        on_tool_end=lambda n, t, o, *_: tool_ends.append((n, t)),
+        callbacks=AgentCallbacks(
+            on_tool_end=lambda n, t, o, *_: tool_ends.append((n, t)),
+        ),
     )
 
     with patch.object(agent.llm, "chat_stream") as mock_stream:
@@ -180,7 +184,7 @@ async def test_agent_multi_turn_with_session():
         model="gpt-4o",
         tools=registry,
         api_key="test-key",
-        on_text_delta=lambda t: collected_text.append(t),
+        callbacks=AgentCallbacks(on_text_delta=lambda t: collected_text.append(t)),
     )
 
     session = Session()

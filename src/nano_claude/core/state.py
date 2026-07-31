@@ -21,6 +21,7 @@ from nano_claude.core.provider_service import (
 )
 from nano_claude.core.session import Session, save_current
 from nano_claude.core.session_runtime import SessionRuntime
+from nano_claude.core.tool_contracts import AgentCallbacks
 from nano_claude.core.workspace import build_workspace_view
 from nano_claude.infra.bootstrap import build_agent
 
@@ -279,13 +280,7 @@ class AppState:
         cwd = self.cwd
 
         # Set up agent callbacks to push events
-        original_on_text = agent.on_text_delta # type: ignore
-        original_on_tool_start = agent.on_tool_start # type: ignore
-        original_on_tool_end = agent.on_tool_end # type: ignore
-        original_permission = agent.permission_callback # type: ignore
-        original_ask_user = agent.ask_user_callback # type: ignore
-        original_on_event = agent.on_event_callback # type: ignore
-        original_interjection_source = agent.interjection_source # type: ignore
+        original_callbacks = agent.callbacks  # type: ignore
 
         def interjection_source():
             # 返回待处理的额外说明（response_id + message），供 agent 在
@@ -294,8 +289,8 @@ class AppState:
 
         async def on_text(text: str):
             await self.push_event("message", {"role": "assistant", "type": "text", "content": text})
-            if original_on_text:
-                result = original_on_text(text)
+            if original_callbacks.on_text_delta:
+                result = original_callbacks.on_text_delta(text)
                 if asyncio.iscoroutine(result):
                     await result
 
@@ -306,8 +301,8 @@ class AppState:
                 "name": call.name,
                 "arguments": call.arguments,
             })
-            if original_on_tool_start:
-                result = original_on_tool_start(call)
+            if original_callbacks.on_tool_start:
+                result = original_callbacks.on_tool_start(call)
                 if asyncio.iscoroutine(result):
                     await result
 
@@ -322,8 +317,8 @@ class AppState:
             if metadata and "flow_id" in metadata:
                 event_data["flow_id"] = metadata["flow_id"]
             await self.push_event("message", event_data)
-            if original_on_tool_end:
-                result = original_on_tool_end(name, title, output, metadata)
+            if original_callbacks.on_tool_end:
+                result = original_callbacks.on_tool_end(name, title, output, metadata)
                 if asyncio.iscoroutine(result):
                     await result
 
@@ -388,13 +383,15 @@ class AppState:
                 "title": data.get("title", ""),
             })
 
-        agent.on_text_delta = on_text  # type: ignore
-        agent.on_tool_start = on_tool_start  # type: ignore
-        agent.on_tool_end = on_tool_end  # type: ignore
-        agent.permission_callback = permission_callback  # type: ignore
-        agent.ask_user_callback = ask_user_callback  # type: ignore
-        agent.on_event_callback = on_event  # type: ignore
-        agent.interjection_source = interjection_source  # type: ignore
+        agent.callbacks = AgentCallbacks(  # type: ignore
+            on_text_delta=on_text,
+            on_tool_start=on_tool_start,
+            on_tool_end=on_tool_end,
+            on_event_callback=on_event,
+            permission_callback=permission_callback,
+            ask_user_callback=ask_user_callback,
+            interjection_source=interjection_source,
+        )
 
         try:
             self.clear_error()
@@ -460,13 +457,7 @@ class AppState:
             self.set_error(tb)
             await self.push_event("error", {"message": tb})
         finally:
-            agent.on_text_delta = original_on_text
-            agent.on_tool_start = original_on_tool_start
-            agent.on_tool_end = original_on_tool_end
-            agent.permission_callback = original_permission
-            agent.ask_user_callback = original_ask_user
-            agent.on_event_callback = original_on_event
-            agent.interjection_source = original_interjection_source
+            agent.callbacks = original_callbacks  # type: ignore
             save_current(session, self.session.filepath)
             self._running = False
             self._running_task = None

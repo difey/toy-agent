@@ -9,6 +9,7 @@ from nano_claude.core.message import TextDelta, ToolCall, ToolCallBegin, ToolCal
 from nano_claude.core.session import Session
 from nano_claude.core.session_runtime import SessionRuntime
 from nano_claude.core.state import AppState
+from nano_claude.core.tool_contracts import AgentCallbacks
 from nano_claude.core.tool_registry import ToolRegistry
 from nano_claude.tools import WriteTool
 
@@ -96,8 +97,10 @@ async def test_agent_stream_consumes_interjection_between_turns():
         model="gpt-4o",
         tools=registry,
         api_key="test-key",
-        on_text_delta=lambda t: collected_text.append(t),
-        interjection_source=lambda: [interjections.pop(0)] if interjections else [],
+        callbacks=AgentCallbacks(
+            on_text_delta=lambda t: collected_text.append(t),
+            interjection_source=lambda: [interjections.pop(0)] if interjections else [],
+        ),
     )
 
     session = Session()
@@ -149,8 +152,10 @@ async def test_agent_stream_consumes_interjection_arriving_during_final_response
         model="gpt-4o",
         tools=registry,
         api_key="test-key",
-        on_text_delta=lambda t: collected_text.append(t),
-        interjection_source=interjection_source,
+        callbacks=AgentCallbacks(
+            on_text_delta=lambda t: collected_text.append(t),
+            interjection_source=interjection_source,
+        ),
     )
 
     session = Session()
@@ -187,7 +192,7 @@ async def test_agent_stream_no_interjection_source_is_unchanged():
         model="gpt-4o",
         tools=registry,
         api_key="test-key",
-        on_text_delta=lambda t: collected_text.append(t),
+        callbacks=AgentCallbacks(on_text_delta=lambda t: collected_text.append(t)),
     )
     session = Session()
 

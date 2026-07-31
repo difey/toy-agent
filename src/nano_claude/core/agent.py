@@ -4,7 +4,7 @@ import platform
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from nano_claude.core.message import (
     AssistantMessage,
@@ -17,7 +17,7 @@ from nano_claude.core.message import (
     UserMessage
 )
 from nano_claude.core.prompts import PLAN_MODE_TOOLS, PLAN_SYSTEM_PROMPT, SYSTEM_PROMPT
-from nano_claude.core.tool_contracts import AskUserCallback, PermissionCallback, ToolContext, ToolExecResult
+from nano_claude.core.tool_contracts import AgentCallbacks, ToolContext, ToolExecResult
 from nano_claude.core.tool_registry import ToolRegistry
 from nano_claude.infra.llm import LLMClient
 from nano_claude.infra.setup import save_user_config
@@ -31,15 +31,9 @@ class Agent:
         tools: ToolRegistry,
         api_key: str | None = None,
         base_url: str | None = None,
-        permission_callback: PermissionCallback | None = None,
-        ask_user_callback: AskUserCallback | None = None,
-        on_text_delta: Callable | None = None,
-        on_tool_start: Callable | None = None,
-        on_tool_end: Callable | None = None,
-        on_event_callback: Callable | None = None,
+        callbacks: AgentCallbacks | None = None,
         skill_store: Any | None = None,
         mode: str = "build",
-        interjection_source: Callable[[], list[dict]] | None = None,
     ):
         self.model = model
         self.api_key = api_key
@@ -49,14 +43,8 @@ class Agent:
         self._full_tools = tools
         self.mode = mode
         self.tools = self._get_mode_tools()
-        self.permission_callback = permission_callback
-        self.ask_user_callback = ask_user_callback
-        self.on_text_delta = on_text_delta
-        self.on_tool_start = on_tool_start
-        self.on_tool_end = on_tool_end
-        self.on_event_callback = on_event_callback
+        self.callbacks = callbacks or AgentCallbacks()
         self.skill_store = skill_store
-        self.interjection_source = interjection_source
 
     def reconfigure_llm(self, model: str, api_key: str | None = None, base_url: str | None = None, provider: str | None = None) -> None:
         """Update the model/api_key/base_url, recreate the LLM client, and persist to config."""
@@ -99,8 +87,8 @@ class Agent:
         async for chunk in stream:
             if isinstance(chunk, TextDelta):
                 accumulated_text.append(chunk.text)
-                if self.on_text_delta:
-                    await self._call_with_await(self.on_text_delta, chunk.text)
+                if self.callbacks.on_text_delta:
+                    await self._call_with_await(self.callbacks.on_text_delta, chunk.text)
             elif isinstance(chunk, ReasoningDelta):
                 accumulated_reasoning.append(chunk.text)
             elif isinstance(chunk, ToolCallBegin):
@@ -133,11 +121,11 @@ class Agent:
                     output=f"Error: unknown tool '{call.name}'",
                     title="unknown tool",
                 )
-                if self.on_tool_end:
-                    await self._call_with_await(self.on_tool_end, call.name, "unknown tool", "", exec_result.metadata)
+                if self.callbacks.on_tool_end:
+                    await self._call_with_await(self.callbacks.on_tool_end, call.name, "unknown tool", "", exec_result.metadata)
             else:
-                if self.on_tool_start:
-                    await self._call_with_await(self.on_tool_start, call)
+                if self.callbacks.on_tool_start:
+                    await self._call_with_await(self.callbacks.on_tool_start, call)
                 try:
                     exec_result = await tool.execute(call.arguments, ctx)
                 except Exception as e:
@@ -145,11 +133,11 @@ class Agent:
                         output=f"Error: {e}",
                         title="error",
                     )
-                    if self.on_tool_end:
-                        await self._call_with_await(self.on_tool_end, call.name, "error", "", exec_result.metadata)
+                    if self.callbacks.on_tool_end:
+                        await self._call_with_await(self.callbacks.on_tool_end, call.name, "error", "", exec_result.metadata)
                 else:
-                    if self.on_tool_end:
-                        await self._call_with_await(self.on_tool_end, call.name, exec_result.title, exec_result.output, exec_result.metadata)
+                    if self.callbacks.on_tool_end:
+                        await self._call_with_await(self.callbacks.on_tool_end, call.name, exec_result.title, exec_result.output, exec_result.metadata)
 
             await sess.add_message(ToolResult(
                 tool_call_id=call.id,
@@ -206,11 +194,11 @@ class Agent:
         ctx = ToolContext(
             cwd=resolved_cwd,
             session_dir=get_session_dir(resolved_cwd),
-            permission_callback=self.permission_callback,
-            ask_user_callback=self.ask_user_callback,
+            permission_callback=self.callbacks.permission_callback,
+            ask_user_callback=self.callbacks.ask_user_callback,
             mode=self.mode,
             parent_agent=self,
-            on_event=self.on_event_callback,
+            on_event=self.callbacks.on_event_callback,
             skill_store=self.skill_store,
         )
         sess = self._get_or_create_session(session, ctx.cwd)
@@ -257,9 +245,9 @@ class Agent:
         使 LLM 能在下一次调用中看到并纠正自身行为。
         返回是否有额外说明被插入。
         """
-        if self.interjection_source is None:
+        if self.callbacks.interjection_source is None:
             return False
-        interjections = self.interjection_source()
+        interjections = self.callbacks.interjection_source()
         inserted = False
         for item in interjections or []:
             message = item.get("message")
@@ -281,11 +269,11 @@ class Agent:
         ctx = ToolContext(
             cwd=resolved_cwd,
             session_dir=get_session_dir(resolved_cwd),
-            permission_callback=self.permission_callback,
-            ask_user_callback=self.ask_user_callback,
+            permission_callback=self.callbacks.permission_callback,
+            ask_user_callback=self.callbacks.ask_user_callback,
             mode=self.mode,
             parent_agent=self,
-            on_event=self.on_event_callback,
+            on_event=self.callbacks.on_event_callback,
             skill_store=self.skill_store,
         )
         sess = self._get_or_create_session(session, ctx.cwd)

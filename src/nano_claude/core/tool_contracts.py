@@ -11,6 +11,23 @@ AskUserCallback = Callable[[str, str, list[dict], bool], Awaitable[list[str]]]
 
 
 @dataclass
+class AgentCallbacks:
+    """Bundled optional callbacks an Agent fires during its run loop.
+
+    Lets the core Agent stay agnostic of any specific frontend (Web UI,
+    TUI, tests) while giving each host a single object to inject and swap.
+    """
+
+    on_text_delta: Callable | None = None
+    on_tool_start: Callable | None = None
+    on_tool_end: Callable | None = None
+    on_event_callback: Callable | None = None
+    permission_callback: PermissionCallback | None = None
+    ask_user_callback: AskUserCallback | None = None
+    interjection_source: Callable[[], list[dict]] | None = None
+
+
+@dataclass
 class ToolExecResult:
     output: str
     title: str = ""

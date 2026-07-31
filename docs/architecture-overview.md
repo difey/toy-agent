@@ -27,13 +27,17 @@ The stream variant (`run_stream`) sends text deltas to the UI in real-time via c
 
 ### Callbacks
 
-Agent accepts callbacks for UI integration:
+Agent accepts a bundled `AgentCallbacks` object (defined in `core/tool_contracts.py`) for UI integration:
 
 - `permission_callback(tool, target, reason) → str` — called before dangerous operations
 - `ask_user_callback(header, question, options, multiple) → list[str]` — called for `question` tool
 - `on_text_delta(text)` — streaming text chunks
 - `on_tool_start(call)` — tool call began
 - `on_tool_end(name, title, output)` — tool call completed
+- `on_event_callback(event_type, data)` — real-time sub-agent events
+- `interjection_source() → list[dict]` — consumed before each LLM call to inject user follow-ups
+
+Hosts (e.g. `AppState._execute_chat` in the web UI) swap `agent.callbacks` with a wrapped copy for the duration of a run, then restore it afterwards.
 
 ## Plan Mode & Build Mode
 
