@@ -1,5 +1,7 @@
 # Mira Code
 
+> nano claude已经归档到nano_claude分支，本项目全面迁移到新的项目结构
+
 Python 编写的 **Coding Agent 平台**：同一套 Agent 核心同时驱动 **CLI** 与 **Web** 两种交互界面，Agent / 模型 / 工具 / 技能 / MCP 全部配置驱动、可插拔，内建遥测、多会话并发与审批（HITL）。
 
 > 架构与各层设计详见 [docs/README.md](docs/README.md)（设计文档）；本文档只讲**怎么用**。
