@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,9 @@ from mira.core.providers.base import ModelInfo
 MODELS_DEV_URL = "https://models.dev/api.json"
 # reasoning=true 但未提供 effort 枚举时的默认阶梯（models.dev 当前不提供枚举）
 DEFAULT_EFFORTS = ("low", "medium", "high")
+# 启动时后台刷新去重：同一进程内无论创建多少个 AppClient / ModelCatalog，只启动一次
+_refresh_lock = threading.Lock()
+_refresh_started = False
 # models.dev provider id 与 litellm provider 前缀的别名映射（部分不一致，如 gemini→google）
 PROVIDER_ALIASES = {
     "gemini": "google",
@@ -80,6 +84,27 @@ class ModelCatalog:
         self.path = target
         _CACHE[str(target)] = data  # 更新缓存
         return target
+
+    def refresh_async(self) -> None:
+        """后台 daemon 子线程刷新 models.dev 快照并写回 ~/.mira-code/models-dev.json。
+
+        供启动时调用（不阻塞启动）：同一进程内只启动一次（CLI/Web 可能多次创建
+        AppClient，避免重复下载）；离线 / 网络失败静默忽略。
+        """
+        global _refresh_started
+        with _refresh_lock:
+            if _refresh_started:
+                return
+            _refresh_started = True
+        threading.Thread(
+            target=self._refresh_worker, name="models-dev-refresh", daemon=True
+        ).start()
+
+    def _refresh_worker(self) -> None:
+        try:
+            self.refresh()
+        except Exception:  # noqa: BLE001  后台刷新失败静默（离线 / 超时），不影响启动
+            return
 
     # ── 查询 ───────────────────────────────────────────────
 

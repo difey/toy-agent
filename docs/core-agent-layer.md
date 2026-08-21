@@ -38,7 +38,7 @@
 - 适配器：
   - `LiteLLMProvider`（真实供应商默认）：所有调用统一经 **litellm**；`config.type` = litellm provider 前缀（openai / anthropic / ollama / gemini / …），模型名 `{type}/{model}`，`effort` → `reasoning_effort`；
   - `MockProvider`：本地可测 / 无 LLM 环境，保留。
-- 模型目录：`ModelCatalog` 读取 **models.dev** 快照（`configs/models-dev.json`，可 `refresh()` 拉 `https://models.dev/api.json` 更新缓存）——可选供应商、每供应商模型、`reasoning`（是否支持 thinking）、`thinking_efforts`（默认阶梯 low/medium/high）。
+- 模型目录：`ModelCatalog` 读取 **models.dev** 快照（`configs/models-dev.json`，可 `refresh()` 拉 `https://models.dev/api.json` 更新缓存）——可选供应商、每供应商模型、`reasoning`（是否支持 thinking）、`thinking_efforts`（默认阶梯 low/medium/high）。每次启动（创建 `AppClient`）时自动在后台 daemon 子线程 `refresh_async()` 刷新快照并写回 `~/.mira-code/models-dev.json`（离线/失败静默；`MIRA_MODELS_DEV_REFRESH=0` 可关闭）。
 - `ProviderRouter`：按 provider id 路由 → provider；负责重试（含退避）、聚合 `available_models`（含 effort 标注）。
 - 所有往返都经 Tracer 产出 `llm.*` 事件（含 latency、usage、cost；cost 取自服务商用量响应）。
 

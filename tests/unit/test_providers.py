@@ -245,6 +245,64 @@ def test_catalog_loads_snapshot_and_efforts(tmp_path):
     assert cat.models_for("no-such") == []
 
 
+def test_models_dev_refresh_async_downloads_to_mira_home_once(monkeypatch):
+    """启动后台刷新：下载最新快照写回 mira-code，且同一进程只启动一次。"""
+    import io
+    import threading
+    import time
+
+    import mira.core.providers.catalog as cat_mod
+    from mira import paths as mira_paths
+
+    # 重置进程级去重标志，避免受其他测试影响
+    monkeypatch.setattr(cat_mod, "_refresh_started", False)
+
+    calls: list = []
+    payload = io.BytesIO(json.dumps({"acme": {"name": "Acme"}}).encode("utf-8"))
+
+    def fake_urlopen(req, timeout=60):
+        calls.append(req)
+        return payload
+
+    monkeypatch.setattr(cat_mod.urllib.request, "urlopen", fake_urlopen)
+
+    c1, c2 = ModelCatalog(), ModelCatalog()
+    c1.refresh_async()
+    c2.refresh_async()  # 进程级去重：不应再启动线程
+
+    target = mira_paths.mira_home() / "models-dev.json"
+    deadline = time.time() + 5
+    data = {}
+    while time.time() < deadline:
+        try:
+            data = json.loads(target.read_text(encoding="utf-8"))
+            if "acme" in data:
+                break
+        except FileNotFoundError:
+            pass
+        time.sleep(0.05)
+    assert data.get("acme", {}).get("name") == "Acme"  # 快照已写回 mira-code
+    assert len(calls) == 1  # 只下载一次（去重生效）
+
+
+def test_app_client_starts_background_refresh_on_startup(monkeypatch):
+    """AppClient 每次创建（启动入口）默认触发后台刷新；MIRA_MODELS_DEV_REFRESH=0 关闭。"""
+    import mira.core.providers.catalog as cat_mod
+    from mira.api.client import AppClient
+
+    monkeypatch.delenv("MIRA_MODELS_DEV_REFRESH", raising=False)  # 恢复默认（启用）
+    started: list = []
+    monkeypatch.setattr(
+        cat_mod.ModelCatalog, "refresh_async", lambda self: started.append(True)
+    )
+    AppClient()
+    assert started == [True]
+
+    monkeypatch.setenv("MIRA_MODELS_DEV_REFRESH", "0")  # 关闭
+    AppClient()
+    assert started == [True]  # 未再触发
+
+
 def test_build_mock_provider():
     cfg = ProviderConfig(id="mock", type="mock")
     p = build_provider(cfg)

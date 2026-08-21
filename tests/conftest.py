@@ -19,3 +19,13 @@ def _no_mcp_servers(monkeypatch):
     """
     monkeypatch.setenv("MIRA_MCP_DISABLED", "1")
     yield
+
+
+@pytest.fixture(autouse=True)
+def _no_models_dev_background_refresh(monkeypatch):
+    """关闭 AppClient 启动时的 models.dev 后台刷新（避免测试发起真实网络请求）。
+
+    专项测试通过 monkeypatch.delenv 恢复默认以验证启动刷新逻辑。
+    """
+    monkeypatch.setenv("MIRA_MODELS_DEV_REFRESH", "0")
+    yield

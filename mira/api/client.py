@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import os
 import threading
 from collections.abc import Iterator
 from pathlib import Path
@@ -17,6 +18,12 @@ from mira.telemetry.events import Event
 class AppClient:
     def __init__(self, manager: SessionManager | None = None) -> None:
         self.manager = manager or SessionManager()
+        # 每次启动（创建门面）时后台刷新 models.dev 快照写回 mira-code；
+        # MIRA_MODELS_DEV_REFRESH=0 可关闭（测试隔离等）。
+        if os.environ.get("MIRA_MODELS_DEV_REFRESH", "1") != "0":
+            from mira.core.providers.catalog import ModelCatalog
+
+            ModelCatalog().refresh_async()
 
     def create_session(
         self,
