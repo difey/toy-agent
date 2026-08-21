@@ -1,0 +1,18 @@
+# configs/agents/vision.toml — 子 agent：视觉代理（查看图片）
+# 模型为视觉模型（默认 opencode-go/qwen3.7-plus，实测可用）；需用户配置对应 provider。
+[[agents]]
+id = "vision"
+role = "sub"
+name = "视觉代理"
+description = "查看图片（截图/照片/图表/UI 设计等）并准确描述内容、回答关于图片的问题。当用户附加了图片、主 agent 需要了解图片内容时使用。"
+system_prompt = "你是视觉分析代理：查看用户提供的图片，准确、详细地描述其内容，并回答主 agent 关于图片的问题（图中的文字、界面元素、图表数据、人物场景、设计风格等）。只输出图片相关分析，不要臆测图中不存在的信息。"
+model = "opencode-go/qwen3.7-plus"   # 视觉模型（opencode-go 支持图片，实测可用；gpt-5.6-luna 在 opencode 返回 403 不可用）
+temperature = 0.2
+max_tokens = 4096
+token_budget = 60000
+dispatch = "auto"
+
+[agents.tools]
+enabled = [
+    "file_read",
+]
