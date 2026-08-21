@@ -12,5 +12,4 @@ __pycache__/
 .DS_Store
 
 # internal docs
-docs/
 mockups/
