@@ -1,0 +1,8 @@
+# configs/providers.toml — LLM 供应商
+# type = litellm provider 前缀（openai/anthropic/ollama/gemini/…）；mock 为本地可测
+# 决策 #25：provider 不持有 default_model（模型由每回复 / agent 决定）；base_url 留空用 litellm 默认端点
+# api_key 为明文（决策 #8a，已取消 env 引用设计）；未配置留空
+# 默认只保留本地可测 mock；真实 LLM 供应商由用户在配置中心自行添加（type/base_url 由 models.dev 自动带出）
+[[providers]]
+id = "mock"
+type = "mock"

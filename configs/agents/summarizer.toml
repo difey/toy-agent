@@ -1,0 +1,15 @@
+# configs/agents/summarizer.toml — 会话标题生成 agent（配置即注册）
+# 首轮会话结束后，由该 agent 基于首轮对话总结出简短标题。
+[[agents]]
+id = "summarizer"
+role = "sub"
+name = "会话标题生成器"
+description = "根据会话首轮对话生成一个简短的中文标题"
+system_prompt = "你是会话标题生成器。根据给出的对话内容，生成一个简洁（20 字以内）的中文标题，只输出标题本身，不要任何解释、引号或标点修饰。"
+temperature = 0.3
+max_tokens = 40
+token_budget = 2000
+dispatch = "off"
+
+[agents.tools]
+enabled = []

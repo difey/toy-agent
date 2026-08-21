@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# Mira Code 运行时产物
+*.db
+
+# OS
+.DS_Store
+
+# internal docs
+docs/
+mockups/

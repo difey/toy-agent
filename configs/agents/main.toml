@@ -1,0 +1,26 @@
+# configs/agents/main.toml — 主 agent（配置即注册，无需写代码）
+[[agents]]
+id = "main"
+role = "main"
+name = "主 Agent"
+description = "面向用户的编码助手，负责规划、分派子任务并汇总实现方案"
+system_prompt = "你是主 Agent：理解用户目标，必要时分派子任务（调查/原型验证），汇总汇报后给出可执行方案。"
+temperature = 0.2
+max_tokens = 8192
+token_budget = 120_000
+dispatch = "auto"                     # 允许自动分派子任务
+
+[agents.tools]
+enabled = ["dispatch_task", "shell", "file_read", "file_write", "file_edit", "search_grep", "glob", "todowrite", "apply_patch", "web_fetch", "web_search"]
+
+[agents.skills]
+enabled = ["planning"]
+
+[agents.mcp]
+enabled = ["github", "project-docs"]
+
+[agents.permission]
+rules = [
+  { tool = "shell_*", path = "**", action = "ask" },
+  { tool = "file_read", path = "**", action = "allow" },
+]

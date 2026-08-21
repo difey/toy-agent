@@ -1,0 +1,19 @@
+# configs/agents/proto_tester.toml — 子 agent：读文档 + 原型测试，给出实现建议
+[[agents]]
+id = "proto-tester"
+role = "sub"
+name = "原型验证员"
+description = "阅读外部文档并对目标做原型/测试验证，汇报应如何实现某目标。"
+system_prompt = "你是原型验证员：先读外部文档/示例，再写最小原型或测试验证可行性，最后给出实现方案与风险。"
+token_budget = 100_000
+report_schema = "implementation_plan"    # 汇报格式（可选提示，不强制）
+dispatch = "auto"
+
+[agents.tools]
+enabled = ["file_read", "file_write", "shell", "web_fetch", "web_search"]
+
+[agents.skills]
+enabled = ["test-driven-development"]
+
+[agents.mcp]
+enabled = ["project-docs"]

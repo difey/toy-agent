@@ -1,0 +1,11 @@
+# configs/mcp.toml — MCP 服务定义
+[[mcp.servers]]
+id = "github"
+transport = "http"            # stdio | http
+url = "http://localhost:8931/mcp"
+auth = "MIRA_GITHUB_MCP_TOKEN"           # 决策 #8a：明文配置（初期简化）
+
+[[mcp.servers]]
+id = "project-docs"
+transport = "stdio"
+command = ["npx", "-y", "@modelcontextprotocol/server-filesystem", "./docs"]

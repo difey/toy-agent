@@ -1,0 +1,16 @@
+# configs/mira.toml — 运行时默认配置
+[telemetry]
+enabled = true
+log_dir = "sessions"                 # 相对 workspace：~/.mira-code/<ws>/sessions
+sqlite_path = "telemetry/mira.db"    # 相对 workspace：~/.mira-code/<ws>/telemetry/mira.db
+metric_interval_s = 5
+
+[approval]
+mode = "ask"        # auto | ask | deny
+ask_include = ["shell_*", "file_write"]
+
+[session]
+default_agent = "main"
+default_model = "mock/mock"
+max_concurrent_sessions = 4   # 全局并发上限，超出排队/拒绝
+queue_on_quota = true         # 超上限时：排队（true）/ 拒绝（false）

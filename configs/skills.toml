@@ -1,0 +1,17 @@
+# configs/skills.toml — 技能全局定义（agent 通过 [agents.skills].enabled 启用）
+[[skills]]
+id = "planning"
+name = "计划规划"
+description = "先制定分步计划再执行，复杂/多步任务必用"
+prompt = """1. 拆解目标为可验证步骤
+2. 预估每步所需工具与风险
+3. 执行并逐项核对
+4. 汇总结果与偏差"""
+tools = ["file_read", "file_write"]
+
+[[skills]]
+id = "code-exploration"
+name = "代码探索"
+description = "只读调查代码库与 git 历史，输出现状总结"
+prompt = """只读调查：读关键文件与 git 历史，输出：现状总结、关键代码位置、与目标的差距。"""
+tools = ["file_read", "search_grep", "git_log"]

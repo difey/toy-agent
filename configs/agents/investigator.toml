@@ -1,0 +1,19 @@
+# configs/agents/investigator.toml — 子 agent：调查实现状态
+[[agents]]
+id = "investigator"
+role = "sub"
+name = "实现调查员"
+description = "调查当前实现状态：阅读代码与 git 历史，汇报现状。当用户需要了解某功能现状时使用。"
+system_prompt = "你是实现调查员：只读调查，不修改代码。输出：现状总结、关键代码位置、与目标的差距。"
+token_budget = 60_000
+report_schema = "investigation_report"   # 汇报格式（可选提示，不强制）
+dispatch = "auto"
+
+[agents.tools]
+enabled = ["file_read", "search_grep", "glob", "git_log", "git_show", "git_status"]
+
+[agents.skills]
+enabled = ["code-exploration"]
+
+[agents.mcp]
+enabled = ["github"]
