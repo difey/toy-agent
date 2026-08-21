@@ -122,7 +122,7 @@ def test_shell_default_timeout():
     # 名称已统一为下划线（LLM provider 不支持 `.`）
     assert set(ToolRegistry.with_builtins().names()) == {
         "shell", "file_read", "file_write", "file_edit", "search_grep",
-        "glob", "todowrite", "apply_patch", "web_fetch", "web_search",
+        "glob", "todowrite", "apply_patch", "project_memory", "web_fetch", "web_search",
     }
 
 

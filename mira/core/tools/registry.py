@@ -6,6 +6,7 @@ from mira.core.tools.base import Tool
 from mira.core.tools.builtin.apply_patch import ApplyPatchTool
 from mira.core.tools.builtin.file_tools import FileEditTool, FileReadTool, FileWriteTool
 from mira.core.tools.builtin.glob_tool import GlobTool
+from mira.core.tools.builtin.project_memory import ProjectMemoryTool
 from mira.core.tools.builtin.search import GrepTool
 from mira.core.tools.builtin.shell import ShellTool
 from mira.core.tools.builtin.todowrite import TodoWriteTool
@@ -44,7 +45,7 @@ class ToolRegistry:
 
     @classmethod
     def with_builtins(cls) -> "ToolRegistry":
-        """注册全部内建工具：shell / 文件 / 检索 / glob / todowrite / apply_patch / web_fetch / web_search。"""
+        """注册全部内建工具：shell / 文件 / 检索 / glob / todowrite / project_memory / apply_patch / web_fetch / web_search。"""
         return cls().register_many(
             [
                 ShellTool(),
@@ -54,6 +55,7 @@ class ToolRegistry:
                 GrepTool(),
                 GlobTool(),
                 TodoWriteTool(),
+                ProjectMemoryTool(),
                 ApplyPatchTool(),
                 WebFetchTool(),
                 WebSearchTool(),

@@ -928,7 +928,7 @@ function ProvidersPane({ data, onChange, save }) {
   );
 }
 
-const TOOL_CANDIDATES = ["dispatch_task", "shell", "file_read", "file_write", "file_edit", "search_grep", "glob", "apply_patch", "todowrite", "web_fetch", "web_search", "git_log", "git_show", "git_status"];
+const TOOL_CANDIDATES = ["dispatch_task", "shell", "file_read", "file_write", "file_edit", "search_grep", "glob", "apply_patch", "todowrite", "project_memory", "web_fetch", "web_search", "git_log", "git_show", "git_status"];
 
 function AgentsPane({ data, skills, mcpServers, onChange, save, models }) {
   const items = data.agents || [];

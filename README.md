@@ -12,6 +12,7 @@ Python 编写的 **Coding Agent 平台**：同一套 Agent 核心同时驱动 **
 - **配置即 Agent**：新增主/子 Agent、工具、技能只需写 TOML 配置，无需写代码
 - **多会话并发**：同一工作区可并行开多个会话，带全局并发上限与配额
 - **内建遥测**：事件日志（JSONL）+ 指标（SQLite），支持回放与观测
+- **项目记忆**：`project_memory` 工具读写工作区记忆文件 `memory.md`，agent 自动沉淀项目事实 / 约定 / 进度（读取 / 追加 / 锚点替换）
 - **默认 mock Provider**：本地可测、无网络依赖，开箱即用
 
 ## 环境要求
@@ -124,6 +125,7 @@ mira -m deepseek/deepseek-chat -p "你好"
 ~/.mira-code/
 ├── configs/                          # 全局配置
 └── workspaces/<工作区>_<哈希>/
+    ├── memory.md                     # 项目记忆（project_memory 工具维护）
     ├── sessions/<会话id>/
     │   ├── session_id.jsonl          # 会话事件日志 / 回放源
     │   └── reports/                  # 子 agent 报告
