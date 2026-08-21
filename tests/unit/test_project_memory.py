@@ -92,13 +92,15 @@ def test_replace_ambiguous_anchor_fails(tmp_path):
     assert not res.ok
 
 
-def test_replace_overwrite_when_no_anchor(tmp_path):
+def test_replace_without_anchor_fails(tmp_path):
     ws = _ws(tmp_path)
     tool = _tool()
     tool.run(_ctx(ws), operation="append", content="旧内容")
-    res = tool.run(_ctx(ws), operation="replace", old_text="", content="全新内容")
-    assert res.ok
-    assert _mem(ws).read_text(encoding="utf-8") == "全新内容\n"
+    res = tool.run(_ctx(ws), operation="replace", content="全新内容")
+    assert not res.ok
+    assert "old_text" in (res.error or "")
+    # 文件保持原样
+    assert _mem(ws).read_text(encoding="utf-8") == "旧内容\n"
 
 
 def test_isolated_per_workspace(tmp_path):

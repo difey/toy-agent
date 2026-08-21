@@ -6,8 +6,8 @@
 操作（operation）：
 - read    读取当前记忆全文（文件不存在返回空态提示）
 - append  在文件末尾追加一段 content（不存在则创建，自动换行分隔）
-- replace 用锚点精确替换：old_text 在文件中**唯一**出现时替换为 new_text；
-          old_text 留空则整体覆盖为 new_text（初始化/重写用）。
+- replace 用锚点精确替换：必须提供 old_text，在文件中**唯一**出现时替换为 new_text；
+          缺失或出现多次会报错（防止误改）。
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ class ProjectMemoryTool(Tool):
         "工作区级项目记忆：维护 ~/.mira-code/workspaces/<ws>/memory.md 单一记忆文件，"
         "供 agent 跨会话沉淀项目事实/约定/进度/教训（先 read 了解现状，再 append 或 replace 更新）。"
         "operation=read 读取全文；operation=append 在末尾追加 content；"
-        "operation=replace 把唯一出现的 old_text 替换为 content（old_text 留空则整体覆盖为 content）。"
+        "operation=replace 必须提供 old_text，把唯一出现的 old_text 替换为 content（缺失或多次出现会报错）。"
     )
     params_schema = {
         "type": "object",
@@ -56,7 +56,7 @@ class ProjectMemoryTool(Tool):
             },
             "old_text": {
                 "type": "string",
-                "description": "replace 时被替换的锚点（须唯一出现；留空则整体覆盖为 content）",
+                "description": "replace 时被替换的锚点（必填；须唯一出现，缺失或多次出现会报错）",
             },
         },
         "required": ["operation"],
@@ -110,16 +110,9 @@ class ProjectMemoryTool(Tool):
         )
 
     def _replace(self, path: Path, old_text: str, new_text: str, t0: float) -> ToolResult:
-        text = _read_text(path)
         if not old_text:
-            # 整体覆盖（初始化 / 重写）
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(new_text + ("\n" if new_text and not new_text.endswith("\n") else ""), encoding="utf-8")
-            return ToolResult(
-                ok=True,
-                output=f"已整体覆盖 {len(new_text)} 字符到 {path}",
-                duration_ms=round((time.perf_counter() - t0) * 1000, 1),
-            )
+            return ToolResult(ok=False, error="replace 必须提供 old_text（要替换的锚点，不可省略）")
+        text = _read_text(path)
         if not text:
             return ToolResult(ok=False, error="replace 锚点不存在：记忆文件为空（先 append 或整体覆盖）")
         count = text.count(old_text)
