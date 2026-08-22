@@ -282,7 +282,12 @@ class AgentRuntime:
             tool_span = f"sp_tool_{idx}"
             self.tracer.emit(
                 EventType.TOOL_CALL,
-                {"name": name, "arguments": args, "action": action},
+                {
+                    "name": name,
+                    "arguments": args,
+                    "action": action,
+                    "call_id": call.get("id"),
+                },
                 session_id=session_id,
                 span_id=tool_span,
                 parent_span_id=run_span,
@@ -291,7 +296,7 @@ class AgentRuntime:
             # LLM 生成参数非合法 JSON：把解析错误回填给 AI，让其修正参数后重试
             if parse_err:
                 result = ToolResult(ok=False, error=f"{name} 参数解析失败: {parse_err}")
-                self._emit_tool_result(name, result, session_id, tool_span, run_span)
+                self._emit_tool_result(name, result, session_id, tool_span, run_span, call.get("id"))
                 self.history.append(
                     ChatMessage(role=ChatRole.TOOL, content=result.text, tool_call_id=call.get("id"))
                 )
@@ -299,7 +304,7 @@ class AgentRuntime:
 
             if action == PermissionAction.DENY:
                 result = ToolResult(ok=False, error=f"permission denied: {name}")
-                self._emit_tool_result(name, result, session_id, tool_span, run_span)
+                self._emit_tool_result(name, result, session_id, tool_span, run_span, call.get("id"))
                 self.history.append(
                     ChatMessage(role=ChatRole.TOOL, content=result.text, tool_call_id=call.get("id"))
                 )
@@ -310,7 +315,7 @@ class AgentRuntime:
                 req = self._request_approval(name, args, path, session_id, tool_span, run_span)
                 if req.decision in (None, ApprovalDecision.DENY):
                     result = ToolResult(ok=False, error=f"approval denied: {name}")
-                    self._emit_tool_result(name, result, session_id, tool_span, run_span)
+                    self._emit_tool_result(name, result, session_id, tool_span, run_span, call.get("id"))
                     self.history.append(
                         ChatMessage(
                             role=ChatRole.TOOL, content=result.text, tool_call_id=call.get("id")
@@ -321,7 +326,7 @@ class AgentRuntime:
             tool = self.tools.get(name)
             if tool is None:
                 result = ToolResult(ok=False, error=f"工具未注册: {name}")
-                self._emit_tool_result(name, result, session_id, tool_span, run_span)
+                self._emit_tool_result(name, result, session_id, tool_span, run_span, call.get("id"))
             else:
                 try:
                     result = tool.invoke(
@@ -347,7 +352,7 @@ class AgentRuntime:
                         ok=False,
                         error=f"工具执行异常（{name} 参数 {args_text}）: {exc}",
                     )
-                self._emit_tool_result(name, result, session_id, tool_span, run_span)
+                self._emit_tool_result(name, result, session_id, tool_span, run_span, call.get("id"))
 
             self.history.append(
                 ChatMessage(role=ChatRole.TOOL, content=result.text, tool_call_id=call.get("id"))
@@ -418,7 +423,13 @@ class AgentRuntime:
         return req
 
     def _emit_tool_result(
-        self, name: str, result: ToolResult, session_id: str, span: str, run_span: str
+        self,
+        name: str,
+        result: ToolResult,
+        session_id: str,
+        span: str,
+        run_span: str,
+        call_id: str | None = None,
     ) -> None:
         ev_type = EventType.TOOL_RESULT if result.ok else EventType.TOOL_ERROR
         self.tracer.emit(
@@ -429,6 +440,7 @@ class AgentRuntime:
                 "error": result.error,
                 "duration_ms": result.duration_ms,
                 "truncated": result.truncated,
+                "call_id": call_id,
             },
             session_id=session_id,
             span_id=span,

@@ -41,7 +41,11 @@ body{
 .obs-mid-scroll{flex:1;overflow:auto;min-height:0;}
 .obs-row{display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--border);cursor:pointer;font-size:12px;line-height:1.4;}
 .obs-row:hover{background:var(--hover);}
+.obs-row.hover{background:var(--hover);}
 .obs-row.active{background:var(--accent-soft);}
+/* 关联高亮（策略责任链产出）：hover 灰 / 选中蓝，叠加时选中态优先 */
+.obs-row.is-rel-hover{background:var(--hover);}
+.obs-row.is-rel-active{background:var(--accent-soft);}
 .obs-row-seq{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--text-dim);flex-shrink:0;min-width:44px;text-align:right;}
 .obs-row-type{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;flex-shrink:0;padding:1px 6px;border-radius:5px;background:var(--hover);color:var(--text-dim);white-space:nowrap;}
 .obs-row-type.t-user{background:var(--accent-soft);color:var(--accent);}
@@ -53,6 +57,20 @@ body{
 .obs-row-type.t-task{background:var(--purple-soft);color:var(--purple);}
 .obs-row-brief{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text);}
 .obs-row-time{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--text-dim);flex-shrink:0;}
+
+/* 子 agent 折叠分组（头部灰底普通样式，与其他条目对齐；展开态同灰底，仅 caret 旋转区分） */
+.obs-group{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);cursor:pointer;font-size:12px;font-weight:400;color:var(--text);background:var(--hover);}
+.obs-group:hover{background:#e6e9ee;}
+.obs-group.open{background:var(--hover);color:var(--text);font-weight:400;}
+.obs-group.open:hover{background:#e6e9ee;}
+.obs-group .obs-group-caret{font-size:10px;display:inline-block;transition:transform .15s;flex-shrink:0;color:var(--text-dim);margin-left:12px;}
+.obs-group.open .obs-group-caret{transform:rotate(90deg);}
+.obs-group .obs-group-label{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.obs-group .obs-group-cnt{font-size:11px;color:var(--text-dim);background:var(--border);border-radius:999px;padding:1px 7px;flex-shrink:0;margin-right:12px;}
+.obs-group.open .obs-group-cnt{display:none;} /* 展开态不显示「N 条」徽章 */
+.obs-group-children{flex:1 1 100%;min-width:0;margin-top:2px;}
+.obs-group-children .obs-row{color:var(--text);padding-left:12px;} /* 默认白底（与普通条目一致），hover 灰走全局 .obs-row:hover */
+.obs-group-children .obs-row.is-rel-active{background:var(--accent-soft);}
 
 /* 右侧详情 */
 .obs-detail-empty{color:var(--text-dim);font-size:12px;padding:30px;text-align:center;}

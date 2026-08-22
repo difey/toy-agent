@@ -88,6 +88,10 @@ def test_runtime_writes_file_via_tool(tmp_path):
     llm = next(e for e in events if e.type == EventType.LLM_REQUEST)
     tool = next(e for e in events if e.type == EventType.TOOL_CALL)
     assert tool.parent_span_id == llm.parent_span_id
+    # call_id（tool_call_id）写入遥测：tool.call / tool.result 事件均带，供前端精确配对
+    tr = next(e for e in events if e.type == EventType.TOOL_RESULT)
+    assert tool.payload.get("call_id") == "c1"
+    assert tr.payload.get("call_id") == "c1"
     # 事件落盘（session 文件夹 + session_id.jsonl）
     assert (tmp_path / "sessions" / "sess_1" / "session_id.jsonl").exists()
 
