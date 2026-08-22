@@ -43,6 +43,24 @@ def test_vision_agent_registered():
     assert vision.model  # 配置了视觉模型
 
 
+def test_approver_agent_registered():
+    """自动审批决策 agent（configs/agents/approver.toml）配置即注册。"""
+    store = ConfigStore()
+    agents = store.agents()
+    assert "approver" in agents
+    ap = agents["approver"]
+    assert ap.role == AgentRole.SUB
+    assert ap.dispatch == "off"
+    assert not ap.tools.enabled  # 决策 agent 不暴露工具
+    # max_tokens 必须足够容纳 thinking 模型的思考阶段 + 最终单词（过小会空输出→全回退人工，回归防护）
+    assert ap.max_tokens and ap.max_tokens >= 64
+    # 原则约束与回退人工审批语义体现在 system prompt
+    assert "不可逆" in ap.system_prompt
+    assert "fallback" in ap.system_prompt
+    # auto 模式默认使用 approver 决策（bundled mira.toml 已配置）
+    assert store.runtime().approval.auto_agent == "approver"
+
+
 def _write_toml(dir_: Path, name: str, content: str) -> None:
     dir_.mkdir(parents=True, exist_ok=True)
     (dir_ / name).write_text(content, encoding="utf-8")

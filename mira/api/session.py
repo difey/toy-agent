@@ -11,9 +11,10 @@ from __future__ import annotations
 import json
 import threading
 from pathlib import Path
+from typing import Callable
 
 from mira import paths
-from mira.api.approval import ApprovalGate
+from mira.api.approval import ApprovalDecision, ApprovalGate
 from mira.api.protocol import Session, SessionStatus
 from mira.api.quota import SessionQuota
 from mira.api.stream import EventStream, StreamTracer
@@ -23,7 +24,7 @@ from mira.core.agents.base import BaseAgent
 from mira.core.agents.registry import AgentRegistry
 from mira.core.config.mutation import update_config
 from mira.core.config.queries import get_config, get_models
-from mira.core.config.schemas import AgentRole
+from mira.core.config.schemas import AgentRole, ApprovalMode
 from mira.core.config.store import ConfigStore
 from mira.core.mcp.manager import McpManager
 from mira.core.orchestration import TaskDispatcher
@@ -37,6 +38,16 @@ from mira.core.tools.builtin.dispatch import DispatchTaskTool
 from mira.telemetry.events import EventType
 from mira.telemetry.store import EventStore
 from mira.telemetry.tracer import CompositeTracer, EventLogTracer
+
+
+def parse_approver_decision(text: str) -> ApprovalDecision | None:
+    """解析自动审批决策 agent 的输出：allow/deny → 对应决策；其它（含 fallback/无法解析）→ None（回退人工）。"""
+    out = (text or "").strip().lower()
+    if out.startswith("allow"):
+        return ApprovalDecision.ALLOW
+    if out.startswith("deny"):
+        return ApprovalDecision.DENY
+    return None
 
 
 class SessionManager:
@@ -345,6 +356,52 @@ class SessionManager:
                 )
         return out
 
+    def _build_auto_approver(self, session: Session) -> Callable[[str, dict, str | None], ApprovalDecision | None] | None:
+        """自动审批（approval.mode=auto）的决策器：用 auto_agent 评估 ask 命中的工具调用。
+
+        返回 (tool, args, path) -> ApprovalDecision | None：
+        - allow/deny：决策 agent 给出的结论，直接生效；
+        - None：无法判断（决策 agent 未配置/未注册/调用失败，或输出 fallback）→ 回退人工审批；
+        - 未启用 auto 模式 → None（保持原有人工审批流程）。
+        特例：auto 模式但 auto_agent 为空 → 保持旧行为（直接放行）。
+        """
+        cfg = self.store.runtime().approval
+        if cfg.mode != ApprovalMode.AUTO:
+            return None
+        agent_id = (cfg.auto_agent or "").strip()
+        if not agent_id:
+            return lambda name, args, path: ApprovalDecision.ALLOW
+        if not self._agents.has(agent_id):
+            return None
+        agent = self._agents.get(agent_id)
+        router = self._router or ProviderRouter.from_configs(self.store.providers())
+        approver_rt = AgentRuntime(
+            agent=agent,
+            router=router,
+            tools=ToolRegistry.with_builtins(),
+            permissions=PermissionChecker(agent.config.permission.rules, mode=ApprovalMode.ASK),
+            tracer=self._tracers[session.id],
+            workspace=session.workspace,
+            skills=self._skills,
+            approvals=None,  # 决策 agent 自身不再触发审批
+            tools_override=agent.enabled_tools(),
+            max_steps=1,
+        )
+        model = (session.model or agent.model or "").strip() or None
+
+        def decide(name: str, args: dict, path: str | None) -> ApprovalDecision | None:
+            parts = [f"工具: {name}", f"参数: {json.dumps(args, ensure_ascii=False)}"]
+            if path:
+                parts.append(f"路径: {path}")
+            prompt = "请审批以下工具调用（只输出 allow / deny / fallback 之一）：\n" + "\n".join(parts)
+            try:
+                out = approver_rt.one_shot(prompt, session.id, model=model)
+            except Exception:  # noqa: BLE001
+                return None
+            return parse_approver_decision(out)
+
+        return decide
+
     def _build_runtime(self, session: Session) -> AgentRuntime:
         with self._lock:
             if session.id in self._runtimes:
@@ -370,6 +427,7 @@ class SessionManager:
                 agent.config.permission.rules, mode=self.store.runtime().approval.mode
             )
             router = self._router or ProviderRouter.from_configs(self.store.providers())
+            auto_approver = self._build_auto_approver(session)
             dispatcher = TaskDispatcher(
                 store=self.store,
                 agents=self._agents,
@@ -379,6 +437,7 @@ class SessionManager:
                 workspace=session.workspace,
                 approvals=self._approvals[session.id],
                 mcp_manager=mcp,
+                auto_approver=auto_approver,
             )
             runtime = AgentRuntime(
                 agent=agent,
@@ -390,6 +449,7 @@ class SessionManager:
                 skills=self._skills,
                 token_budget=agent.config.token_budget,
                 approvals=self._approvals[session.id],
+                auto_approver=auto_approver,
                 tools_override=effective,
                 dispatcher=dispatcher,
                 stop_event=self._stop_events.get(session.id),

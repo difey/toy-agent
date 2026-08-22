@@ -132,6 +132,8 @@ class ApprovalMode(str, Enum):
 class ApprovalConfig(BaseModel):
     mode: ApprovalMode = ApprovalMode.ASK
     ask_include: list[str] = Field(default_factory=lambda: ["shell_*", "file_write"])
+    # 自动审批（mode=auto）时的决策 agent id；空=直接放行，配置但未注册=回退人工审批
+    auto_agent: str | None = "approver"
 
 
 class SessionConfig(BaseModel):

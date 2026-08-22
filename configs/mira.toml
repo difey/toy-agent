@@ -8,6 +8,7 @@ metric_interval_s = 5
 [approval]
 mode = "ask"        # auto | ask | deny
 ask_include = ["shell_*", "file_write"]
+auto_agent = "approver"   # auto 模式下的决策 agent id（空=直接放行；未注册=回退人工审批）
 
 [session]
 default_agent = "main"

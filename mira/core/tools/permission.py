@@ -63,7 +63,8 @@ class PermissionChecker:
             return PermissionAction.ALLOW
         # 命中的是 ask：按审批模式解析
         if self.mode == ApprovalMode.AUTO:
-            return PermissionAction.ALLOW
+            # 自动审批：交由 approver 决策 agent 评估（放行/拒绝/回退人工）；不再直接放行
+            return PermissionAction.ASK
         if self.mode == ApprovalMode.DENY:
             return PermissionAction.DENY
         return PermissionAction.ASK

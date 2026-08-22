@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 from threading import Event
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Callable
 
 from mira.api.approval import ApprovalDecision, ApprovalGate, ApprovalRequest, ApprovalStatus
 from mira.core.agents.base import BaseAgent
@@ -43,6 +43,7 @@ class AgentRuntime:
         max_steps: int = 12,
         token_budget: int | None = None,
         approvals: ApprovalGate | None = None,
+        auto_approver: Callable[[str, dict, str | None], ApprovalDecision | None] | None = None,
         dispatcher: Any = None,  # P3：TaskDispatcher（dispatch_task 工具回调）
         tools_override: list[str] | None = None,  # P3：工具白名单覆盖（含 MCP 工具）
         stop_event: Event | None = None,  # 停止生成：置位后中断当前回复
@@ -57,6 +58,9 @@ class AgentRuntime:
         self.max_steps = max_steps
         self.token_budget = token_budget
         self.approvals = approvals  # P2：ask 命中时的阻塞审批通道（None=自动放行）
+        # 自动审批决策器（approval.mode=auto 时由 SessionManager 注入）：
+        # (tool, args, path) -> allow/deny；返回 None 表示无法判断 → 回退人工审批
+        self.auto_approver = auto_approver
         self.dispatcher = dispatcher  # P3
         self.tools_override = tools_override  # P3
         self._stop_event = stop_event
@@ -369,6 +373,25 @@ class AgentRuntime:
                 parent_span_id=run_span,
             )
             return SimpleNamespace(decision=ApprovalDecision.ALLOW, auto=True, id=None)
+
+        # 自动审批模式：先由决策 agent（auto_approver）评估工具调用。
+        # 返回 allow/deny 直接生效；返回 None（无法判断）则回退到人工审批（阻塞 gate）。
+        if self.auto_approver is not None:
+            decision = self.auto_approver(name, args, path)
+            if decision is not None:
+                self.tracer.emit(
+                    EventType.APPROVAL_RESOLVED,
+                    {
+                        "tool": name,
+                        "decision": decision.value,
+                        "auto": True,
+                        "auto_agent": True,
+                    },
+                    session_id=session_id,
+                    span_id=span,
+                    parent_span_id=run_span,
+                )
+                return SimpleNamespace(decision=decision, auto=True, id=None)
 
         req = self.approvals.request(name, args, path)
         if req.status == ApprovalStatus.PENDING:

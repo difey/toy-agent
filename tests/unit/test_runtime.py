@@ -39,6 +39,8 @@ def _make_runtime(
     reasoning: str | None = None,
     rules: list[PermissionRule] | None = None,
     mode: ApprovalMode = ApprovalMode.AUTO,
+    approvals=None,
+    auto_approver=None,
 ):
     agent = AgentConfig(
         id="main",
@@ -58,6 +60,8 @@ def _make_runtime(
         tracer=tracer,
         workspace=tmp_path,
         max_steps=5,
+        approvals=approvals,
+        auto_approver=auto_approver,
     )
 
 
@@ -139,6 +143,85 @@ def test_runtime_ask_auto_approves(tmp_path):
     assert EventType.APPROVAL_REQUESTED in types
     assert EventType.APPROVAL_RESOLVED in types
     assert EventType.TOOL_RESULT in types
+
+
+def test_runtime_auto_approver_allows(tmp_path):
+    """自动审批：决策器返回 allow → 工具执行，无人工审批挂起。"""
+    from mira.api.approval import ApprovalDecision, ApprovalGate
+
+    tracer = EventLogTracer(EventStore(tmp_path / "sessions"))
+    rules = [PermissionRule(tool="file_write", path="**", action="ask")]
+    gate = ApprovalGate("sess_1")
+    rt = _make_runtime(
+        tmp_path,
+        tracer,
+        tool_calls=[_tool_call("file_write", {"path": "ok.txt", "content": "ok"})],
+        rules=rules,
+        mode=ApprovalMode.ASK,
+        approvals=gate,
+        auto_approver=lambda name, args, path: ApprovalDecision.ALLOW,
+    )
+    rt.run("写文件", "sess_1")
+    assert (tmp_path / "ok.txt").read_text() == "ok"
+    assert not gate.pending()
+
+
+def test_runtime_auto_approver_denies(tmp_path):
+    """自动审批：决策器返回 deny → 工具被拒，历史回填审批拒绝错误。"""
+    from mira.api.approval import ApprovalDecision, ApprovalGate
+
+    tracer = EventLogTracer(EventStore(tmp_path / "sessions"))
+    rules = [PermissionRule(tool="file_write", path="**", action="ask")]
+    gate = ApprovalGate("sess_1")
+    rt = _make_runtime(
+        tmp_path,
+        tracer,
+        tool_calls=[_tool_call("file_write", {"path": "x.txt", "content": "x"})],
+        rules=rules,
+        mode=ApprovalMode.ASK,
+        approvals=gate,
+        auto_approver=lambda name, args, path: ApprovalDecision.DENY,
+    )
+    rt.run("写文件", "sess_1")
+    assert not (tmp_path / "x.txt").exists()
+    assert any(
+        m.role == ChatRole.TOOL and "approval denied" in m.content for m in rt.history
+    )
+
+
+def test_runtime_auto_approver_fallback_to_human(tmp_path):
+    """自动审批：决策器返回 None（无法判断）→ 回退人工审批，阻塞等待决议。"""
+    import threading
+    import time
+
+    from mira.api.approval import ApprovalGate
+
+    tracer = EventLogTracer(EventStore(tmp_path / "sessions"))
+    rules = [PermissionRule(tool="file_write", path="**", action="ask")]
+    gate = ApprovalGate("sess_1")
+    rt = _make_runtime(
+        tmp_path,
+        tracer,
+        tool_calls=[_tool_call("file_write", {"path": "h.txt", "content": "h"})],
+        rules=rules,
+        mode=ApprovalMode.ASK,
+        approvals=gate,
+        auto_approver=lambda name, args, path: None,  # 无法判断 → 回退人工
+    )
+    result: dict = {}
+    th = threading.Thread(
+        target=lambda: result.setdefault("reply", rt.run("写文件", "sess_1"))
+    )
+    th.start()
+    for _ in range(100):
+        if gate.pending():
+            break
+        time.sleep(0.02)
+    assert gate.pending()  # 已回退到人工审批
+    gate.resolve(gate.pending()[0].id, "allow")
+    th.join(timeout=3)
+    assert not th.is_alive()
+    assert (tmp_path / "h.txt").read_text() == "h"
 
 
 def test_runtime_history_accumulates(tmp_path):

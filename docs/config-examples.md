@@ -13,6 +13,7 @@ metric_interval_s = 5
 [approval]
 mode = "ask"        # auto | ask | deny
 ask_include = ["shell_*", "file_write"]
+auto_agent = "approver"   # auto 模式下的决策 agent id（空=直接放行；未注册=回退人工审批）
 
 [session]
 default_agent = "main"
@@ -48,6 +49,23 @@ rules = [
   { tool = "shell_*", path = "**", action = "ask" },
   { tool = "file_read", path = "**", action = "allow" },
 ]
+```
+
+```toml
+# configs/agents/approver.toml — 自动审批决策 agent（approval.mode=auto 时被调用）
+[[agents]]
+id = "approver"
+role = "sub"
+name = "审批 Agent"
+description = "自动审批模式下评估工具调用：阻止重大不可逆操作，无法判断时回退人工审批"
+system_prompt = "你是自动审批决策 Agent……绝不放行重大不可逆操作（如危险删除/覆盖/批量破坏）；无法判断时输出 fallback 回退人工审批。只输出 allow / deny / fallback 之一。"
+temperature = 0.0
+max_tokens = 512   # 需容纳 thinking 阶段 + 最终单词；过小（如 16）会被思考耗尽→空输出→回退人工
+token_budget = 2000
+dispatch = "off"
+
+[agents.tools]
+enabled = []
 ```
 
 ```toml

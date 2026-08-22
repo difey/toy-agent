@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from mira.api.approval import ApprovalGate
 from mira.api.protocol import AgentReport, ReportStatus, TaskSpec
@@ -43,6 +44,7 @@ class TaskDispatcher:
         workspace: str | Path,
         approvals: ApprovalGate | None = None,
         mcp_manager: McpManager | None = None,
+        auto_approver: Any | None = None,  # 自动审批决策器（透传给子 agent runtime）
     ) -> None:
         self.store = store
         self.agents = agents
@@ -52,6 +54,7 @@ class TaskDispatcher:
         self.workspace = Path(workspace)
         self.approvals = approvals
         self.mcp = mcp_manager
+        self.auto_approver = auto_approver
 
     # ── 主入口 ───────────────────────────────────────────────
 
@@ -202,6 +205,7 @@ class TaskDispatcher:
             skills=self.skills,
             token_budget=agent.config.token_budget,
             approvals=self.approvals,
+            auto_approver=self.auto_approver,
             tools_override=effective,
         )
 

@@ -220,7 +220,7 @@ def test_permission_checker():
     assert checker.check("file_read") == PermissionAction.ALLOW
     assert checker.check("file_write") == PermissionAction.ALLOW  # 未命中默认允许
 
-    assert PermissionChecker(rules, mode=ApprovalMode.AUTO).check("shell_run") == PermissionAction.ALLOW
+    assert PermissionChecker(rules, mode=ApprovalMode.AUTO).check("shell_run") == PermissionAction.ASK
     # deny 模式只影响 ask 解析：显式 allow 仍放行；ask（shell_*）被拒绝
     assert PermissionChecker(rules, mode=ApprovalMode.DENY).check("file_read") == PermissionAction.ALLOW
     assert PermissionChecker(rules, mode=ApprovalMode.DENY).check("shell_run") == PermissionAction.DENY

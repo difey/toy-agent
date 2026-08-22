@@ -12,6 +12,7 @@
   - 订阅/分发（CLI 进程内订阅；Web 经 WS 逐事件透传）
   - 事件缓冲、重连补偿（Web 断线后按 `last_seq` 补发）
 - **审批通道（HITL）**：`tool.call` 若命中 `ask` 权限，事件进入 `approval.requested` 待确认状态；CLI/Web 返回 `approval.resolved` 后继续执行。
+- **自动审批（approval.mode=auto）**：`ask` 命中的工具调用不再直接放行，而是交由配置的**决策 agent**（`[approval].auto_agent`，默认 `approver`，见 [config-examples.md](config-examples.md)）评估：输出 `allow`/`deny` 直接生效（记录 `approval.resolved · auto=true`）；输出 `fallback`（无法判断）或决策 agent 不可用时**回退到人工审批**（照常进入 `approval.requested` 阻塞等待）。`auto_agent` 置空则恢复"auto=直接放行"的旧行为。
 - **模型选择（每回复参数，决策 #25）**：`send_message` 的 `model` 为**必填**（`effort` 随消息携带，可为 off）；每条 AI 回复绑定其 model/effort，**session 与 runtime 均不持有、不更新**；`session.model` 仅为创建时的展示标签。
 
 ## 多会话并发与隔离（决策 #4）

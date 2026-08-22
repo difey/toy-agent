@@ -833,8 +833,8 @@ function GeneralPane({ data, agents, models, onChange }) {
       <div className="fgroup">
         <div className="fg-head">审批策略 <span className="fg-src">[approval]</span></div>
         <div className="fg-body">
-          <Field fn="审批模式" fd="auto 自动通过 · ask 询问 · allow_all 全部通过（与输入栏盾牌联动）">
-            <Seg value={ap.mode || "ask"} options={[{ v: "auto", l: "自动通过" }, { v: "ask", l: "询问" }, { v: "allow_all", l: "全部通过" }]} onChange={(v) => set("approval", "mode", v)} />
+          <Field fn="审批模式" fd="auto 自动审批 · ask 询问 · allow_all 全部通过（与输入栏盾牌联动）">
+            <Seg value={ap.mode || "ask"} options={[{ v: "auto", l: "自动审批" }, { v: "ask", l: "询问" }, { v: "allow_all", l: "全部通过" }]} onChange={(v) => set("approval", "mode", v)} />
           </Field>
           <Field fn="需审批规则" fd="匹配的工具调用进入审批流（glob 匹配 tool + path）">
             <RuleChips value={ap.ask_include || []} onChange={(v) => set("approval", "ask_include", v)} />
@@ -1194,7 +1194,25 @@ function App() {
 
   const refreshWorkspaces = () => api.get("/api/workspaces").then(setWorkspaces);
   const refreshSessions = () => api.get("/api/sessions").then(setSessions);
-  const loadSendKey = () => api.get("/api/config").then((c) => setSendKey(c.general?.data?.session?.send_key || "enter"));
+  const generalRef = useRef(null); // 最近一次 /api/config 的 general.data（聊天框改审批模式时据此写回）
+  const applyGeneral = (c) => {
+    const g = c.general?.data || {};
+    generalRef.current = g;
+    setSendKey(g.session?.send_key || "enter");
+    const m = g.approval?.mode || "auto";
+    setApprovalMode(APPROVAL_MODES.some((x) => x.value === m) ? m : "auto");
+  };
+  const loadGeneral = () => api.get("/api/config").then(applyGeneral);
+  // 聊天框审批盾牌 → 同步到配置中心（后端 [approval].mode），保持两处联动
+  const changeApprovalMode = (v) => {
+    setApprovalMode(v);
+    api.get("/api/config").then((c) => {
+      const g = JSON.parse(JSON.stringify(c.general?.data || { session: {}, approval: {}, telemetry: {} }));
+      g.approval = { ...(g.approval || {}), mode: v };
+      generalRef.current = g;
+      api.put("/api/config", { section: "general", data: g });
+    });
+  };
 
   useEffect(() => {
     api.get("/api/meta").then((m) => { setMeta(m); });
@@ -1209,7 +1227,7 @@ function App() {
       const sessionCfg = config.general?.data?.session || {};
       const configured = sessionCfg.default_model;
       setModel((prev) => (prev ? prev : configured || list[0] || "mock/mock-model"));
-      setSendKey(sessionCfg.send_key || "enter");
+      applyGeneral(config); // sendKey + 审批模式 + generalRef（与配置中心联动）
     });
     refreshWorkspaces();
     refreshSessions();
@@ -1426,13 +1444,13 @@ function App() {
       )}
       <main className="main">
         {view === "settings" ? (
-          <SettingsView collapsed={collapsed} onBack={backToSessions} onSaved={loadSendKey} />
+          <SettingsView collapsed={collapsed} onBack={backToSessions} onSaved={loadGeneral} />
         ) : isNew || !activeSession ? (
           <NewSessionView
             workspaces={workspaces} input={input} setInput={setInput} workspace={workspace} setWorkspace={setWorkspace} sendKey={sendKey} running={running} onStop={stop}
             agents={meta.agents} agent={agent} setAgent={setAgent}
             models={models} model={model} setModel={setModel} effort={effort} setEffort={setEffort}
-            approvalMode={approvalMode} setApprovalMode={setApprovalMode} modelInfo={modelInfo}
+            approvalMode={approvalMode} setApprovalMode={changeApprovalMode} modelInfo={modelInfo}
             collapsed={collapsed} onExpand={expand} onSubmit={createAndSend}
             attachments={attachments} onRemoveAttachment={removeAttachment} onOpenFiles={openFilePicker}
           />
@@ -1442,7 +1460,7 @@ function App() {
             insertMode={insertMode} onInsert={onInsert} onToggleMode={onToggleMode}
             agents={meta.agents} agent={agent} setAgent={setAgent}
             models={models} model={model} setModel={setModel} effort={effort} setEffort={setEffort}
-            approvalMode={approvalMode} setApprovalMode={setApprovalMode} modelInfo={modelInfo}
+            approvalMode={approvalMode} setApprovalMode={changeApprovalMode} modelInfo={modelInfo}
             collapsed={collapsed} onExpand={expand}
             attachments={attachments} onRemoveAttachment={removeAttachment} onOpenFiles={openFilePicker}
           />
