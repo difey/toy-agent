@@ -33,6 +33,12 @@ def create_app(client: AppClient | None = None) -> FastAPI:
         async def index() -> FileResponse:
             return FileResponse(str(WEBUI_DIR / "index.html"))
 
+        # 遥测观测页：独立页面，仅通过 /observe 直连访问（主页无跳转入口，本页也无返回入口）
+        @app.get("/observe", include_in_schema=False)
+        @app.get("/observe/", include_in_schema=False)
+        async def observe() -> FileResponse:
+            return FileResponse(str(WEBUI_DIR / "observe.html"))
+
     return app
 
 

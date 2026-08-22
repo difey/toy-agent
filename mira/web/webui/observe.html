@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>遥测观测 · Mira Code</title>
+<link rel="stylesheet" href="/static/observe.css" />
+</head>
+<body>
+<div id="root"></div>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script>
+  (function () {
+    fetch('/static/observe.js')
+      .then(function (r) { if (!r.ok) throw new Error('observe.js HTTP ' + r.status); return r.text(); })
+      .then(function (code) {
+        var out = Babel.transform(code, { presets: [["react", { runtime: "classic" }]] });
+        var el = document.createElement('script');
+        el.text = out.code;
+        document.body.appendChild(el);
+      })
+      .catch(function (e) { document.getElementById('root').textContent = '前端加载失败: ' + e.message; });
+  })();
+</script>
+</body>
+</html>

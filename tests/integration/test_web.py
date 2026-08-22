@@ -392,3 +392,23 @@ def test_config_save_reload_registers_new_agent(tmp_path):
     dt = rt.tools.get("dispatch_task")
     avail = [a["id"] for a in dt._available]
     assert "new-helper" in avail
+
+
+def test_observe_page_served_and_isolated():
+    """遥测观测页（/observe）：独立页面 + 静态资源可访问，与主页面互相无跳转入口。"""
+    app = create_app(_client_with_scripted())
+    c = TestClient(app)
+
+    r = c.get("/observe")
+    assert r.status_code == 200
+    assert "text/html" in r.headers["content-type"]
+    assert "observe.js" in r.text
+    assert "observe.css" in r.text
+
+    # 静态资源
+    assert c.get("/static/observe.js").status_code == 200
+    assert c.get("/static/observe.css").status_code == 200
+
+    # 隔离：观测页不加载主 SPA（app.js）；主页不引用 /observe（无跳转按钮）
+    assert "app.js" not in r.text
+    assert "/observe" not in c.get("/").text
