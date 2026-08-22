@@ -122,6 +122,46 @@ class SessionManager:
             self._approvals[sess.id] = gate
         return sess
 
+    def fork_session(self, source_id: str, until_seq: int) -> Session:
+        """分叉：创建新 session，并把源会话 until_seq **之前**（不含该条）的对话复制为初始上下文。"""
+        with self._lock:
+            if source_id not in self._sessions:
+                restored = self._restore_session(source_id)
+                if restored is None:
+                    raise KeyError(f"未知会话: {source_id!r}")
+            source = self._sessions[source_id]
+            if source_id in self._streams:
+                events = self._streams[source_id].snapshot()
+            else:
+                events = list(
+                    EventStore(paths.sessions_dir(source.workspace)).read(source_id)
+                )
+            keep = [
+                e
+                for e in events
+                if e.seq < until_seq and e.type != EventType.SESSION_CREATED
+            ]
+            if not keep:
+                raise ValueError("该消息之前没有可复制的历史")
+            new = self.create_session(source.workspace, source.agent_type, source.model)
+            tracer = self._tracers[new.id]
+            for e in keep:
+                tracer.emit(
+                    e.type,
+                    e.payload,
+                    session_id=new.id,
+                    span_id=e.span_id,
+                    parent_span_id=e.parent_span_id,
+                )
+            try:
+                history, usage = self._rebuild_history(keep)
+                self._runtimes[new.id] = self._build_runtime(
+                    new, initial_history=history, initial_usage=usage
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            return new
+
     def get(self, session_id: str) -> Session:
         try:
             return self._sessions[session_id]

@@ -6,7 +6,12 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
 
-from mira.web.router.models import CreateSessionBody, InsertMessageBody, SendMessageBody
+from mira.web.router.models import (
+    CreateSessionBody,
+    ForkSessionBody,
+    InsertMessageBody,
+    SendMessageBody,
+)
 
 router = APIRouter(prefix="/api")
 
@@ -56,6 +61,19 @@ def get_session(session_id: str, request: Request) -> dict:
 @router.delete("/sessions/{session_id}", status_code=204)
 def close_session(session_id: str, request: Request) -> None:
     request.app.state.client.close_session(session_id)
+
+
+@router.post("/sessions/{session_id}/fork", status_code=201)
+def fork_session(session_id: str, body: ForkSessionBody, request: Request) -> dict:
+    """分叉：以源会话 until_seq 之前的对话为初始上下文创建新会话。"""
+    client = request.app.state.client
+    try:
+        sess = client.fork_session(session_id, body.until_seq)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _session_out(sess)
 
 
 @router.post("/sessions/{session_id}/messages")

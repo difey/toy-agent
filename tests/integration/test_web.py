@@ -124,6 +124,33 @@ def test_send_message_with_attachments(tmp_path):
     assert any(e["type"] == "agent.message" for e in events)
 
 
+def test_fork_session_copies_history_before_until_seq(tmp_path):
+    """分叉：以源会话 until_seq 之前的对话为初始上下文创建新会话，且可继续对话。"""
+    app = create_app(_client_with_scripted("回复"))
+    c = TestClient(app)
+    sid = c.post("/api/sessions", json={"workspace": str(tmp_path), "model": "mock/mock-model"}).json()["id"]
+    for text in ["第一问", "第二问"]:
+        assert c.post(f"/api/sessions/{sid}/messages", json={"content": text, "model": "mock/mock-model"}).status_code == 200
+    time.sleep(0.6)
+    events = c.get(f"/api/sessions/{sid}/events").json()
+    users = [e for e in events if e["type"] == "user.message"]
+    assert len(users) == 2
+    # fork 断点：第二问的 seq → 只复制第二问之前的对话（第一问那轮）
+    f = c.post(f"/api/sessions/{sid}/fork", json={"until_seq": users[1]["seq"]})
+    assert f.status_code == 201
+    nsid = f.json()["id"]
+    assert nsid != sid
+    ne = c.get(f"/api/sessions/{nsid}/events").json()
+    nusers = [e["payload"]["content"] for e in ne if e["type"] == "user.message"]
+    assert nusers == ["第一问"]
+    # 分叉会话可继续对话（runtime 已播种历史）
+    assert c.post(f"/api/sessions/{nsid}/messages", json={"content": "继续", "model": "mock/mock-model"}).status_code == 200
+    # 空历史分叉 → 400
+    assert c.post(f"/api/sessions/{sid}/fork", json={"until_seq": 1}).status_code == 400
+    # 未知源会话 → 404
+    assert c.post("/api/sessions/nope/fork", json={"until_seq": 10}).status_code == 404
+
+
 def test_send_message_with_image_attachment(tmp_path):
     """发送消息携带图片附件：按扩展名区分图片，正常触发一轮回复。"""
     app = create_app(_client_with_scripted("看到了图片"))

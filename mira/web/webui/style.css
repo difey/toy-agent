@@ -53,8 +53,25 @@ body{
 .chat-title .st{margin-left:auto;font-size:12px;color:var(--text-dim);}
 .messages{flex:1;overflow:auto;padding:16px 20px;display:flex;flex-direction:column;gap:14px;}
 .msg.user{align-self:flex-end;background:#e9edf2;padding:10px 14px;border-radius:14px 14px 4px 14px;font-size:14px;line-height:1.6;max-width:74%;white-space:pre-wrap;}
+/* 用户消息 hover：左侧三个平面操作按钮（复制 / 分叉 / 回滚） */
+.msg-user-wrap{display:flex;align-items:flex-end;gap:4px;align-self:flex-end;}
+.msg-user-wrap .msg-actions{display:flex;gap:2px;opacity:0;transition:opacity .12s;padding-bottom:8px;}
+.msg-user-wrap:hover .msg-actions{opacity:1;}
+.msg-user-wrap .msg-actions .icon-btn{padding:3px;border-radius:6px;color:var(--text-dim);}
+.msg-user-wrap .msg-actions .icon-btn:hover{background:var(--hover);color:var(--text);}
 .msg.agent{align-self:stretch;font-size:14px;line-height:1.7;}
 .msg .who{font-size:12px;color:var(--text-dim);margin-bottom:6px;font-weight:600;}
+/* 子 agent 可折叠容器：宽度比主信息流更窄 */
+.subagent{align-self:flex-start;max-width:90%;min-width:0;display:flex;flex-direction:column;border:1px solid var(--border);border-radius:10px;background:#f7f8fa;overflow:hidden;}
+.subagent-head{display:flex;align-items:center;gap:6px;width:100%;border:none;background:transparent;padding:8px 12px;cursor:pointer;font:inherit;text-align:left;color:var(--text);}
+.subagent-head:hover{background:var(--hover);}
+.subagent-head .caret{display:inline-flex;color:var(--text-dim);transition:transform .15s;flex-shrink:0;}
+.subagent-head .caret.open{transform:rotate(90deg);}
+.subagent-name{font-size:13px;font-weight:600;}
+.subagent-cnt{margin-left:auto;font-size:12px;color:var(--text-dim);}
+.subagent-body{display:flex;flex-direction:column;gap:12px;padding:10px 12px 12px;border-top:1px solid var(--border);}
+.subagent-body .msg.user{max-width:80%;}
+.subagent-body .msg.agent{font-size:13.5px;}
 /* agent 消息 Markdown 渲染内容 */
 .msg.agent .md{white-space:normal;word-break:break-word;}
 .msg.agent .md> :first-child{margin-top:0;}

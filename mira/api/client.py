@@ -35,6 +35,10 @@ class AppClient:
             workspace, agent_type=agent_type, model=model
         )
 
+    def fork_session(self, session_id: str, until_seq: int) -> Session:
+        """分叉：以源会话 until_seq 之前的对话为初始上下文创建新会话。"""
+        return self.manager.fork_session(session_id, until_seq)
+
     def send_message(
         self,
         session_id: str,

@@ -14,6 +14,10 @@ class CreateSessionBody(BaseModel):
     model: str | None = None  # 模型串 {provider}/{model}（决策 #26：provider 由模型推导）
 
 
+class ForkSessionBody(BaseModel):
+    until_seq: int  # 分叉断点：把源会话 seq < until_seq 的对话复制为新 session 初始上下文
+
+
 class SendMessageBody(BaseModel):
     content: str = Field(min_length=1)
     model: str  # 每回复模型串 {provider}/{model}（决策 #25/#26）

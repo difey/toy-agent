@@ -198,39 +198,56 @@ function ModelSelect({ models, model, onChange, placeholder }) {
   );
 }
 
-/* 事件流 → 渲染块 */
+/* 事件流 → 渲染块：子 agent（agent.spawn → agent.join）的消息/回复收进可折叠子容器 */
 function groupEvents(events) {
   const blocks = [];
+  const stack = []; // 子 agent 容器栈（支持嵌套分派）
+  const agentStack = []; // 当前 agent 标识栈（agent.loop.start/end，供 stream 块标注 who）
+  let curAgent = "main";
+  const target = () => (stack.length ? stack[stack.length - 1].children : blocks);
   for (const ev of events) {
     const t = ev.type, p = ev.payload;
-    if (t === "user.message") blocks.push({ kind: "user", text: p.content });
+    if (t === "agent.loop.start") { agentStack.push(p.agent || "main"); curAgent = agentStack[agentStack.length - 1]; continue; }
+    if (t === "agent.loop.end") { agentStack.pop(); curAgent = agentStack.length ? agentStack[agentStack.length - 1] : "main"; continue; }
+    if (t === "agent.spawn") {
+      const box = { kind: "subagent", agent: (p || {}).agent_id || "sub", children: [] };
+      target().push(box);
+      stack.push(box);
+      continue;
+    }
+    if (t === "agent.join" || t === "task.failed") {
+      if (stack.length) stack.pop();
+      continue;
+    }
+    const cur = target();
+    const last = cur[cur.length - 1];
+    if (t === "user.message") cur.push({ kind: "user", text: p.content, who: curAgent, seq: ev.seq });
     else if (t === "agent.message") {
       // 回合结束时的完整消息：若末尾已有本回合的流式块（llm.stream_chunk），
       // 直接用完整内容替换它，避免同一回复重复显示两遍。
-      const last = blocks[blocks.length - 1];
       if (last && last.kind === "stream") {
         last.kind = "agent";
         last.text = p.content;
+        last.who = p.agent || curAgent;
       } else {
-        blocks.push({ kind: "agent", text: p.content });
+        cur.push({ kind: "agent", text: p.content, who: p.agent || curAgent });
       }
     }
     else if (t === "llm.stream_chunk") {
-      const last = blocks[blocks.length - 1];
       if (last && last.kind === "stream") last.text += p.text;
-      else blocks.push({ kind: "stream", text: p.text });
-    } else if (t === "tool.call") blocks.push({ kind: "tool", name: p.name, args: p.arguments, status: "running" });
+      else cur.push({ kind: "stream", text: p.text, who: curAgent });
+    } else if (t === "tool.call") cur.push({ kind: "tool", name: p.name, args: p.arguments, status: "running" });
     else if (t === "tool.result" || t === "tool.error") {
-      for (let i = blocks.length - 1; i >= 0; i--) {
-        if (blocks[i].kind === "tool" && blocks[i].name === p.name) {
-          blocks[i].status = t === "tool.result" ? "done" : "err";
-          blocks[i].result = p.result || p.error || "";
-          blocks[i].dur = p.duration_ms;
+      for (let i = cur.length - 1; i >= 0; i--) {
+        if (cur[i].kind === "tool" && cur[i].name === p.name) {
+          cur[i].status = t === "tool.result" ? "done" : "err";
+          cur[i].result = p.result || p.error || "";
+          cur[i].dur = p.duration_ms;
           break;
         }
       }
-    } else if (t === "approval.requested") blocks.push({ kind: "approval", name: p.tool, args: p.arguments });
-    else if (t === "error.raised") blocks.push({ kind: "error", message: p.message });
+    } else if (t === "approval.requested") cur.push({ kind: "approval", name: p.tool, args: p.arguments });
+    else if (t === "error.raised") cur.push({ kind: "error", message: p.message });
   }
   return blocks;
 }
@@ -257,12 +274,53 @@ function ToolCard({ b }) {
   );
 }
 
-function Block({ b }) {
-  if (b.kind === "user") return <div className="msg user">{b.text}</div>;
+/* 子 agent 可折叠容器：展开后为更窄的内嵌信息流 */
+function SubAgentBlock({ b }) {
+  const [open, setOpen] = useState(false);
+  const cnt = (b.children || []).length;
+  return (
+    <div className={"subagent" + (open ? " open" : "")}>
+      <button className="subagent-head" onClick={() => setOpen((v) => !v)}>
+        <span className={"caret" + (open ? " open" : "")}>
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+        </span>
+        <span className="subagent-name">子 agent · {b.agent}</span>
+        <span className="subagent-cnt">{cnt} 条</span>
+      </button>
+      {open && (
+        <div className="subagent-body">
+          {(b.children || []).map((cb, i) => <Block key={i} b={cb} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const copyText = (text) => {
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text || "").catch(() => {});
+};
+
+function Block({ b, onFork }) {
+  if (b.kind === "subagent") return <SubAgentBlock b={b} />;
+  if (b.kind === "user") {
+    return (
+      <div className="msg-user-wrap">
+        <div className="msg-actions">
+          <button className="icon-btn" title="复制消息" onClick={() => copyText(b.text)}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          </button>
+          <button className="icon-btn" title="分叉：从此处创建新会话" onClick={() => onFork && onFork(b.seq)}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="6" r="3"/><path d="M6 9v6"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+          </button>
+        </div>
+        <div className="msg user">{b.text}</div>
+      </div>
+    );
+  }
   if (b.kind === "agent" || b.kind === "stream") {
     return (
       <div className="msg agent">
-        <div className="who">main</div>
+        <div className="who">{b.who || "main"}</div>
         <div className="md" dangerouslySetInnerHTML={{ __html: renderMarkdown(b.text) }} />
       </div>
     );
@@ -525,7 +583,7 @@ function AttachChips({ attachments, onRemove }) {
   );
 }
 
-function ChatView({ session, title, live, events, input, setInput, send, sendKey, running, onStop, insertMode, onInsert, onToggleMode, collapsed, onExpand, agents, agent, setAgent, models, model, setModel, effort, setEffort, approvalMode, setApprovalMode, modelInfo, attachments, onRemoveAttachment, onOpenFiles }) {
+function ChatView({ session, title, live, events, input, setInput, send, sendKey, running, onStop, insertMode, onInsert, onToggleMode, collapsed, onExpand, agents, agent, setAgent, models, model, setModel, effort, setEffort, approvalMode, setApprovalMode, modelInfo, attachments, onRemoveAttachment, onOpenFiles, onFork }) {
   const blocks = useMemo(() => groupEvents(events), [events]);
   const msgsRef = useRef(null);
   const stickRef = useRef(true); // 贴底（自动滚动）标志：用户上滚后置 false
@@ -553,7 +611,7 @@ function ChatView({ session, title, live, events, input, setInput, send, sendKey
         <span>{title}</span>
       </div>
       <div className="messages" ref={msgsRef} onScroll={onMessagesScroll}>
-        {blocks.map((b, i) => <Block key={i} b={b} />)}
+        {blocks.map((b, i) => <Block key={i} b={b} onFork={onFork} />)}
       </div>
       <div className="input-wrap">
         <AttachChips attachments={attachments} onRemove={onRemoveAttachment} />
@@ -1338,6 +1396,21 @@ function App() {
   };
   const onToggleMode = () => setInsertMode((m) => (m === "interrupt" ? "queue" : "interrupt"));
 
+  const forkFrom = (seq) => {
+    if (!activeSid) return;
+    api.post(`/api/sessions/${activeSid}/fork`, { until_seq: seq }).then((s) => {
+      if (!s || !s.id) return;
+      setIsNew(false);
+      refreshWorkspaces();
+      refreshSessions();
+      setActiveSid(s.id);
+      api.get(`/api/sessions/${s.id}/events`).then((evs) => {
+        setEvents(evs);
+        lastSeqRef.current = evs.length ? evs[evs.length - 1].seq : 0;
+      });
+    });
+  };
+
   const createAndSend = () => {
     const wsPath = workspace.trim();
     if (!wsPath) return;
@@ -1486,6 +1559,7 @@ function App() {
             approvalMode={approvalMode} setApprovalMode={changeApprovalMode} modelInfo={modelInfo}
             collapsed={collapsed} onExpand={expand}
             attachments={attachments} onRemoveAttachment={removeAttachment} onOpenFiles={openFilePicker}
+            onFork={forkFrom}
           />
         )}
       </main>
