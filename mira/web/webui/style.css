@@ -62,7 +62,7 @@ body{
 .msg.agent{align-self:stretch;font-size:14px;line-height:1.7;}
 .msg .who{font-size:12px;color:var(--text-dim);margin-bottom:6px;font-weight:600;}
 /* 子 agent 可折叠容器：宽度比主信息流更窄 */
-.subagent{align-self:flex-start;max-width:90%;min-width:0;display:flex;flex-direction:column;border:1px solid var(--border);border-radius:10px;background:#f7f8fa;overflow:hidden;}
+.subagent{flex-shrink:0;min-width:0;display:flex;flex-direction:column;border:1px solid var(--border);border-radius:10px;background:#f7f8fa;overflow:hidden;}
 .subagent-head{display:flex;align-items:center;gap:6px;width:100%;border:none;background:transparent;padding:8px 12px;cursor:pointer;font:inherit;text-align:left;color:var(--text);}
 .subagent-head:hover{background:var(--hover);}
 .subagent-head .caret{display:inline-flex;color:var(--text-dim);transition:transform .15s;flex-shrink:0;}
@@ -72,6 +72,8 @@ body{
 .subagent-body{display:flex;flex-direction:column;gap:12px;padding:10px 12px 12px;border-top:1px solid var(--border);}
 .subagent-body .msg.user{max-width:80%;}
 .subagent-body .msg.agent{font-size:13.5px;}
+/* 子 agent 容器内的用户消息不需要复制/分叉按钮 */
+.subagent-body .msg-user-wrap .msg-actions{display:none;}
 /* agent 消息 Markdown 渲染内容 */
 .msg.agent .md{white-space:normal;word-break:break-word;}
 .msg.agent .md> :first-child{margin-top:0;}
