@@ -70,6 +70,8 @@ python -m mira.web.server --port 8300 # 指定端口
 - **配置中心**：查看 / 编辑 agent、provider、模型
 - **观测与配额**：事件流、遥测、全局并发用量
 
+> **遥测观测页**：另有独立页面可直接查看，访问 `http://127.0.0.1:8000/observe` 即可。
+
 端口优先级：`--port` > 环境变量 `MIRA_WEB_PORT` > 默认 `8000`。
 
 ## 模型与 Provider
