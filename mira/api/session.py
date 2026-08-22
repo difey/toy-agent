@@ -289,8 +289,56 @@ class SessionManager:
                 self._approvals[session_id] = ApprovalGate(
                     session_id, on_state_change=self._on_approval_state
                 )
+                # 直接重建 runtime（含 LLM 历史上下文），让会话在 _sessions/_runtimes 中完整可用；
+                # 构建失败（如 MCP/provider 配置问题）不阻断恢复，_run_turn 会重试并统一处理
+                try:
+                    history, usage = self._rebuild_history(events)
+                    self._runtimes[session_id] = self._build_runtime(
+                        session, initial_history=history, initial_usage=usage
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
                 return session
         return None
+
+    def _rebuild_history(self, events) -> tuple[list[ChatMessage], tuple[int, int, float]]:
+        """从历史事件重建 LLM 对话历史与累计用量（继续历史会话时作为上下文种子）。
+
+        - user.message → USER；llm.response → ASSISTANT（含 reasoning_content / tool_calls）；
+        - tool.result / tool.error → TOOL（按 llm.response 的 tool_calls 顺序配对 tool_call_id）；
+        - usage 累计用于 token 预算连续。
+        """
+        history: list[ChatMessage] = []
+        pending_ids: list[str] = []
+        tokens_in = tokens_out = 0
+        cost = 0.0
+        for ev in events:
+            t, p = ev.type, ev.payload
+            if t == EventType.USER_MESSAGE:
+                history.append(ChatMessage(role=ChatRole.USER, content=p.get("content", "")))
+            elif t == EventType.LLM_RESPONSE:
+                content = p.get("content") or ""
+                reasoning = p.get("reasoning_content") or ""
+                tool_calls = p.get("tool_calls")
+                if content or reasoning or tool_calls:
+                    msg = ChatMessage(
+                        role=ChatRole.ASSISTANT,
+                        content=content,
+                        reasoning_content=reasoning,
+                    )
+                    if tool_calls:
+                        msg.tool_calls = tool_calls
+                        pending_ids = [tc.get("id") for tc in tool_calls if tc.get("id")]
+                    history.append(msg)
+                usage = p.get("usage") or {}
+                tokens_in += usage.get("input_tokens") or 0
+                tokens_out += usage.get("output_tokens") or 0
+                cost += usage.get("cost_usd") or 0.0
+            elif t in (EventType.TOOL_RESULT, EventType.TOOL_ERROR):
+                out = (p.get("result") or p.get("error") or "").strip()
+                call_id = pending_ids.pop(0) if pending_ids else None
+                history.append(ChatMessage(role=ChatRole.TOOL, content=out, tool_call_id=call_id))
+        return history, (tokens_in, tokens_out, cost)
 
     def _run_turn(
         self,
@@ -402,7 +450,13 @@ class SessionManager:
 
         return decide
 
-    def _build_runtime(self, session: Session) -> AgentRuntime:
+    def _build_runtime(
+        self,
+        session: Session,
+        *,
+        initial_history: list[ChatMessage] | None = None,
+        initial_usage: tuple[int, int, float] | None = None,
+    ) -> AgentRuntime:
         with self._lock:
             if session.id in self._runtimes:
                 return self._runtimes[session.id]
@@ -454,6 +508,11 @@ class SessionManager:
                 dispatcher=dispatcher,
                 stop_event=self._stop_events.get(session.id),
             )
+            # 历史会话：把重建的对话历史作为 LLM 上下文种子，并恢复 token 用量（预算连续性）
+            if initial_history:
+                runtime.history = list(initial_history)
+                if initial_usage:
+                    runtime._tokens_in, runtime._tokens_out, runtime._cost_usd = initial_usage
             self._runtimes[session.id] = runtime
             return runtime
 

@@ -173,6 +173,30 @@ def test_historical_session_is_loaded_when_sending(tmp_path: Path):
     )
 
 
+def test_historical_session_context_seeded_into_runtime(tmp_path: Path):
+    """继续历史会话：重建的历史对话进入 runtime.history（LLM 上下文），不再只显示不参与对话。"""
+    from mira.core.providers.base import ChatRole
+
+    first = AppClient()
+    original = first.create_session(tmp_path, agent_type="main")
+    first.send_message(original.id, "第一轮", model=original.model)
+    for ev in first.events(original.id):
+        if ev.type == EventType.SESSION_STATUS and ev.payload.get("status") == "idle":
+            break
+
+    restarted = AppClient()
+    thread = restarted.send_message(original.id, "第二轮", model=original.model)
+    assert thread is not None
+    thread.join(timeout=10)
+
+    rt = restarted.manager._build_runtime(restarted.get_session(original.id))
+    users = [m.content for m in rt.history if m.role == ChatRole.USER]
+    # 历史 user 消息与 assistant 回复已进入上下文（修复前 runtime.history 为空，只有本轮新消息）
+    assert "第一轮" in users
+    assert any(m.role == ChatRole.ASSISTANT for m in rt.history)
+    assert users[-1] == "第二轮"
+
+
 def test_unknown_agent_raises(tmp_path):
     client = AppClient()
     import pytest
