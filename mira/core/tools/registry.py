@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from mira.core.tools.base import Tool
 from mira.core.tools.builtin.apply_patch import ApplyPatchTool
+from mira.core.tools.builtin.attach_image import AttachImageTool
 from mira.core.tools.builtin.file_tools import FileEditTool, FileReadTool, FileWriteTool
 from mira.core.tools.builtin.glob_tool import GlobTool
 from mira.core.tools.builtin.project_memory import ProjectMemoryTool
@@ -59,5 +60,6 @@ class ToolRegistry:
                 ApplyPatchTool(),
                 WebFetchTool(),
                 WebSearchTool(),
+                AttachImageTool(),
             ]
         )

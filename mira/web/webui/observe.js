@@ -64,8 +64,15 @@ function collectSpawnRanges(events) {
     const seqs = [];
     // 根：spawn span 的共享行（agent.spawn / task.start / task.failed / agent.join）
     for (const e of bySpan.get(sp) || []) seqs.push(e.seq);
+    // 子树硬上限：该 spawn 的 agent.join（与 spawn 共享 span）。
+    // 跨 run 同名 span（sp_llm_N / sp_tool_N）会使 children.get(同名) 把之后其它 run
+    // （第二个子 run、主 agent join 后再次调工具）的事件误连进来，仅靠 seq>=spawnSeq 挡不住；
+    // 必须以 join 为界，否则 min/max 被错误扩大、折叠时把主 agent 事件也折进子 agent 组。
+    const joins = (bySpan.get(sp) || []).filter((e) => e.type === "agent.join").map((e) => e.seq);
+    const upper = joins.length ? Math.max(...joins) : Infinity;
     // BFS：仅沿 parent 链展开（children.get(span) = parent_span_id === span 的子事件）
-    // 子树事件必然在 spawn 之后；跨 run 同名 span（如 sp_tool_1）会把 spawn 前的主 agent 事件误连，须过滤
+    // 子树事件必然在 spawn 之后、join 之前；跨 run 同名 span（如 sp_tool_1）会把 spawn 前后的
+    // 其它 run 事件误连，须用 [spawnSeq, joinSeq] 双边界过滤
     const stack = [sp];
     const seen = new Set();
     while (stack.length) {
@@ -73,7 +80,7 @@ function collectSpawnRanges(events) {
       if (seen.has(s)) continue;
       seen.add(s);
       for (const c of children.get(s) || []) {
-        if (c.seq < spawnSeq) continue;
+        if (c.seq < spawnSeq || c.seq > upper) continue;
         seqs.push(c.seq);
         if (c.span_id) stack.push(c.span_id);
       }

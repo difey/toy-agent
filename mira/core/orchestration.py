@@ -216,6 +216,13 @@ class TaskDispatcher:
             parts.append(f"要求：{spec.instructions}")
         if spec.context:
             parts.append("参考上下文：\n" + "\n".join(f"- {c}" for c in spec.context))
+        if spec.images:
+            # 图片路径也写入文本 prompt：多模态注入可能因模型不支持而失效，
+            # 子 agent 至少能凭路径自行用 attach_image 查看，而不是靠"反思"猜测
+            parts.append(
+                "附加图片路径（如需查看请用 attach_image 工具把图片加入上下文）：\n"
+                + "\n".join(f"- {p}" for p in spec.images)
+            )
         if spec.expected_output:
             parts.append(f"期望输出：{spec.expected_output}")
         return "\n\n".join(p for p in parts if p).strip()

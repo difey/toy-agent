@@ -123,6 +123,7 @@ def test_shell_default_timeout():
     assert set(ToolRegistry.with_builtins().names()) == {
         "shell", "file_read", "file_write", "file_edit", "search_grep",
         "glob", "todowrite", "apply_patch", "project_memory", "web_fetch", "web_search",
+        "attach_image",
     }
 
 
@@ -231,3 +232,40 @@ def test_registry_enabled_skips_missing():
     enabled = reg.enabled(["file_read", "not-a-tool"])
     assert [t.name for t in enabled] == ["file_read"]
     assert reg.missing(["file_read", "not-a-tool"]) == ["not-a-tool"]
+
+
+def test_attach_image_validation(tmp_path):
+    """attach_image：缺路径 / 非图片 / 文件不存在 均报错。"""
+    tool = ToolRegistry.with_builtins().get("attach_image")
+    assert tool is not None
+    # 缺路径
+    r = tool.run(_ctx(tmp_path))
+    assert not r.ok and "path" in r.error
+    # 文件不存在
+    r = tool.run(_ctx(tmp_path), path=str(tmp_path / "no.png"))
+    assert not r.ok and "不存在" in r.error
+    # 非图片扩展名
+    txt = tmp_path / "a.txt"
+    txt.write_text("x", encoding="utf-8")
+    r = tool.run(_ctx(tmp_path), path=str(txt))
+    assert not r.ok and "不支持的图片格式" in r.error
+
+
+def test_attach_image_calls_hook(tmp_path):
+    """attach_image：图片存在时调用 meta 钩子并把绝对路径传入。"""
+    tool = ToolRegistry.with_builtins().get("attach_image")
+    img = tmp_path / "shot.png"
+    img.write_bytes(b"\x89PNG\r\n\x1a\nfakedata")
+    calls: list[str] = []
+    ctx = ToolContext(workspace=tmp_path, session_id="s1", meta={"attach_image": calls.append})
+    r = tool.run(ctx, path=str(img))
+    assert r.ok and "已加入上下文" in r.output
+    assert calls == [str(img)]
+
+
+def test_attach_image_missing_hook(tmp_path):
+    tool = ToolRegistry.with_builtins().get("attach_image")
+    img = tmp_path / "shot.png"
+    img.write_bytes(b"x")
+    r = tool.run(_ctx(tmp_path), path=str(img))  # 无 attach_image 钩子
+    assert not r.ok and "钩子" in r.error

@@ -457,6 +457,7 @@ function FilePicker({ workspace, onPick, onClose }) {
     onClose();
   };
   const selCount = Object.keys(sel).length;
+  const visible = entries.filter((e) => !e.name.startsWith(".")); // 不显示隐藏文件
 
   return (
     <div className="modal-mask" onClick={onClose}>
@@ -482,7 +483,7 @@ function FilePicker({ workspace, onPick, onClose }) {
         <div className="fp-body">
           {err && <div className="fp-err">{err}</div>}
           {loading && <div className="fp-loading">加载中…</div>}
-          {!loading && entries.map((ent) => (
+          {!loading && visible.map((ent) => (
             <div key={ent.path} className={"fp-item " + ent.type + (sel[ent.path] ? " on" : "")} onClick={() => (ent.type === "dir" ? enter(ent) : toggle(ent))}>
               <span className="fp-ico">
                 {ent.type === "dir" ? (
@@ -495,7 +496,7 @@ function FilePicker({ workspace, onPick, onClose }) {
               {ent.type === "file" && sel[ent.path] && <span className="fp-check">✓</span>}
             </div>
           ))}
-          {!loading && !err && !entries.length && <div className="fp-empty">（空目录）</div>}
+          {!loading && !err && !visible.length && <div className="fp-empty">（空目录）</div>}
         </div>
         <div className="fp-foot">
           <span className="fp-count">已选 {selCount} 个</span>
@@ -726,10 +727,14 @@ function Seg({ value, options, onChange }) {
 
 function Chips({ candidates, value, onChange }) {
   const toggle = (c) => onChange(value.includes(c) ? value.filter((x) => x !== c) : [...value, c]);
+  const extra = (value || []).filter((v) => !candidates.includes(v)); // 已配置但不在候选（防候选遗漏时已配置项丢失）
   return (
     <span className="chips">
       {candidates.map((c) => (
         <span key={c} className={"sel-chip" + (value.includes(c) ? " on" : "")} onClick={() => toggle(c)}>{c}</span>
+      ))}
+      {extra.map((c) => (
+        <span key={c} className="sel-chip on" onClick={() => toggle(c)} title="已启用但不在候选列表">{c}×</span>
       ))}
     </span>
   );
@@ -938,9 +943,7 @@ function ProvidersPane({ data, onChange, save }) {
   );
 }
 
-const TOOL_CANDIDATES = ["dispatch_task", "shell", "file_read", "file_write", "file_edit", "search_grep", "glob", "apply_patch", "todowrite", "project_memory", "web_fetch", "web_search", "git_log", "git_show", "git_status"];
-
-function AgentsPane({ data, skills, mcpServers, onChange, save, models }) {
+function AgentsPane({ data, skills, mcpServers, onChange, save, models, tools }) {
   const items = data.agents || [];
   const skillIds = skills.map((s) => s.id);
   const mcpIds = mcpServers.map((s) => s.id);
@@ -978,7 +981,7 @@ function AgentsPane({ data, skills, mcpServers, onChange, save, models }) {
             <Row label="描述"><input type="text" value={a.description || ""} onChange={(e) => setItem(items.indexOf(a), { description: e.target.value })} /></Row>
             <Row label="system_prompt"><textarea value={a.system_prompt || ""} onChange={(e) => setItem(items.indexOf(a), { system_prompt: e.target.value })} /></Row>
             <Row label="model"><ModelSelect models={models} model={a.model || ""} onChange={(v) => setItem(items.indexOf(a), { model: v })} placeholder="默认模型" /></Row>
-            <Row label="tools"><Chips candidates={TOOL_CANDIDATES} value={a.tools?.enabled || []} onChange={(v) => setItem(items.indexOf(a), { tools: { ...(a.tools || {}), enabled: v } })} /></Row>
+            <Row label="tools"><Chips candidates={tools} value={a.tools?.enabled || []} onChange={(v) => setItem(items.indexOf(a), { tools: { ...(a.tools || {}), enabled: v } })} /></Row>
             <Row label="skills"><Chips candidates={skillIds} value={a.skills?.enabled || []} onChange={(v) => setItem(items.indexOf(a), { skills: { ...(a.skills || {}), enabled: v } })} /></Row>
             <Row label="mcp"><Chips candidates={mcpIds} value={a.mcp?.enabled || []} onChange={(v) => setItem(items.indexOf(a), { mcp: { ...(a.mcp || {}), enabled: v } })} /></Row>
             <Row label="权限规则" hint="tool glob + path + action(allow / ask / deny)，与审批流联动。">
@@ -1030,7 +1033,7 @@ function McpPane({ data, onChange, save }) {
   );
 }
 
-function SkillsPane({ data, agents, onChange, save }) {
+function SkillsPane({ data, agents, onChange, save, tools }) {
   const items = data.skills || [];
   const setItem = (i, patch) => { const arr = [...items]; arr[i] = { ...arr[i], ...patch }; onChange({ ...data, skills: arr }); };
   const addItem = () => onChange({ ...data, skills: [...items, { id: `skill-${Date.now().toString(36)}`, name: "", description: "", prompt: "", tools: [] }] });
@@ -1055,7 +1058,7 @@ function SkillsPane({ data, agents, onChange, save }) {
             <Row label="名称"><input type="text" value={s.name || ""} onChange={(e) => setItem(items.indexOf(s), { name: e.target.value })} /></Row>
             <Row label="描述"><input type="text" value={s.description || ""} onChange={(e) => setItem(items.indexOf(s), { description: e.target.value })} /></Row>
             <Row label="prompt 模板"><textarea value={s.prompt || ""} onChange={(e) => setItem(items.indexOf(s), { prompt: e.target.value })} /></Row>
-            <Row label="tools"><Chips candidates={TOOL_CANDIDATES} value={s.tools || []} onChange={(v) => setItem(items.indexOf(s), { tools: v })} /></Row>
+            <Row label="tools"><Chips candidates={tools} value={s.tools || []} onChange={(v) => setItem(items.indexOf(s), { tools: v })} /></Row>
             <Row label="被启用" hint="由各 agent 配置的 [agents.skills].enabled 决定。"><span className="chips"><span className="sel-chip on" style={{ cursor: "default" }}>{usedBy(s.id)}</span></span></Row>
             <div className="ef-foot"><button className="btn sm danger" onClick={() => delItem(items.indexOf(s))}>删除 skill</button><button className="btn sm primary" onClick={onSave}>保存修改</button></div>
           </div>
@@ -1072,11 +1075,13 @@ function SettingsView({ collapsed, onBack, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState(null);
   const [allModels, setAllModels] = useState([]);
+  const [toolCandidates, setToolCandidates] = useState([]);
 
   const load = () => api.get("/api/config").then(setCfg);
   useEffect(() => {
     load();
     api.get("/api/config/models").then((r) => setAllModels((r.models || []).map((x) => x.spec).filter(Boolean)));
+    api.get("/api/tools").then((r) => setToolCandidates(r.tools || []));
   }, []);
 
   const showToast = (msg, kind = "ok") => {
@@ -1141,9 +1146,9 @@ function SettingsView({ collapsed, onBack, onSaved }) {
         <div className="set-content">
           {tab === "general" && <GeneralPane data={cfg.general.data} agents={cfg.agents.data.agents} models={allModels} onChange={(d) => mutate("general", d)} />}
           {tab === "providers" && <ProvidersPane data={cfg.providers.data} onChange={(d) => mutate("providers", d)} save={() => saveSections(["providers"])} />}
-          {tab === "agents" && <AgentsPane data={cfg.agents.data} skills={cfg.skills.data.skills} mcpServers={cfg.mcp.data.mcp.servers} models={allModels} onChange={(d) => mutate("agents", d)} save={() => saveSections(["agents"])} />}
+          {tab === "agents" && <AgentsPane data={cfg.agents.data} skills={cfg.skills.data.skills} mcpServers={cfg.mcp.data.mcp.servers} models={allModels} tools={toolCandidates} onChange={(d) => mutate("agents", d)} save={() => saveSections(["agents"])} />}
           {tab === "mcp" && <McpPane data={cfg.mcp.data} onChange={(d) => mutate("mcp", d)} save={() => saveSections(["mcp"])} />}
-          {tab === "skills" && <SkillsPane data={cfg.skills.data} agents={cfg.agents.data.agents} onChange={(d) => mutate("skills", d)} save={() => saveSections(["skills"])} />}
+          {tab === "skills" && <SkillsPane data={cfg.skills.data} agents={cfg.agents.data.agents} tools={toolCandidates} onChange={(d) => mutate("skills", d)} save={() => saveSections(["skills"])} />}
         </div>
       </div>
       {dirtyCount > 0 && (

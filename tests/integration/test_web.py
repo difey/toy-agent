@@ -47,6 +47,26 @@ def test_health_meta_and_sessions(tmp_path):
     assert c.get(f"/api/sessions/{sid}").json()["id"] == sid
 
 
+def test_api_tools_lists_registered_builtins(tmp_path):
+    """配置中心工具候选来自 /api/tools（内建工具注册表），新增工具自动出现，不写死。"""
+    app = create_app(_client_with_scripted())
+    c = TestClient(app)
+    r = c.get("/api/tools")
+    assert r.status_code == 200
+    tools = r.json()["tools"]
+    # 核心内建工具
+    for t in ["shell", "file_read", "file_write", "file_edit", "search_grep",
+              "glob", "todowrite", "apply_patch", "project_memory", "web_fetch",
+              "web_search", "attach_image"]:
+        assert t in tools
+    # dispatch_task 由 session runtime 动态注册，但须出现在配置中心候选
+    assert "dispatch_task" in tools
+    # 与注册表一致（无多余/遗漏），外加 dispatch_task
+    from mira.core.tools.registry import ToolRegistry
+    assert set(tools) == set(ToolRegistry.with_builtins().names()) | {"dispatch_task"}
+
+
+
 def test_fs_list(tmp_path):
     """引用文件选择器：工作区内目录浏览，目录在前、文件在后，防目录穿越。"""
     app = create_app(_client_with_scripted())

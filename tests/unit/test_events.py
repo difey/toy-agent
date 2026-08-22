@@ -11,6 +11,7 @@ def test_taxonomy_expected_types():
         "session.closed",
         "session.status",
         "session.titled",
+        "session.system_prompt",
         "user.message",
         "agent.message",
         "agent.message.delta",

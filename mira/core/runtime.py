@@ -65,6 +65,8 @@ class AgentRuntime:
         self.tools_override = tools_override  # P3
         self._stop_event = stop_event
         self.history: list[ChatMessage] = []
+        # attach_image 工具注入的图片路径：在下一轮 _llm_call 发送前转多模态 USER 消息
+        self._pending_images: list[str] = []
         self._tokens_in = 0
         self._tokens_out = 0
         self._cost_usd = 0.0
@@ -101,6 +103,18 @@ class AgentRuntime:
             span_id=run_span,
             parent_span_id=parent_span_id,
         )
+        # 遥测：首次执行（history 为空）时记录当时生效的 system prompt（含技能注入）
+        if not self.history:
+            self.tracer.emit(
+                EventType.SESSION_SYSTEM_PROMPT,
+                {
+                    "agent": self.agent.id,
+                    "prompt": self.agent.compose_system_prompt(self.skills),
+                },
+                session_id=session_id,
+                span_id=run_span,
+                parent_span_id=parent_span_id,
+            )
         # extra_history：用户消息的"前导"（如选中的文件路径提示），与 user_text 同属一轮上下文
         for msg in (extra_history or []):
             self.history.append(msg)
@@ -119,7 +133,7 @@ class AgentRuntime:
                 break
             self._check_token_budget(session_id, run_span)
             content, reasoning_content, tool_calls, finish = self._llm_call(
-                session_id, run_span, step, provider=eff_provider, model=eff_model, effort=eff_effort
+                session_id, run_span, step, provider=eff_provider, model=eff_model, effort=eff_effort, prompt=user_text
             )
 
             if tool_calls:
@@ -182,11 +196,23 @@ class AgentRuntime:
     # ── LLM 调用 ─────────────────────────────────────────────
 
     def _llm_call(
-        self, session_id: str, run_span: str, step: int, *, provider: str, model: str, effort: str | None
+        self, session_id: str, run_span: str, step: int, *, provider: str, model: str, effort: str | None, prompt: str = ""
     ) -> tuple[str, str, list | None, str | None]:
         messages, tool_specs = build_context(
             self.agent, self.history, self.tools, self.skills, tool_names=self.tools_override
         )
+        # attach_image：把工具加入的图片作为多模态 USER 消息追加到 messages 末尾
+        # （在 TOOL 结果之后，不插入 assistant(tool_calls) 与 TOOL 之间，保证 tool_call 完整性）
+        if self._pending_images:
+            for img in self._pending_images:
+                messages.append(
+                    ChatMessage(
+                        role=ChatRole.USER,
+                        content="（工具已附加图片，请用视觉能力查看并描述）",
+                        images=[img],
+                    )
+                )
+            self._pending_images.clear()
         span = f"sp_llm_{step}"
         self.tracer.emit(
             EventType.LLM_REQUEST,
@@ -196,6 +222,8 @@ class AgentRuntime:
                 "effort": effort,
                 "step": step,
                 "tools": [s["function"]["name"] for s in tool_specs],
+                "tools_schema": tool_specs,
+                "prompt": prompt,
             },
             session_id=session_id,
             span_id=span,
@@ -259,6 +287,12 @@ class AgentRuntime:
             parent_span_id=run_span,
         )
         return content, reasoning_content, tool_calls, finish
+
+    # ── attach_image 钩子 ────────────────────────────────────
+
+    def _attach_image(self, path: str) -> None:
+        """attach_image 工具回调：把图片路径加入待注入队列，下一轮请求前作为多模态消息发送。"""
+        self._pending_images.append(path)
 
     # ── 工具执行 ─────────────────────────────────────────────
 
@@ -339,6 +373,7 @@ class AgentRuntime:
                                 "provider": provider,
                                 "model": model,
                                 "effort": effort,
+                                "attach_image": self._attach_image,
                             },
                         ),
                         **args,

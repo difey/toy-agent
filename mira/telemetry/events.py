@@ -21,6 +21,7 @@ class EventType(str, Enum):
     SESSION_CLOSED = "session.closed"
     SESSION_STATUS = "session.status"
     SESSION_TITLED = "session.titled"
+    SESSION_SYSTEM_PROMPT = "session.system_prompt"
     # 消息
     USER_MESSAGE = "user.message"
     AGENT_MESSAGE = "agent.message"

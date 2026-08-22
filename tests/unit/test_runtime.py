@@ -358,3 +358,88 @@ def test_one_shot_records_prompt_in_llm_request(tmp_path):
     req = next(e for e in events if e.type == EventType.LLM_REQUEST)
     assert req.payload.get("task") == "one_shot"
     assert req.payload.get("prompt") == "请判断是否允许删除 /tmp/x"
+
+
+def test_llm_request_records_prompt(tmp_path):
+    """普通对话 llm.request 事件只记录本轮输入 prompt（不含完整历史/system）。"""
+    tracer = EventLogTracer(EventStore(tmp_path / "sessions"))
+    rt = _make_runtime(tmp_path, tracer, reply="已完成")
+    rt.run("请分析项目", "sess_p1")
+    events = list(EventStore(tmp_path / "sessions").read("sess_p1"))
+    req = next(e for e in events if e.type == EventType.LLM_REQUEST and e.payload.get("step") == 1)
+    assert req.payload.get("prompt") == "请分析项目"
+    assert "system" not in req.payload.get("prompt", "")
+    # 完整工具 schema 也记录（LLM 靠它生成参数）
+    schema = req.payload.get("tools_schema")
+    assert isinstance(schema, list) and schema
+    shell = next((s for s in schema if s["function"]["name"] == "shell"), None)
+    assert shell is not None
+    assert "cmd" in shell["function"]["parameters"]["properties"]
+
+
+def test_system_prompt_recorded_on_first_run(tmp_path):
+    """首次执行时记录当时的 system prompt 为遥测事件；后续轮次不重复。"""
+    tracer = EventLogTracer(EventStore(tmp_path / "sessions"))
+    rt = _make_runtime(tmp_path, tracer, reply="完成")
+    rt.run("第一问", "sess_sp1")
+    events = list(EventStore(tmp_path / "sessions").read("sess_sp1"))
+    sp = next(e for e in events if e.type == EventType.SESSION_SYSTEM_PROMPT)
+    assert sp.payload["agent"] == "main"
+    assert "你是测试助手" in sp.payload["prompt"]
+
+    # 第二轮不再重复记录（"最初的 system prompt"只记一次）
+    rt.run("第二问", "sess_sp1")
+    events2 = list(EventStore(tmp_path / "sessions").read("sess_sp1"))
+    sps = [e for e in events2 if e.type == EventType.SESSION_SYSTEM_PROMPT]
+    assert len(sps) == 1
+
+
+
+class _SpyMock(MockProvider):
+    """记录每次 stream_chat 收到的 messages，供断言图片是否注入。"""
+
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        self.seen: list[list[ChatMessage]] = []
+
+    def stream_chat(self, messages, **kw):
+        self.seen.append(list(messages))
+        return super().stream_chat(messages, **kw)
+
+
+def test_runtime_attach_image_injects_images_next_call(tmp_path):
+    """attach_image 工具把图片加入待注入队列，下一轮请求 messages 含多模态图片（且不破坏 tool_call 顺序）。"""
+    tracer = EventLogTracer(EventStore(tmp_path / "sessions"))
+    img = tmp_path / "shot.png"
+    img.write_bytes(b"\x89PNG\r\n\x1a\nfakedata")
+
+    spy = _SpyMock(
+        reply="图片分析完成",
+        tool_calls=[_tool_call("attach_image", {"path": str(img)})],
+    )
+    agent = AgentConfig(
+        id="vision",
+        role=AgentRole.SUB,
+        system_prompt="你是视觉代理。",
+        model="mock/mock-model",
+        tools=AgentToolsConfig(enabled=["attach_image"]),
+    )
+    rt = AgentRuntime(
+        agent=BaseAgent(agent),
+        router=ProviderRouter([spy]),
+        tools=ToolRegistry.with_builtins(),
+        permissions=PermissionChecker([], mode=ApprovalMode.AUTO),
+        tracer=tracer,
+        workspace=tmp_path,
+        max_steps=5,
+    )
+    rt.run("查看图片", "sess_v1")
+
+    assert len(spy.seen) >= 2, "应至少两轮请求（工具执行前 / 执行后）"
+    # 首轮（attach_image 尚未执行）：不应有图片消息
+    assert not [m for m in spy.seen[0] if m.images]
+    # 第二轮：注入的多模态图片消息位于 messages 末尾（在 TOOL 结果之后）
+    with_img = [m for m in spy.seen[1] if m.images]
+    assert with_img and with_img[0].images == [str(img)]
+    assert spy.seen[1][-1] is with_img[0], "图片消息应为本轮最后一条"
+

@@ -101,6 +101,33 @@ def test_dispatcher_runs_sub_agent_and_persists_report(tmp_path):
     assert join.parent_span_id == dispatch.span_id
 
 
+def test_compose_task_prompt_includes_images():
+    """分派 prompt 的文本里应包含图片路径（多模态注入失效时子 agent 也能凭路径自行查看）。"""
+    spec = TaskSpec(target_agent="vision", goal="看图", images=["/tmp/a.png", "/tmp/b.jpg"])
+    prompt = TaskDispatcher._compose_task_prompt(spec)
+    assert "附加图片路径" in prompt
+    assert "/tmp/a.png" in prompt and "/tmp/b.jpg" in prompt
+
+
+def test_dispatcher_injects_images_into_sub_prompt(tmp_path):
+    """dispatch 带 images 时，子 agent 的 user.message 遥测事件应含图片路径（而非只靠反思）。"""
+    tracer = EventLogTracer(EventStore(tmp_path / "sessions"))
+    disp = _dispatcher(tmp_path, tracer)
+    spec = TaskSpec(
+        target_agent="investigator",
+        goal="看图",
+        images=["/tmp/a.png", "/tmp/b.jpg"],
+    )
+    disp.dispatch(spec, "s3", parent_span_id="sp_root")
+    events = list(EventStore(tmp_path / "sessions").read("s3"))
+    sub_user = next(
+        e for e in events
+        if e.type == EventType.USER_MESSAGE and "附加图片路径" in (e.payload.get("content") or "")
+    )
+    assert "/tmp/a.png" in sub_user.payload["content"]
+    assert "/tmp/b.jpg" in sub_user.payload["content"]
+
+
 def test_dispatch_task_tool_drives_sub_agent_without_polluting_main(tmp_path):
     tracer = EventLogTracer(EventStore(tmp_path / "sessions"))
     agents = _agents()
