@@ -248,9 +248,9 @@ function correlatedKeys(rows, key, idx) {
   return out;
 }
 
-function Sidebar({ workspaces, activeSid, onSelect, openWs, toggleWs, onCollapseAll }) {
+function Sidebar({ workspaces, activeSid, onSelect, openWs, toggleWs, onCollapseAll, width }) {
   return (
-    <aside className="obs-side">
+    <aside className="obs-side" style={width ? { width: width + "px", flex: "none" } : undefined}>
       <div className="obs-panel-head"><span>遥测 · 会话</span><button className="obs-collapse-all icon-btn" onClick={onCollapseAll} title="折叠全部工作区"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/></svg></button></div>
       <div className="obs-side-scroll">
         {(workspaces || []).map((w) => {
@@ -336,8 +336,9 @@ function EventList({ rows, selectedKey, onSelect, activeSid, openGroups, toggleG
   );
 }
 
-function Detail({ row }) {
-  if (!row) return <div className="obs-detail"><div className="obs-detail-empty">← 点击中间列表的事件查看详情</div></div>;
+function Detail({ row, width }) {
+  const wstyle = width ? { width: width + "px", flex: "none" } : undefined;
+  if (!row) return <div className="obs-detail" style={wstyle}><div className="obs-detail-empty">← 点击中间列表的事件查看详情</div></div>;
   const isStream = row.kind === "stream";
   const meta = isStream
     ? [["type", "llm.stream_chunk"], ["seq", `${row.seq}–${row.endSeq}`], ["chunks", String(row.count)], ["ts", row.ts]]
@@ -351,7 +352,7 @@ function Detail({ row }) {
       ];
   const body = isStream ? row.text : JSON.stringify(row.event.payload, null, 2);
   return (
-    <div className="obs-detail">
+    <div className="obs-detail" style={wstyle}>
       <div className="obs-panel-head">事件详情</div>
       <div className="obs-detail-meta">
         {meta.map(([k, v]) => (
@@ -371,6 +372,28 @@ function Observe() {
   const [viewedAt, setViewedAt] = useState({}); // 客户端「查看」时间戳（sid→ms）：会话列表按最近交互倒序
   const [openWs, setOpenWs] = useState({}); // 工作区折叠状态（默认折叠，与主页面一致）
   const [openGroups, setOpenGroups] = useState(new Set()); // 子 agent 折叠分组（默认折叠成一个条目）
+  const [sideWidth, setSideWidth] = useState(250); // 左面板宽度（可拖拽）
+  const [detailWidth, setDetailWidth] = useState(340); // 右面板宽度（可拖拽）
+
+  // 与主页面一致的宽度调整器：拖拽更新面板宽度，拖动中禁用文本选择
+  const startResize = (which) => (e) => {
+    e.preventDefault();
+    const move = (ev) => {
+      if (which === "side") {
+        setSideWidth(Math.min(Math.max(ev.clientX - 8, 180), 420));
+      } else {
+        setDetailWidth(Math.min(Math.max((window.innerWidth - 8) - ev.clientX, 240), 680));
+      }
+    };
+    const up = () => {
+      document.removeEventListener("mousemove", move);
+      document.removeEventListener("mouseup", up);
+      document.body.classList.remove("dragging");
+    };
+    document.addEventListener("mousemove", move);
+    document.addEventListener("mouseup", up);
+    document.body.classList.add("dragging");
+  };
 
   useEffect(() => { api.get("/api/workspaces").then(setWorkspaces); }, []);
 
@@ -403,9 +426,11 @@ function Observe() {
 
   return (
     <div className="obs">
-      <Sidebar workspaces={sortedWorkspaces} activeSid={activeSid} onSelect={selectSession} openWs={openWs} toggleWs={toggleWs} onCollapseAll={collapseAll} />
+      <Sidebar workspaces={sortedWorkspaces} activeSid={activeSid} onSelect={selectSession} openWs={openWs} toggleWs={toggleWs} onCollapseAll={collapseAll} width={sideWidth} />
+      <div className="obs-resizer" onMouseDown={startResize("side")} title="拖动调整面板宽度"><div className="grip"><span></span><span></span><span></span></div></div>
       <EventList rows={rows} selectedKey={selectedKey} onSelect={setSelectedKey} activeSid={activeSid} openGroups={openGroups} toggleGroup={toggleGroup} />
-      <Detail row={selectedRow} />
+      <div className="obs-resizer" onMouseDown={startResize("detail")} title="拖动调整面板宽度"><div className="grip"><span></span><span></span><span></span></div></div>
+      <Detail row={selectedRow} width={detailWidth} />
     </div>
   );
 }
