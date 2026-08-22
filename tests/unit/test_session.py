@@ -217,6 +217,42 @@ def test_session_updated_at_persisted_after_message(tmp_path: Path):
     assert _json.loads(meta.read_text(encoding="utf-8")).get("updated_at")
 
 
+def test_rebuild_history_skips_one_shot_responses():
+    """重建历史时跳过 task=one_shot 的 llm.response（approver 决策等辅助调用）。
+
+    若混入，会把 assistant(tool_calls) 与其 tool 结果隔开 → DeepSeek 拒绝请求。
+    """
+    from mira.core.providers.base import ChatRole
+    from mira.telemetry.events import Event
+
+    sm = SessionManager()
+    evs = [
+        Event(type=EventType.USER_MESSAGE, payload={"content": "测试审批"}, session_id="s1", seq=1),
+        Event(
+            type=EventType.LLM_RESPONSE,
+            payload={
+                "content": "",
+                "tool_calls": [
+                    {"id": "c00", "type": "function", "function": {"name": "shell", "arguments": "{}"}},
+                    {"id": "c01", "type": "function", "function": {"name": "shell", "arguments": "{}"}},
+                ],
+            },
+            session_id="s1",
+            seq=2,
+        ),
+        Event(type=EventType.LLM_RESPONSE, payload={"content": "allow", "task": "one_shot"}, session_id="s1", seq=3),
+        Event(type=EventType.TOOL_RESULT, payload={"name": "shell", "result": "ok0"}, session_id="s1", seq=4),
+        Event(type=EventType.TOOL_RESULT, payload={"name": "shell", "result": "ok1"}, session_id="s1", seq=5),
+    ]
+    hist, _ = sm._rebuild_history(evs)
+    roles = [m.role for m in hist]
+    assert roles == [ChatRole.USER, ChatRole.ASSISTANT, ChatRole.TOOL, ChatRole.TOOL]
+    assert [c["id"] for c in hist[1].tool_calls] == ["c00", "c01"]
+    assert hist[2].tool_call_id == "c00"
+    assert hist[3].tool_call_id == "c01"
+    assert all(m.content != "allow" for m in hist)  # one_shot 回复不混入主对话
+
+
 def test_unknown_agent_raises(tmp_path):
     client = AppClient()
     import pytest

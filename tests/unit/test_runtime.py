@@ -265,3 +265,81 @@ def test_runtime_extra_history_prepended(tmp_path):
     assert len(users) == 2
     assert users[0].content == "用户选中了文件：\n/tmp/a.py"
     assert users[1].content == "请分析这个文件"
+
+
+def test_repair_tool_call_integrity_drops_dangling_call():
+    """故障导致 a/b 有结果、c 缺失：把 c 从 assistant 的 tool_calls 中删除。"""
+    from mira.core.context import repair_tool_call_integrity
+
+    def tc(cid):
+        return {"id": cid, "type": "function", "function": {"name": "file_write", "arguments": "{}"}}
+
+    h = [
+        ChatMessage(role=ChatRole.USER, content="改文件"),
+        ChatMessage(role=ChatRole.ASSISTANT, content="", tool_calls=[tc("a"), tc("b"), tc("c")]),
+        ChatMessage(role=ChatRole.TOOL, content="ok a", tool_call_id="a"),
+        ChatMessage(role=ChatRole.TOOL, content="ok b", tool_call_id="b"),
+    ]
+    repair_tool_call_integrity(h)
+    assert [c["id"] for c in h[1].tool_calls] == ["a", "b"]
+
+
+def test_repair_tool_call_integrity_keeps_complete():
+    """所有 tool_call 都有结果 → 历史不被改动。"""
+    from mira.core.context import repair_tool_call_integrity
+
+    def tc(cid):
+        return {"id": cid, "type": "function", "function": {"name": "file_write", "arguments": "{}"}}
+
+    h = [
+        ChatMessage(role=ChatRole.USER, content="改文件"),
+        ChatMessage(role=ChatRole.ASSISTANT, content="", tool_calls=[tc("a"), tc("b"), tc("c")]),
+        ChatMessage(role=ChatRole.TOOL, content="ok", tool_call_id="a"),
+        ChatMessage(role=ChatRole.TOOL, content="ok", tool_call_id="b"),
+        ChatMessage(role=ChatRole.TOOL, content="ok", tool_call_id="c"),
+    ]
+    repair_tool_call_integrity(h)
+    assert [c["id"] for c in h[1].tool_calls] == ["a", "b", "c"]
+
+
+def test_repair_tool_call_integrity_fixes_complete_record():
+    """修复完整记录：整段历史（不只上一条用户消息之后）所有悬空 call 都被删除。"""
+    from mira.core.context import repair_tool_call_integrity
+
+    def tc(cid):
+        return {"id": cid, "type": "function", "function": {"name": "file_write", "arguments": "{}"}}
+
+    h = [
+        ChatMessage(role=ChatRole.USER, content="第一轮"),
+        ChatMessage(role=ChatRole.ASSISTANT, content="", tool_calls=[tc("x")]),  # x 无结果（旧段）
+        ChatMessage(role=ChatRole.USER, content="第二轮"),
+        ChatMessage(role=ChatRole.ASSISTANT, content="", tool_calls=[tc("a"), tc("b")]),
+        ChatMessage(role=ChatRole.TOOL, content="ok a", tool_call_id="a"),  # b 结果缺失（当前段）
+    ]
+    repair_tool_call_integrity(h)
+    assert h[1].tool_calls is None  # 旧段悬空 call 也被删除
+    assert [c["id"] for c in h[3].tool_calls] == ["a"]  # 当前段删掉无结果的 b
+
+
+def test_runtime_request_repairs_dangling_tool_call(tmp_path):
+    """runtime 发请求前（build_context）修复历史中悬空的 tool_call。"""
+    tracer = EventLogTracer(EventStore(tmp_path / "sessions"))
+    rt = _make_runtime(tmp_path, tracer, reply="继续")
+    # 模拟故障历史：assistant 声明 a、c，但只有 a 有结果
+    rt.history.append(ChatMessage(role=ChatRole.USER, content="先删再写"))
+    rt.history.append(
+        ChatMessage(
+            role=ChatRole.ASSISTANT,
+            content="",
+            tool_calls=[
+                {"id": "a", "type": "function", "function": {"name": "file_write", "arguments": '{"path":"1.txt","content":"1"}'}},
+                {"id": "c", "type": "function", "function": {"name": "file_write", "arguments": '{"path":"2.txt","content":"2"}'}},
+            ],
+        )
+    )
+    rt.history.append(ChatMessage(role=ChatRole.TOOL, content="ok a", tool_call_id="a"))
+
+    assert rt.run("继续", "sess_1") == "继续"
+    # 请求前修复生效：assistant 的 tool_calls 只剩有结果的 a，c 已被删除
+    asst = next(m for m in rt.history if m.role == ChatRole.ASSISTANT and m.tool_calls)
+    assert [c["id"] for c in asst.tool_calls] == ["a"]

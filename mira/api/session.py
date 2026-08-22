@@ -320,6 +320,11 @@ class SessionManager:
             if t == EventType.USER_MESSAGE:
                 history.append(ChatMessage(role=ChatRole.USER, content=p.get("content", "")))
             elif t == EventType.LLM_RESPONSE:
+                if p.get("task"):
+                    # 决策（approver）/ 标题（summarizer）等辅助 one_shot 调用也写入同一会话日志，
+                    # 但不属于主对话：混入会把 assistant(tool_calls) 与其 tool 结果隔开，
+                    # 导致 DeepSeek 报 "insufficient tool messages following tool_calls"。
+                    continue
                 content = p.get("content") or ""
                 reasoning = p.get("reasoning_content") or ""
                 tool_calls = p.get("tool_calls")
