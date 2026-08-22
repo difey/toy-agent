@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Request
 
@@ -14,8 +15,16 @@ from mira.web.router.models import RenameWorkspaceBody
 router = APIRouter(prefix="/api")
 
 
+def _iso_from_mtime(p) -> str:
+    """目录/文件的 mtime → ISO 时间（旧会话无 updated_at 时兜底）。"""
+    try:
+        return datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc).isoformat()
+    except OSError:
+        return ""
+
+
 def _list_workspaces() -> list[dict]:
-    """扫描 ~/.mira-code/workspaces/ 列出工作区及其会话（含标题，来自 meta.json）。"""
+    """扫描 ~/.mira-code/workspaces/ 列出工作区及其会话（含标题/更新时间，来自 meta.json）。"""
     root = paths.workspaces_dir()
     if not root.exists():
         return []
@@ -32,13 +41,18 @@ def _list_workspaces() -> list[dict]:
         sessions = []
         for sid in sids:
             title = ""
+            updated_at = ""
             meta = d / "sessions" / sid / "meta.json"
             if meta.exists():
                 try:
-                    title = json.loads(meta.read_text(encoding="utf-8")).get("title", "")
+                    mdata = json.loads(meta.read_text(encoding="utf-8"))
+                    title = mdata.get("title", "")
+                    updated_at = mdata.get("updated_at", "")
                 except Exception:  # noqa: BLE001
-                    title = ""
-            sessions.append({"id": sid, "title": title})
+                    pass
+            if not updated_at:
+                updated_at = _iso_from_mtime(d / "sessions" / sid)
+            sessions.append({"id": sid, "title": title, "updated_at": updated_at})
         path = None
         meta = d / "workspace.json"
         if meta.exists():
@@ -59,13 +73,18 @@ def workspaces(request: Request) -> list[dict]:
         w = paths.workspace_id(ws)
         existing = next((x for x in result if x["id"] == w), None)
         if existing is None:
-            result.append({"id": w, "path": ws, "sessions": [{"id": s.id, "title": s.title}]})
+            result.append(
+                {"id": w, "path": ws, "sessions": [{"id": s.id, "title": s.title, "updated_at": s.updated_at}]}
+            )
         else:
             entry = next((x for x in existing["sessions"] if x["id"] == s.id), None)
             if entry is not None:
                 entry["title"] = s.title
+                entry["updated_at"] = s.updated_at
             else:
-                existing["sessions"].append({"id": s.id, "title": s.title})
+                existing["sessions"].append(
+                    {"id": s.id, "title": s.title, "updated_at": s.updated_at}
+                )
     return result
 
 

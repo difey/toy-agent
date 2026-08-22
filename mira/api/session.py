@@ -98,7 +98,8 @@ class SessionManager:
         )
 
         with self._lock:
-            sess = Session(workspace=ws, agent_type=agent_type, model=model)
+            now = utcnow_iso()
+            sess = Session(workspace=ws, agent_type=agent_type, model=model, created_at=now, updated_at=now)
             stream = EventStream(sess.id)
             tracer = CompositeTracer(
                 EventLogTracer(EventStore(paths.sessions_dir(ws))),
@@ -261,12 +262,13 @@ class SessionManager:
                     continue
 
                 title = ""
+                updated_at = ""
                 session_meta = paths.session_meta_path(workspace, session_id)
                 if session_meta.exists():
                     try:
-                        title = json.loads(
-                            session_meta.read_text(encoding="utf-8")
-                        ).get("title", "")
+                        meta_data = json.loads(session_meta.read_text(encoding="utf-8"))
+                        title = meta_data.get("title", "")
+                        updated_at = meta_data.get("updated_at", "")
                     except (OSError, json.JSONDecodeError):
                         title = ""
                 payload = created.payload
@@ -276,6 +278,7 @@ class SessionManager:
                     agent_type=payload.get("agent", "main"),
                     model=payload.get("model", ""),
                     title=title,
+                    updated_at=updated_at or created.ts,
                     created_at=created.ts,
                 )
                 stream = EventStream(session_id)
@@ -370,6 +373,7 @@ class SessionManager:
                 text, session_id, model=model, effort=effort, extra_history=extra_history
             )
             self._maybe_generate_title(session, runtime)
+            self._touch(session)  # 新对话/回复 → 更新最近交互时间（会话列表倒序）
             session.status = SessionStatus.IDLE
             self._emit_status(session, "idle")
         except Exception as exc:  # noqa: BLE001
@@ -628,7 +632,7 @@ class SessionManager:
             title = user.strip()[:20] if user else ""
         if title:
             session.title = title[:60]
-            self._persist_title(session)
+            self._persist_meta(session)
             self._tracers[session.id].emit(
                 EventType.SESSION_TITLED,
                 {"session_id": session.id, "title": session.title},
@@ -653,8 +657,13 @@ class SessionManager:
             approvals=None,
         )
 
-    def _persist_title(self, session: Session) -> None:
-        """标题落盘到 sessions/<sid>/meta.json（重启后仍可显示）。"""
+    def _touch(self, session: Session) -> None:
+        """标记最近交互时间（新对话/回复）并落盘，会话列表按此倒序。"""
+        session.updated_at = utcnow_iso()
+        self._persist_meta(session)
+
+    def _persist_meta(self, session: Session) -> None:
+        """把 title / updated_at 落盘到 sessions/<sid>/meta.json（重启后仍可显示/排序）。"""
         try:
             meta_path = paths.session_meta_path(session.workspace, session.id)
             meta_path.parent.mkdir(parents=True, exist_ok=True)
@@ -664,7 +673,10 @@ class SessionManager:
                     data = json.loads(meta_path.read_text(encoding="utf-8"))
                 except Exception:  # noqa: BLE001
                     data = {}
-            data["title"] = session.title
+            if session.title:
+                data["title"] = session.title
+            if session.updated_at:
+                data["updated_at"] = session.updated_at
             meta_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
         except Exception:  # noqa: BLE001
             pass

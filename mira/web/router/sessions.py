@@ -20,6 +20,7 @@ def _session_out(s) -> dict:
         "title": s.title,
         "status": s.status.value,
         "created_at": s.created_at,
+        "updated_at": s.updated_at,
         "meta": s.meta,
     }
 

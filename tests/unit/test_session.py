@@ -197,6 +197,26 @@ def test_historical_session_context_seeded_into_runtime(tmp_path: Path):
     assert users[-1] == "第二轮"
 
 
+def test_session_updated_at_persisted_after_message(tmp_path: Path):
+    """交互后 updated_at 更新并落盘 meta.json（会话列表按最近交互倒序的数据源）。"""
+    import json as _json
+
+    client = AppClient()
+    sess = client.create_session(tmp_path, agent_type="main")
+    assert sess.updated_at  # 创建即有时间
+
+    client.send_message(sess.id, "你好", model=sess.model)
+    for ev in client.events(sess.id):
+        if ev.type == EventType.SESSION_STATUS and ev.payload.get("status") == "idle":
+            break
+
+    refreshed = client.get_session(sess.id)
+    assert refreshed.updated_at
+    meta = paths.session_meta_path(str(tmp_path), sess.id)
+    assert meta.exists()
+    assert _json.loads(meta.read_text(encoding="utf-8")).get("updated_at")
+
+
 def test_unknown_agent_raises(tmp_path):
     client = AppClient()
     import pytest

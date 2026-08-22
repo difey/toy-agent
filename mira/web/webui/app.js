@@ -1161,6 +1161,7 @@ function SettingsView({ collapsed, onBack, onSaved }) {
 function App() {
   const [meta, setMeta] = useState({ agents: [], providers: [] });
   const [workspaces, setWorkspaces] = useState([]);
+  const [viewedAt, setViewedAt] = useState({}); // 客户端「查看」时间戳（sid→ms）：会话列表按最近交互倒序
   const [sessions, setSessions] = useState([]);
   const [activeSid, setActiveSid] = useState(null);
   const [events, setEvents] = useState([]);
@@ -1246,6 +1247,7 @@ function App() {
   const selectSession = (sid) => {
     activeSidRef.current = sid;
     setActiveSid(sid);
+    setViewedAt((m) => ({ ...m, [sid]: Date.now() })); // 查看即视为最近交互
     setIsNew(false);
     setEvents([]);
     lastSeqRef.current = 0;
@@ -1275,6 +1277,10 @@ function App() {
         const ev = JSON.parse(e.data);
         lastSeqRef.current = Math.max(lastSeqRef.current, ev.seq);
         setEvents((prev) => [...prev, ev]);
+        // 新消息/回复/工具结果等实时交互 → 该会话视为最近交互（置顶）
+        if (["user.message", "agent.message", "tool.result", "tool.error", "session.status", "session.titled"].indexOf(ev.type) !== -1) {
+          setViewedAt((m) => ({ ...m, [activeSid]: Date.now() }));
+        }
         if (ev.type === "approval.requested") setPendingApproval(ev.payload);
         if (ev.type === "approval.resolved") setPendingApproval(null);
         if (ev.type === "session.status" || ev.type === "session.titled") { refreshSessions(); refreshWorkspaces(); }
@@ -1416,6 +1422,18 @@ function App() {
     workspaces.forEach((w) => (w.sessions || []).forEach((s) => { m[s.id] = s.title || ""; }));
     return m;
   }, [workspaces]);
+  // 会话列表按「最近交互」倒序：新对话（updated_at）与查看（viewedAt）取较新者
+  const sortedWorkspaces = useMemo(() => {
+    const ts = (s) => {
+      const v = viewedAt[s.id] || 0;
+      const u = s.updated_at ? Date.parse(s.updated_at) : NaN;
+      return Math.max(v, Number.isFinite(u) ? u : 0);
+    };
+    return (workspaces || []).map((w) => ({
+      ...w,
+      sessions: [...(w.sessions || [])].sort((a, b) => ts(b) - ts(a)),
+    }));
+  }, [workspaces, viewedAt]);
   const activeTitle = activeSession ? (activeSession.title || titles[activeSid] || activeSid) : "";
   // 文件选择器起点：解析当前会话的真实工作区路径（历史会话事件里存的是 workspace id，需映射回 path）
   const pickWs = (() => {
@@ -1431,7 +1449,7 @@ function App() {
       {!collapsed && (
         <>
           <Sidebar
-            workspaces={workspaces} sessions={sessions} activeSid={activeSid}
+            workspaces={sortedWorkspaces} sessions={sessions} activeSid={activeSid}
             onSelect={selectSession} onNew={() => setIsNew(true)} onNewInWs={openNewForWs}
             view={view} onView={setView} onCollapse={() => setCollapsed(true)} onCollapseAll={collapseAll} width={sidebarWidth}
             openWs={openWs} toggleWs={toggleWs} moreOpen={moreOpen} setMoreOpen={setMoreOpen}

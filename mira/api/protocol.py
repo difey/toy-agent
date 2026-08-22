@@ -52,6 +52,7 @@ class Session(BaseModel):
     model: str = ""  # 模型串 {provider}/{model}（决策 #26：provider 由模型推导，不单独存储）
     title: str = ""  # 会话标题：首轮结束后由配置式 agent（summarizer）总结生成
     created_at: str = Field(default_factory=utcnow_iso)
+    updated_at: str = ""  # 最近交互时间（新对话/回复/查看）；会话列表按此倒序
     closed_at: str | None = None
     status: SessionStatus = SessionStatus.IDLE
     meta: dict[str, Any] = Field(default_factory=dict)
