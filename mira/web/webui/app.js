@@ -204,7 +204,17 @@ function groupEvents(events) {
   for (const ev of events) {
     const t = ev.type, p = ev.payload;
     if (t === "user.message") blocks.push({ kind: "user", text: p.content });
-    else if (t === "agent.message") blocks.push({ kind: "agent", text: p.content });
+    else if (t === "agent.message") {
+      // 回合结束时的完整消息：若末尾已有本回合的流式块（llm.stream_chunk），
+      // 直接用完整内容替换它，避免同一回复重复显示两遍。
+      const last = blocks[blocks.length - 1];
+      if (last && last.kind === "stream") {
+        last.kind = "agent";
+        last.text = p.content;
+      } else {
+        blocks.push({ kind: "agent", text: p.content });
+      }
+    }
     else if (t === "llm.stream_chunk") {
       const last = blocks[blocks.length - 1];
       if (last && last.kind === "stream") last.text += p.text;
@@ -343,7 +353,7 @@ function Sidebar({ workspaces, sessions, activeSid, onSelect, onNew, onNewInWs, 
       </div>
       <div className="side-foot">
         <button className={"fbtn" + (view === "work" ? " active" : "")} onClick={() => onView("work")}>会话工作区</button>
-        <button className={"fbtn" + (view === "settings" ? " active" : "")} onClick={() => onView("settings")}>配置中心</button>
+        <button className={"fbtn" + (view === "settings" ? " active" : "")} onClick={() => { onView("settings"); onCollapse(); }}>配置中心</button>
       </div>
     </aside>
   );
@@ -1055,7 +1065,7 @@ function SkillsPane({ data, agents, onChange, save }) {
   );
 }
 
-function SettingsView({ collapsed, onExpand, onSaved }) {
+function SettingsView({ collapsed, onBack, onSaved }) {
   const [cfg, setCfg] = useState(null);
   const [tab, setTab] = useState("general");
   const [dirty, setDirty] = useState({});
@@ -1110,7 +1120,7 @@ function SettingsView({ collapsed, onExpand, onSaved }) {
       <div className="set-head">
         <div className="ht">
           <h1>
-            {collapsed && <button className="expand-btn icon-btn" onClick={onExpand} title="展开侧边栏"><Ic w={14}><polyline points="9 18 15 12 9 6"/></Ic></button>}
+            {collapsed && <button className="expand-btn icon-btn" onClick={onBack} title="返回会话面板"><Ic w={14}><polyline points="9 18 15 12 9 6"/></Ic></button>}
             配置中心
           </h1>
         </div>
@@ -1351,6 +1361,8 @@ function App() {
     }
   };
   const expand = () => setCollapsed(false);
+  // 从配置中心返回会话工作区：展开侧边栏并切换右面板为会话面板
+  const backToSessions = () => { setCollapsed(false); setView("work"); };
 
   // 三点菜单：点击空白处自动关闭
   useEffect(() => {
@@ -1414,7 +1426,7 @@ function App() {
       )}
       <main className="main">
         {view === "settings" ? (
-          <SettingsView collapsed={collapsed} onExpand={expand} onSaved={loadSendKey} />
+          <SettingsView collapsed={collapsed} onBack={backToSessions} onSaved={loadSendKey} />
         ) : isNew || !activeSession ? (
           <NewSessionView
             workspaces={workspaces} input={input} setInput={setInput} workspace={workspace} setWorkspace={setWorkspace} sendKey={sendKey} running={running} onStop={stop}
