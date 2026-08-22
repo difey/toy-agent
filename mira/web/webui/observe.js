@@ -90,7 +90,7 @@ function collectSpawnRanges(events) {
   return ranges.filter((r) => !ranges.some((o) => o !== r && o.min <= r.min && r.max <= o.max));
 }
 
-// 事件列表 → 展示行：把连续的 llm.stream_chunk 合并成一行（避免刷屏），并把子 agent 子树折叠成 group 行
+// 事件列表 → 展示行：合并 stream、折叠子 agent 子树、折叠 one_shot 请求/回复 成 group 行
 function buildRows(events) {
   const rows = [];
   for (const ev of events) {
@@ -110,21 +110,43 @@ function buildRows(events) {
   }
   // 折叠子 agent 子树（按 seq 范围；子树在事件流中连续，主 agent 阻塞等待）
   const ranges = collectSpawnRanges(events);
-  if (!ranges.length) return rows;
-  const out = [];
   let cur = null;
+  const folded = [];
   for (const r of rows) {
     const rs = r.kind === "stream" ? r.seq : r.event.seq;
     const g = ranges.find((rg) => rs >= rg.min && rs <= rg.max);
     if (g) {
       if (!cur || cur.groupId !== g.span) {
-        cur = { kind: "group", groupId: g.span, agentId: g.agent, seqStart: g.min, seqEnd: g.max, children: [] };
-        out.push(cur);
+        cur = { kind: "group", groupId: g.span, label: "子 agent · " + g.agent, agentId: g.agent, seqStart: g.min, seqEnd: g.max, children: [] };
+        folded.push(cur);
       }
       cur.children.push(r);
     } else {
       cur = null;
+      folded.push(r);
+    }
+  }
+  // 折叠 one_shot 请求/回复（llm.request task=one_shot + 同 span 的 llm.response，相邻成对）
+  const out = [];
+  let i = 0;
+  while (i < folded.length) {
+    const r = folded[i];
+    if (r.kind === "event" && r.event.type === "llm.request" && (r.event.payload || {}).task === "one_shot") {
+      const span = r.event.span_id || "";
+      const children = [r];
+      let j = i + 1;
+      if (j < folded.length) {
+        const c = folded[j];
+        if (c.kind === "event" && c.event.type === "llm.response" && (c.event.payload || {}).task === "one_shot" && (c.event.span_id || "") === span) {
+          children.push(c);
+          j++;
+        }
+      }
+      out.push({ kind: "group", groupId: "os_" + (span || r.event.seq), label: "one_shot", children, oneShot: true });
+      i = j;
+    } else {
       out.push(r);
+      i++;
     }
   }
   return out;
@@ -271,9 +293,8 @@ function Row({ r, selectedKey, hoveredKey, activeRels, hoverRels, onSelect, onHo
     <div className={cls} onClick={(e) => { e.stopPropagation(); onSelect(key); }} onMouseEnter={() => onHover(key)} onMouseLeave={() => onLeave(key)}>
       <span className="obs-row-seq">{r.kind === "stream" ? `${r.seq}–${r.endSeq}` : r.event.seq}</span>
       <span className={"obs-row-type t-" + category(rowType(r))}>{rowType(r)}</span>
-      <span className="obs-row-brief">
-        {r.kind === "stream" ? `×${r.count} · ${r.text.slice(0, 50)}` : brief(r.event)}
-      </span>
+      {r.kind === "stream" ? <span className="obs-row-cnt">×{r.count}</span> : null}
+      <span className="obs-row-brief">{r.kind === "stream" ? r.text.slice(0, 50) : brief(r.event)}</span>
       <span className="obs-row-time">{rowTs(r).slice(11, 19)}</span>
     </div>
   );
@@ -297,7 +318,7 @@ function EventList({ rows, selectedKey, onSelect, activeSid, openGroups, toggleG
             return (
               <div key={"g" + r.groupId} className={"obs-group" + (open ? " open" : "")} onClick={() => toggleGroup(r.groupId)}>
                 <span className="obs-group-caret">▸</span>
-                <span className="obs-group-label">子 agent · {r.agentId}</span>
+                <span className="obs-group-label">{r.label}</span>
                 <span className="obs-group-cnt">{r.children.length} 条</span>
                 {open && (
                   <div className="obs-group-children">

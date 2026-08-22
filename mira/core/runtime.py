@@ -498,6 +498,7 @@ class AgentRuntime:
                 "model": eff_model,
                 "effort": eff_effort,
                 "task": "one_shot",
+                "prompt": prompt,
             },
             session_id=session_id,
             span_id=span,

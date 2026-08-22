@@ -347,3 +347,14 @@ def test_runtime_request_repairs_dangling_tool_call(tmp_path):
     # 请求前修复生效：assistant 的 tool_calls 只剩有结果的 a，c 已被删除
     asst = next(m for m in rt.history if m.role == ChatRole.ASSISTANT and m.tool_calls)
     assert [c["id"] for c in asst.tool_calls] == ["a"]
+
+
+def test_one_shot_records_prompt_in_llm_request(tmp_path):
+    """one_shot 辅助调用（标题/approver 等）的 llm.request 事件应记录发送的 prompt。"""
+    tracer = EventLogTracer(EventStore(tmp_path / "sessions"))
+    rt = _make_runtime(tmp_path, tracer, reply="allow")
+    rt.one_shot("请判断是否允许删除 /tmp/x", "sess_o1")
+    events = list(EventStore(tmp_path / "sessions").read("sess_o1"))
+    req = next(e for e in events if e.type == EventType.LLM_REQUEST)
+    assert req.payload.get("task") == "one_shot"
+    assert req.payload.get("prompt") == "请判断是否允许删除 /tmp/x"
