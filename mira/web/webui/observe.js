@@ -255,6 +255,65 @@ function correlatedKeys(rows, key, idx) {
   return out;
 }
 
+// 事件 → 完整上下文（system prompt + 对话 + 工具调用/结果，按角色分块，供右侧面板展示）
+function buildContext(events) {
+  const parts = [];
+  let subAgent = null; // 当前子 agent id（agent.spawn 进入 / agent.join 退出）
+  for (const ev of events) {
+    const p = ev.payload || {};
+    const tag = subAgent ? `子 agent · ${subAgent}` : "";
+    switch (ev.type) {
+      case "session.system_prompt":
+        parts.push({ role: "system", title: "SYSTEM PROMPT", text: p.prompt || "" });
+        break;
+      case "user.message":
+        parts.push({ role: "user", title: tag || "USER", text: p.content || "" });
+        break;
+      case "agent.spawn":
+        subAgent = p.agent_id || "sub";
+        parts.push({ role: "sub", title: `▸ 子 agent · ${subAgent} 开始`, text: "" });
+        break;
+      case "agent.join":
+        if (subAgent) parts.push({ role: "sub", title: `◂ 子 agent · ${subAgent} 结束`, text: p.status || "" });
+        subAgent = null;
+        break;
+      case "task.dispatch":
+        parts.push({ role: "sub", title: `分派 → ${p.target_agent}`, text: p.goal || "" });
+        break;
+      case "llm.response": {
+        let text = "";
+        if (p.reasoning_content) text += `[推理] ${p.reasoning_content}\n\n`;
+        text += p.content || "";
+        const tc = p.tool_calls || [];
+        if (tc.length) {
+          text += "\n→ tool_calls: " + tc.map((t) => `${(t.function && t.function.name) || "?"}(${String((t.function && t.function.arguments) || "")})`).join(" | ");
+        }
+        const who = p.task === "one_shot" ? (tag || "辅助 one_shot") : (tag || "ASSISTANT");
+        parts.push({ role: p.task === "one_shot" ? "one" : (subAgent ? "sub" : "assistant"), title: `${who} (step ${p.step ?? "-"})`, text });
+        break;
+      }
+      case "tool.call":
+        parts.push({ role: "tool", title: `TOOL CALL · ${p.name}`, text: JSON.stringify(p.arguments || {}, null, 2) });
+        break;
+      case "tool.result":
+        parts.push({ role: "tool", title: `TOOL RESULT · ${p.name}`, text: p.result || "" });
+        break;
+      case "tool.error":
+        parts.push({ role: "tool", title: `TOOL ERROR · ${p.name}`, text: p.error || "" });
+        break;
+      case "agent.message":
+        if (!subAgent) parts.push({ role: "assistant", title: "ASSISTANT（最终）", text: p.content || "" });
+        break;
+      default:
+        break;
+    }
+  }
+  // system prompt 恒为上下文首条（语义顺序：SYSTEM → USER → 对话/工具）
+  const sys = parts.filter((p) => p.role === "system");
+  const rest = parts.filter((p) => p.role !== "system");
+  return [...sys, ...rest];
+}
+
 function Sidebar({ workspaces, activeSid, onSelect, openWs, toggleWs, onCollapseAll, width }) {
   return (
     <aside className="obs-side" style={width ? { width: width + "px", flex: "none" } : undefined}>
@@ -307,7 +366,7 @@ function Row({ r, selectedKey, hoveredKey, activeRels, hoverRels, onSelect, onHo
   );
 }
 
-function EventList({ rows, selectedKey, onSelect, activeSid, openGroups, toggleGroup }) {
+function EventList({ rows, selectedKey, onSelect, activeSid, openGroups, toggleGroup, onShowContext }) {
   const [hoveredKey, setHoveredKey] = useState(null);
   const idx = useMemo(() => buildRowIndex(rows), [rows]);
   const activeRels = useMemo(() => correlatedKeys(rows, selectedKey, idx), [rows, selectedKey, idx]);
@@ -317,7 +376,10 @@ function EventList({ rows, selectedKey, onSelect, activeSid, openGroups, toggleG
   const rowProps = { selectedKey, hoveredKey, activeRels, hoverRels, onSelect, onHover, onLeave };
   return (
     <div className="obs-mid">
-      <div className="obs-panel-head">事件时间线{activeSid ? ` · ${activeSid.slice(0, 6)}` : ""}</div>
+      <div className="obs-panel-head">
+        <span>事件时间线{activeSid ? ` · ${activeSid.slice(0, 6)}` : ""}</span>
+        <button className="obs-ctx-btn" onClick={onShowContext} disabled={!activeSid} title="把该会话的完整上下文展示在右侧面板">完整上下文</button>
+      </div>
       <div className="obs-mid-scroll">
         {rows.map((r) => {
           if (r.kind === "group") {
@@ -343,8 +405,24 @@ function EventList({ rows, selectedKey, onSelect, activeSid, openGroups, toggleG
   );
 }
 
-function Detail({ row, width }) {
+function Detail({ row, width, ctx }) {
   const wstyle = width ? { width: width + "px", flex: "none" } : undefined;
+  // 完整上下文视图：点中间面板头部的「完整上下文」按钮进入（ctx 非空）
+  if (ctx && ctx.length) {
+    return (
+      <div className="obs-detail" style={wstyle}>
+        <div className="obs-panel-head"><span>完整上下文</span><span className="obs-ctx-cnt">{ctx.length} 条</span></div>
+        <div className="obs-ctx-scroll">
+          {ctx.map((c, i) => (
+            <div key={i} className={"obs-ctx-block " + c.role}>
+              <div className="obs-ctx-title">{c.title}</div>
+              {c.text ? <pre className="obs-ctx-text">{c.text}</pre> : null}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
   if (!row) return <div className="obs-detail" style={wstyle}><div className="obs-detail-empty">← 点击中间列表的事件查看详情</div></div>;
   const isStream = row.kind === "stream";
   const meta = isStream
@@ -381,6 +459,7 @@ function Observe() {
   const [openGroups, setOpenGroups] = useState(new Set()); // 子 agent 折叠分组（默认折叠成一个条目）
   const [sideWidth, setSideWidth] = useState(250); // 左面板宽度（可拖拽）
   const [detailWidth, setDetailWidth] = useState(340); // 右面板宽度（可拖拽）
+  const [showCtx, setShowCtx] = useState(false); // 中间面板头部「完整上下文」按钮 → 右侧展示完整上下文
 
   // 与主页面一致的宽度调整器：拖拽更新面板宽度，拖动中禁用文本选择
   const startResize = (which) => (e) => {
@@ -407,6 +486,7 @@ function Observe() {
   const selectSession = (sid) => {
     setActiveSid(sid);
     setSelectedKey(null);
+    setShowCtx(false);
     setViewedAt((m) => ({ ...m, [sid]: Date.now() })); // 查看即视为最近交互
     api.get(`/api/sessions/${sid}/events`).then((evs) => setEvents(evs || []));
   };
@@ -430,14 +510,17 @@ function Observe() {
 
   const rows = useMemo(() => buildRows(events), [events]);
   const selectedRow = findRow(rows, selectedKey);
+  // 「完整上下文」视图：由事件流重建的对话上下文（含 system prompt / 对话 / 工具调用）
+  const ctx = useMemo(() => (showCtx ? buildContext(events) : null), [showCtx, events]);
+  const selectEvent = (k) => { setSelectedKey(k); setShowCtx(false); }; // 点击事件行回到事件详情
 
   return (
     <div className="obs">
       <Sidebar workspaces={sortedWorkspaces} activeSid={activeSid} onSelect={selectSession} openWs={openWs} toggleWs={toggleWs} onCollapseAll={collapseAll} width={sideWidth} />
       <div className="obs-resizer" onMouseDown={startResize("side")} title="拖动调整面板宽度"><div className="grip"><span></span><span></span><span></span></div></div>
-      <EventList rows={rows} selectedKey={selectedKey} onSelect={setSelectedKey} activeSid={activeSid} openGroups={openGroups} toggleGroup={toggleGroup} />
+      <EventList rows={rows} selectedKey={selectedKey} onSelect={selectEvent} activeSid={activeSid} openGroups={openGroups} toggleGroup={toggleGroup} onShowContext={() => setShowCtx(true)} />
       <div className="obs-resizer" onMouseDown={startResize("detail")} title="拖动调整面板宽度"><div className="grip"><span></span><span></span><span></span></div></div>
-      <Detail row={selectedRow} width={detailWidth} />
+      <Detail row={selectedRow} width={detailWidth} ctx={ctx} />
     </div>
   );
 }
