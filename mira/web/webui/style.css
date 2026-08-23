@@ -330,8 +330,8 @@ body.dragging{user-select:none;-webkit-user-select:none;cursor:col-resize;}
 .ws .caret.open{transform:rotate(90deg);}
 .ws .f{color:var(--text-dim);display:grid;place-items:center;flex-shrink:0;}
 .ws .nm{font-size:13px;font-weight:600;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.ws .cnt{font-size:11px;color:var(--text-dim);background:var(--hover);border-radius:999px;padding:1px 7px;flex-shrink:0;}
-.ws-actions{margin-left:auto;display:flex;align-items:center;gap:1px;opacity:0;transition:opacity .12s;flex-shrink:0;}
+.ws .cnt{font-size:11px;color:var(--text-dim);background:var(--hover);border-radius:999px;padding:1px 7px;margin-left:auto;flex-shrink:0;}
+.ws-actions{margin-left:0;display:flex;align-items:center;gap:1px;opacity:0;transition:opacity .12s;flex-shrink:0;margin-right:2px;}
 .ws:hover .ws-actions,.ws-actions:has(.act.more.open){opacity:1;}
 .act{position:relative;display:inline-grid;place-items:center;border:none;background:transparent;cursor:pointer;color:var(--text-dim);padding:4px;border-radius:6px;}
 .act:hover{color:var(--text);background:var(--hover);}
