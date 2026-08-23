@@ -694,8 +694,8 @@ function WsPicker({ workspaces, workspace, setWorkspace }) {
 function NewSessionView({ workspaces, input, setInput, workspace, setWorkspace, sendKey, running, onStop, agents, agent, setAgent, models, model, setModel, effort, setEffort, approvalMode, setApprovalMode, collapsed, onExpand, onSubmit, modelInfo, attachments, onRemoveAttachment, onOpenFiles }) {
   return (
     <div className="new-session">
+      {collapsed && <button className="expand-btn icon-btn" onClick={onExpand} title="展开侧边栏"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>}
       <div className="ns-inner">
-        {collapsed && <button className="expand-btn icon-btn" onClick={onExpand} title="展开侧边栏"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>}
         <div className="ns-logo">M</div>
         <AttachChips attachments={attachments} onRemove={onRemoveAttachment} />
         <div className="inputbox">

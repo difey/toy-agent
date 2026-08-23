@@ -142,7 +142,8 @@ body{
 .hint{margin-top:6px;font-size:11px;color:var(--text-dim);text-align:center;}
 
 /* 新建会话空态 */
-.new-session{flex:1;display:flex;align-items:center;justify-content:center;padding:24px 20px;}
+.new-session{position:relative;flex:1;display:flex;align-items:center;justify-content:center;padding:24px 20px;}
+.new-session > .expand-btn{position:absolute;top:14px;left:14px;z-index:2;}
 .ns-inner{width:100%;max-width:680px;}
 .ns-logo{width:54px;height:54px;border-radius:16px;background:linear-gradient(135deg,var(--accent),var(--purple));display:grid;place-items:center;font-size:24px;font-weight:700;color:#fff;margin:0 auto 26px;}
 .ns-extras{display:flex;justify-content:center;margin-top:12px;gap:8px;flex-wrap:wrap;}
