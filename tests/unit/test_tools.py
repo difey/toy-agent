@@ -48,6 +48,41 @@ def test_file_write_read_edit(tmp_path):
     assert (tmp_path / "a/b.txt").read_text().startswith("CHANGED")
 
 
+def test_file_read_line_limit_and_start(tmp_path):
+    """file_read：默认最多 1000 行（超出加略过说明），start 指定起始行、limit 限制行数。"""
+    tool = ToolRegistry.with_builtins().get("file_read")
+    big = tmp_path / "big.txt"
+    big.write_text("".join(f"line{i}\n" for i in range(1, 1501)), encoding="utf-8")
+
+    # 默认：只读前 1000 行，末尾加略过说明
+    r = tool.run(_ctx(tmp_path), path="big.txt")
+    assert r.ok
+    assert "line1" in r.output and "line1000" in r.output
+    assert "line1001" not in r.output
+    assert "后面共 500 行被略过" in r.output
+    assert r.truncated
+
+    # start：从第 1001 行开始读（配合行上限覆盖剩余部分）
+    r2 = tool.run(_ctx(tmp_path), path="big.txt", start=1001)
+    assert r2.ok and "line1001" in r2.output and "line1500" in r2.output
+    assert "line1000" not in r2.output
+    assert "被略过" not in r2.output
+
+    # limit：限制读取行数
+    r3 = tool.run(_ctx(tmp_path), path="big.txt", start=1, limit=5)
+    assert r3.ok and "line5" in r3.output and "line6" not in r3.output
+
+    # start 超出文件总行数
+    r4 = tool.run(_ctx(tmp_path), path="big.txt", start=9999)
+    assert not r4.ok and "超出文件总行数" in r4.error
+
+    # 小文件不受影响
+    small = tmp_path / "small.txt"
+    small.write_text("a\nb\nc", encoding="utf-8")
+    r5 = tool.run(_ctx(tmp_path), path="small.txt")
+    assert r5.ok and "被略过" not in r5.output and not r5.truncated
+
+
 def test_file_edit_anchor_missing(tmp_path):
     (tmp_path / "x.txt").write_text("hello", encoding="utf-8")
     tool = ToolRegistry.with_builtins().get("file_edit")

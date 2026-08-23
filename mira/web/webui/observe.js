@@ -255,43 +255,37 @@ function correlatedKeys(rows, key, idx) {
   return out;
 }
 
-// 事件 → 完整上下文（system prompt + 对话 + 工具调用/结果，按角色分块，供右侧面板展示）
+// 事件 → 主 agent 完整上下文（system prompt + 对话 + 工具调用/结果，按角色分块）
+// 只展示主 agent 的上下文：子 agent 子树（agent.spawn → agent.join 之间）与
+// 辅助 one_shot 调用（approver 决策 / 标题生成）都不进入视图。
 function buildContext(events) {
   const parts = [];
-  let subAgent = null; // 当前子 agent id（agent.spawn 进入 / agent.join 退出）
+  let inSub = false; // 子 agent 子树期间跳过（spawn 进入 / join 退出）
   for (const ev of events) {
     const p = ev.payload || {};
-    const tag = subAgent ? `子 agent · ${subAgent}` : "";
+    if (ev.type === "agent.spawn") { inSub = true; continue; }
+    if (ev.type === "agent.join") { inSub = false; continue; }
+    if (inSub) continue; // 子 agent 内部事件不进入主 agent 上下文
     switch (ev.type) {
       case "session.system_prompt":
         parts.push({ role: "system", title: "SYSTEM PROMPT", text: p.prompt || "" });
         break;
       case "user.message":
-        parts.push({ role: "user", title: tag || "USER", text: p.content || "" });
+        parts.push({ role: "user", title: "USER", text: p.content || "" });
         break;
-      case "agent.spawn":
-        subAgent = p.agent_id || "sub";
-        parts.push({ role: "sub", title: `▸ 子 agent · ${subAgent} 开始`, text: "" });
-        break;
-      case "agent.join":
-        if (subAgent) parts.push({ role: "sub", title: `◂ 子 agent · ${subAgent} 结束`, text: p.status || "" });
-        subAgent = null;
-        break;
-      case "task.dispatch":
-        parts.push({ role: "sub", title: `分派 → ${p.target_agent}`, text: p.goal || "" });
-        break;
-      case "llm.response": {
-        let text = "";
-        if (p.reasoning_content) text += `[推理] ${p.reasoning_content}\n\n`;
-        text += p.content || "";
-        const tc = p.tool_calls || [];
-        if (tc.length) {
-          text += "\n→ tool_calls: " + tc.map((t) => `${(t.function && t.function.name) || "?"}(${String((t.function && t.function.arguments) || "")})`).join(" | ");
+      case "llm.response":
+        if (p.task === "one_shot") continue; // 辅助调用（approver/标题）不属对话上下文
+        {
+          let text = "";
+          if (p.reasoning_content) text += `[推理] ${p.reasoning_content}\n\n`;
+          text += p.content || "";
+          const tc = p.tool_calls || [];
+          if (tc.length) {
+            text += "\n→ tool_calls: " + tc.map((t) => `${(t.function && t.function.name) || "?"}(${String((t.function && t.function.arguments) || "")})`).join(" | ");
+          }
+          parts.push({ role: "assistant", title: `ASSISTANT (step ${p.step ?? "-"})`, text });
         }
-        const who = p.task === "one_shot" ? (tag || "辅助 one_shot") : (tag || "ASSISTANT");
-        parts.push({ role: p.task === "one_shot" ? "one" : (subAgent ? "sub" : "assistant"), title: `${who} (step ${p.step ?? "-"})`, text });
         break;
-      }
       case "tool.call":
         parts.push({ role: "tool", title: `TOOL CALL · ${p.name}`, text: JSON.stringify(p.arguments || {}, null, 2) });
         break;
@@ -302,7 +296,7 @@ function buildContext(events) {
         parts.push({ role: "tool", title: `TOOL ERROR · ${p.name}`, text: p.error || "" });
         break;
       case "agent.message":
-        if (!subAgent) parts.push({ role: "assistant", title: "ASSISTANT（最终）", text: p.content || "" });
+        parts.push({ role: "assistant", title: "ASSISTANT（最终）", text: p.content || "" });
         break;
       default:
         break;

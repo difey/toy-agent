@@ -10,16 +10,18 @@ from mira.core.tools.base import Tool, ToolContext, ToolResult, truncate_output
 
 class FileReadTool(Tool):
     name = "file_read"
-    description = "读取文件内容（相对 workspace 路径），可指定行范围"
+    description = "读取文件内容（相对 workspace 路径），每次最多 1000 行；可用 start 指定起始行、limit 限制行数"
     params_schema = {
         "type": "object",
         "properties": {
             "path": {"type": "string", "description": "文件路径（相对 workspace）"},
-            "offset": {"type": "integer", "description": "起始行（1 起，默认全部）"},
-            "limit": {"type": "integer", "description": "最多读取行数"},
+            "start": {"type": "integer", "description": "从第几行开始读取（1 起，默认 1）"},
+            "limit": {"type": "integer", "description": "最多读取行数（默认 1000，上限 1000）"},
         },
         "required": ["path"],
     }
+
+    MAX_LINES = 1000  # 单次读取行数硬上限
 
     def run(self, ctx: ToolContext, **args: Any) -> ToolResult:
         path = ctx.resolve(args["path"])
@@ -31,17 +33,35 @@ class FileReadTool(Tool):
         except Exception as exc:  # noqa: BLE001
             return ToolResult(ok=False, error=f"读取失败: {exc}", duration_ms=0.0)
 
-        offset = int(args.get("offset") or 1)
-        limit = int(args.get("limit") or 0)
+        # start：从第几行开始读取（1 起，默认 1）；offset 为旧参数兼容别名
+        start = int(args.get("start") or args.get("offset") or 1)
+        if start < 1:
+            start = 1
+        limit = int(args.get("limit") or self.MAX_LINES)
+        if limit < 1:
+            limit = self.MAX_LINES
+        limit = min(limit, self.MAX_LINES)  # 硬上限：单次最多 1000 行
+
         lines = text.splitlines(keepends=True)
-        if offset > 1 or limit:
-            lines = lines[offset - 1 : offset - 1 + limit] if limit else lines[offset - 1 :]
-        truncated, output = truncate_output("".join(lines))
+        total = len(lines)
+        if start > total:
+            return ToolResult(
+                ok=False,
+                error=f"start={start} 超出文件总行数（共 {total} 行）",
+                duration_ms=round((time.perf_counter() - t0) * 1000, 1),
+            )
+        end = min(start - 1 + limit, total)
+        chunk = lines[start - 1 : end]
+        skipped = total - end  # 因 1000 行上限被略过的剩余行数
+        chunk_truncated, chunk_text = truncate_output("".join(chunk))
+        note = ""
+        if skipped > 0:
+            note = f"\n… 后面共 {skipped} 行被略过（最多显示 {self.MAX_LINES} 行；可用 start 从其它位置继续读取）"
         return ToolResult(
             ok=True,
-            output=output,
+            output=chunk_text + note,
             duration_ms=round((time.perf_counter() - t0) * 1000, 1),
-            truncated=truncated,
+            truncated=chunk_truncated or skipped > 0,
         )
 
 
