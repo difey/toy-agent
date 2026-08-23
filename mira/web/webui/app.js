@@ -609,6 +609,11 @@ function ChatView({ session, title, live, events, input, setInput, send, sendKey
       <div className="chat-title">
         {collapsed && <button className="expand-btn icon-btn" onClick={onExpand} title="展开侧边栏"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>}
         <span>{title}</span>
+        {session && session.workspace && (
+          <button className="chat-ws" title="点击复制 workspace 路径" onClick={() => copyText(session.workspace)}>
+            {session.workspace}
+          </button>
+        )}
       </div>
       <div className="messages" ref={msgsRef} onScroll={onMessagesScroll}>
         {blocks.map((b, i) => <Block key={i} b={b} onFork={onFork} />)}
