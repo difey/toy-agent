@@ -10,6 +10,7 @@ from mira.core.tools.builtin.glob_tool import GlobTool
 from mira.core.tools.builtin.project_memory import ProjectMemoryTool
 from mira.core.tools.builtin.search import GrepTool
 from mira.core.tools.builtin.shell import ShellTool
+from mira.core.tools.builtin.skill import SkillTool
 from mira.core.tools.builtin.todowrite import TodoWriteTool
 from mira.core.tools.builtin.webfetch import WebFetchTool
 from mira.core.tools.builtin.websearch import WebSearchTool
@@ -61,5 +62,6 @@ class ToolRegistry:
                 WebFetchTool(),
                 WebSearchTool(),
                 AttachImageTool(),
+                SkillTool(),
             ]
         )

@@ -22,6 +22,7 @@ from mira.core.config.schemas import (
     RuntimeConfig,
     SkillConfig,
 )
+from mira.core.skills.loader import scan_skill_dir
 from mira.paths import global_config_dir
 
 
@@ -163,5 +164,19 @@ class ConfigStore:
         return {s.id: s for s in (MCPServerConfig.model_validate(x) for x in servers)}
 
     def skills(self) -> dict[str, SkillConfig]:
-        data = self._merged_file("skills.toml")
-        return {s.id: s for s in (SkillConfig.model_validate(x) for x in data.get("skills", []))}
+        """跨层扫描 configs/skills/ 下的标准 SKILL.md（目录形式 <id>/SKILL.md 或平面 <id>.md）。"""
+        merged: dict[str, SkillConfig] = {}
+        for layer in self._layers():
+            for skill in scan_skill_dir(layer / "skills").values():
+                merged[skill.id] = SkillConfig(
+                    id=skill.id,
+                    name=skill.name,
+                    description=skill.description,
+                    prompt=skill.prompt,
+                    tools=skill.tools or [],
+                )
+        return merged
+
+    def skills_raw(self) -> list[dict[str, Any]]:
+        """技能原始字典列表（配置中心展示 / 写回用）。"""
+        return [s.model_dump() for s in self.skills().values()]

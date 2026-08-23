@@ -48,7 +48,7 @@ def build_context(
 ) -> tuple[list[ChatMessage], list[dict]]:
     """返回 (messages, tool_specs)。
 
-    - system prompt（含技能指令）置于首位；
+    - system prompt（含技能索引 [可用技能]，全文按需经 skill 工具获取）置于首位；
     - 历史按 token 预算从新到旧截断（保留系统提示与最近消息）；
     - 工具描述只包含启用且已注册的工具；`tool_names` 覆盖默认的 agent 工具集
       （P3：用于并入 MCP 等额外工具）。

@@ -3,7 +3,7 @@
 所有运行数据统一收口到 ~/.mira-code/（可用环境变量 MIRA_HOME 重定向，便于测试隔离）：
 
     ~/.mira-code/
-    ├── configs/                        # 全局配置文件（根目录级：mira/providers/mcp/skills.toml + agents/）
+    ├── configs/                        # 全局配置文件（根目录级：mira/providers/mcp.toml + skills/ + agents/）
     └── workspaces/                     # workspace 层
         └── <文件夹名>_<全路径哈希>/       #   每个 workspace（如 workspace_123hxs1）
             ├── sessions/               #   session 层
@@ -30,6 +30,21 @@ def mira_home() -> Path:
 def global_config_dir() -> Path:
     """全局配置文件目录（位于数据根目录的顶层）。"""
     return mira_home() / "configs"
+
+
+def agents_skills_dir() -> Path:
+    """~/.agents/skills/（用户级通用技能，真实 OS home 下、跨工具共享，不受 MIRA_HOME 影响）。"""
+    return Path.home() / ".agents" / "skills"
+
+
+def mira_skills_dir() -> Path:
+    """~/.mira-code/skills/（mira 用户级技能，随 MIRA_HOME 重定向）。"""
+    return mira_home() / "skills"
+
+
+def workspace_skills_dir(workspace: str | Path) -> Path:
+    """工作目录下的 .skills/ 文件夹（项目级技能）。"""
+    return Path(workspace) / ".skills"
 
 
 def workspaces_dir() -> Path:

@@ -103,7 +103,7 @@ mira -m deepseek/deepseek-chat -p "你好"
 | `mira.toml` | 运行时：遥测、审批模式、会话并发上限、默认 agent / 模型 |
 | `providers.toml` | LLM 供应商 |
 | `agents/*.toml` | 主 / 子 Agent：system prompt、tools、skills、mcp、权限规则 |
-| `skills.toml` | 技能定义 |
+| `skills/` | 技能定义（标准 SKILL.md 目录，可直接复制生效） |
 | `mcp.toml` | MCP 服务（stdio / http） |
 
 ### 常用环境变量

@@ -123,7 +123,7 @@ def test_shell_default_timeout():
     assert set(ToolRegistry.with_builtins().names()) == {
         "shell", "file_read", "file_write", "file_edit", "search_grep",
         "glob", "todowrite", "apply_patch", "project_memory", "web_fetch", "web_search",
-        "attach_image",
+        "attach_image", "skill",
     }
 
 

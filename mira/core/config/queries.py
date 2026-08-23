@@ -52,6 +52,9 @@ def get_config(store: ConfigStore) -> dict[str, Any]:
             "data": store.raw_config("providers.toml"),
         },
         "mcp": {"src": "configs/mcp.toml", "data": store.raw_config("mcp.toml")},
-        "skills": {"src": "configs/skills.toml", "data": store.raw_config("skills.toml")},
+        "skills": {
+            "src": "configs/skills/*/SKILL.md",
+            "data": {"skills": store.skills_raw()},
+        },
         "agents": {"src": "configs/agents/*.toml", "data": {"agents": store.raw_agents()}},
     }

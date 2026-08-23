@@ -57,7 +57,7 @@ def test_api_tools_lists_registered_builtins(tmp_path):
     # 核心内建工具
     for t in ["shell", "file_read", "file_write", "file_edit", "search_grep",
               "glob", "todowrite", "apply_patch", "project_memory", "web_fetch",
-              "web_search", "attach_image"]:
+              "web_search", "attach_image", "skill"]:
         assert t in tools
     # dispatch_task 由 session runtime 动态注册，但须出现在配置中心候选
     assert "dispatch_task" in tools

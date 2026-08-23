@@ -99,7 +99,8 @@ mira-code/
 ```text
 ~/.mira-code/
 ├── configs/                        # 全局配置文件（根目录级）
-│   ├── mira.toml / providers.toml / mcp.toml / skills.toml
+│   ├── mira.toml / providers.toml / mcp.toml
+│   ├── skills/                        # 技能定义（标准 SKILL.md 目录：<id>/SKILL.md）
 │   └── agents/*.toml
 └── workspaces/                     # workspace 层
     └── <文件夹名>_<全路径哈希>/       #   每个 workspace（如 workspace_123hxs1）

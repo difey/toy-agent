@@ -1104,7 +1104,7 @@ function SkillsPane({ data, agents, onChange, save, tools }) {
   const usedBy = (id) => agents.filter((a) => (a.skills?.enabled || []).includes(id)).map((a) => a.id).join(", ") || "—";
   return (
     <>
-      <div className="src-row">来源 <span className="file">configs/skills.toml</span><span className="src-state">● 已同步</span></div>
+      <div className="src-row">来源 <span className="file">configs/skills/*/SKILL.md</span><span className="src-state">● 已同步</span></div>
       <ConfigList items={items} addLabel="新增 Skill" onAdd={addItem} save={save}
         renderRow={(s) => (
           <>

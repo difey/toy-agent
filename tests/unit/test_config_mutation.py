@@ -120,6 +120,42 @@ def test_get_models_filtered_by_provider():
     assert ids == {"mock-model"}
 
 
+def test_skills_come_from_standard_skill_md_dirs():
+    """技能定义来自 configs/skills/ 标准 SKILL.md（目录形式），非 toml。"""
+    store = _store()
+    skills = store.skills()
+    assert "planning" in skills and "code-exploration" in skills
+    assert skills["planning"].prompt.startswith("请先制定分步计划再执行")
+    assert "现状总结" in skills["code-exploration"].prompt
+    # tools 从 frontmatter 解析
+    assert "file_read" in skills["planning"].tools
+    assert "git_log" in skills["code-exploration"].tools
+
+
+def test_update_skills_writes_standard_skill_md():
+    """配置中心编辑技能写回为 configs/skills/<id>/SKILL.md（标准格式，可直接复制）。"""
+    store = _store()
+    items = [{
+        "id": "review",
+        "name": "代码审查",
+        "description": "review changes",
+        "prompt": "逐文件审查，输出问题清单",
+        "tools": ["file_read", "grep_search"],
+    }]
+    mutation.update_config(store, "skills", {"skills": items})
+    f = store.global_dir / "skills" / "review" / "SKILL.md"
+    assert f.exists()
+    text = f.read_text(encoding="utf-8")
+    assert text.startswith("---\n")
+    assert "name: review" in text
+    assert "type: prompt" in text
+    assert "tools:" in text and "- file_read" in text
+    assert "逐文件审查" in text
+    # 重读生效
+    after = queries.get_config(store)["skills"]["data"]["skills"]
+    assert any(s["id"] == "review" for s in after)
+
+
 def test_provider_plaintext_api_key_writeback():
     store = _store()
     cfg = queries.get_config(store)

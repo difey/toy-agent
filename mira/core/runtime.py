@@ -294,6 +294,10 @@ class AgentRuntime:
         """attach_image 工具回调：把图片路径加入待注入队列，下一轮请求前作为多模态消息发送。"""
         self._pending_images.append(path)
 
+    def _lookup_skill(self, name: str):
+        """skill 工具回调：从当前 runtime 的技能注册表取技能全文（含 workspace/.skills 叠加）。"""
+        return self.skills.get(name) if self.skills else None
+
     # ── 工具执行 ─────────────────────────────────────────────
 
     def _execute_tools(
@@ -374,6 +378,7 @@ class AgentRuntime:
                                 "model": model,
                                 "effort": effort,
                                 "attach_image": self._attach_image,
+                                "skill_lookup": self._lookup_skill,
                             },
                         ),
                         **args,

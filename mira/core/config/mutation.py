@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import shutil
 from typing import Any
 
 import tomli_w
@@ -75,7 +76,25 @@ def _update_skills(store: ConfigStore, data: dict[str, Any]) -> None:
     items = data.get("skills", [])
     for it in items:
         SkillConfig.model_validate(it)
-    _write_file(store, "skills.toml", {"skills": items})
+    # 整组重写为标准 SKILL.md 目录（configs/skills/<id>/SKILL.md），可直接复制生效
+    skills_dir = store.global_dir / "skills"
+    if skills_dir.exists():
+        for child in skills_dir.iterdir():
+            if child.is_dir():
+                shutil.rmtree(child)
+            else:
+                child.unlink()
+    for it in items:
+        sid = it.get("id") or "skill"
+        d = skills_dir / sid
+        d.mkdir(parents=True, exist_ok=True)
+        fm = [f"name: {sid}", f"description: {it.get('description', '')}", "type: prompt"]
+        tools = it.get("tools") or []
+        if tools:
+            fm.append("tools:")
+            fm.extend(f"- {t}" for t in tools)
+        text = "---\n" + "\n".join(fm) + "\n---\n\n" + (it.get("prompt") or "")
+        (d / "SKILL.md").write_text(text, encoding="utf-8")
 
 
 def _update_agents(store: ConfigStore, data: dict[str, Any]) -> None:

@@ -15,6 +15,8 @@ from mira.core.providers.base import ChatMessage, ChatRole
 from mira.core.providers.mock import MockProvider
 from mira.core.providers.router import ProviderRouter
 from mira.core.runtime import AgentRuntime
+from mira.core.skills.base import Skill
+from mira.core.skills.registry import SkillRegistry
 from mira.core.tools.permission import PermissionChecker
 from mira.core.tools.registry import ToolRegistry
 from mira.telemetry.events import EventType
@@ -94,6 +96,49 @@ def test_runtime_writes_file_via_tool(tmp_path):
     assert tr.payload.get("call_id") == "c1"
     # 事件落盘（session 文件夹 + session_id.jsonl）
     assert (tmp_path / "sessions" / "sess_1" / "session_id.jsonl").exists()
+
+
+def test_runtime_skill_tool_returns_full_text(tmp_path):
+    """skill 工具：runtime 的 skill_lookup 钩子把技能全文作为 tool result 返回给 LLM。"""
+    skills = SkillRegistry().register(
+        Skill(id="planning", name="planning", description="计划", prompt="请先制定分步计划再执行。")
+    )
+    tracer = EventLogTracer(EventStore(tmp_path / "sessions"))
+    agent = AgentConfig(
+        id="main",
+        role=AgentRole.MAIN,
+        system_prompt="你是助手。",
+        model="mock/mock-model",
+        tools=AgentToolsConfig(enabled=["skill"]),
+    )
+    router = ProviderRouter(
+        [
+            MockProvider(
+                id="mock",
+                reply="已按计划执行",
+                tool_calls=[_tool_call("skill", {"name": "planning"})],
+            )
+        ]
+    )
+    rt = AgentRuntime(
+        agent=BaseAgent(agent),
+        router=router,
+        tools=ToolRegistry.with_builtins(),
+        permissions=PermissionChecker([], mode=ApprovalMode.AUTO),
+        tracer=tracer,
+        workspace=tmp_path,
+        skills=skills,
+        max_steps=5,
+    )
+    reply = rt.run("规划一下", "sess_skill")
+    assert reply == "已按计划执行"
+    events = list(EventStore(tmp_path / "sessions").read("sess_skill"))
+    tr = next(e for e in events if e.type == EventType.TOOL_RESULT)
+    assert "请先制定分步计划再执行" in tr.payload["result"]  # 全文作为 tool result 发给 LLM
+    # skill 工具在 LLM 请求的 tool_specs 中可见
+    req = next(e for e in events if e.type == EventType.LLM_REQUEST)
+    schema_names = [s["function"]["name"] for s in req.payload["tools_schema"]]
+    assert "skill" in schema_names
 
 
 def test_reasoning_content_preserved_in_history(tmp_path):

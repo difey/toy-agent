@@ -39,7 +39,7 @@ mira-code/
 │   ├── providers.toml                #   LLM 供应商定义（type = litellm 前缀，决策 #24）
 │   ├── models-dev.json               #   models.dev 快照（供应商/模型/thinking 目录，决策 #24）
 │   ├── mcp.toml                      #   MCP server 定义（stdio / http，决策 #8a）
-│   ├── skills.toml                   #   技能全局定义
+│   ├── skills/                       #   技能定义（标准 SKILL.md 目录：<id>/SKILL.md）
 │   └── agents/                       #   agent 定义（配置即注册）
 │       ├── main.toml                 #     主 agent（dispatch=auto，可分派子任务）
 │       ├── investigator.toml         #     子 agent：实现调查（只读）

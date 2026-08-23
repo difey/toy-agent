@@ -192,6 +192,9 @@ class TaskDispatcher:
         for t in mcp_tools:
             tools.register(t)
         effective = agent.enabled_tools() + [t.name for t in mcp_tools]
+        # 启用了技能的 agent 自动获得 skill 工具（按需取技能全文，system prompt 只列索引）
+        if agent.enabled_skills() and "skill" not in effective:
+            effective.append("skill")
         permissions = PermissionChecker(
             agent.config.permission.rules, mode=self.store.runtime().approval.mode
         )

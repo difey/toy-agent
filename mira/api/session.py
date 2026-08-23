@@ -30,7 +30,7 @@ from mira.core.mcp.manager import McpManager
 from mira.core.orchestration import TaskDispatcher
 from mira.core.providers.router import ProviderRouter
 from mira.core.runtime import AgentRuntime
-from mira.core.skills.loader import SkillLoader
+from mira.core.skills.loader import SkillLoader, scan_skill_dir
 from mira.core.skills.registry import SkillRegistry
 from mira.core.tools.permission import PermissionChecker
 from mira.core.tools.registry import ToolRegistry
@@ -59,7 +59,10 @@ class SessionManager:
     ) -> None:
         self.store = store or ConfigStore()
         self._router = router
-        self._skills = SkillLoader.from_configs(self.store.skills())
+        self._skills = SkillLoader.build(
+            self.store.skills(),
+            [paths.agents_skills_dir(), paths.mira_skills_dir()],
+        )
         self._agents = AgentRegistry.from_store(self.store, self._skills)
         self._sessions: dict[str, Session] = {}
         self._runtimes: dict[str, AgentRuntime] = {}
@@ -499,6 +502,15 @@ class SessionManager:
 
         return decide
 
+    def _skills_for_workspace(self, workspace: str | Path) -> SkillRegistry:
+        """全局技能 + 该工作目录下 .skills/ 的项目级技能（项目级覆盖同名）。"""
+        ws = scan_skill_dir(paths.workspace_skills_dir(workspace))
+        if not ws:
+            return self._skills
+        merged = {s.id: s for s in self._skills.list()}
+        merged.update(ws)
+        return SkillRegistry().register_many(list(merged.values()))
+
     def _build_runtime(
         self,
         session: Session,
@@ -526,16 +538,20 @@ class SessionManager:
             for t in mcp_tools:
                 tools.register(t)
             effective = agent.enabled_tools() + [t.name for t in mcp_tools]
+            # 启用了技能的 agent 自动获得 skill 工具（按需取技能全文，system prompt 只列索引）
+            if agent.enabled_skills() and "skill" not in effective:
+                effective.append("skill")
             permissions = PermissionChecker(
                 agent.config.permission.rules, mode=self.store.runtime().approval.mode
             )
             router = self._router or ProviderRouter.from_configs(self.store.providers())
             auto_approver = self._build_auto_approver(session)
+            skills = self._skills_for_workspace(session.workspace)
             dispatcher = TaskDispatcher(
                 store=self.store,
                 agents=self._agents,
                 router=router,
-                skills=self._skills,
+                skills=skills,
                 tracer=self._tracers[session.id],
                 workspace=session.workspace,
                 approvals=self._approvals[session.id],
@@ -549,7 +565,7 @@ class SessionManager:
                 permissions=permissions,
                 tracer=self._tracers[session.id],
                 workspace=session.workspace,
-                skills=self._skills,
+                skills=skills,
                 token_budget=agent.config.token_budget,
                 approvals=self._approvals[session.id],
                 auto_approver=auto_approver,
@@ -635,7 +651,10 @@ class SessionManager:
 
         活跃会话保持各自的 runtime（继续用旧配置运行）；新建会话使用新配置。
         """
-        self._skills = SkillLoader.from_configs(self.store.skills())
+        self._skills = SkillLoader.build(
+            self.store.skills(),
+            [paths.agents_skills_dir(), paths.mira_skills_dir()],
+        )
         self._agents = AgentRegistry.from_store(self.store, self._skills)
         self._quota = SessionQuota(self.store.runtime().session.max_concurrent_sessions)
 
