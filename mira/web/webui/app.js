@@ -882,8 +882,8 @@ function GeneralPane({ data, agents, models, onChange }) {
           <Field fn="默认模型" fd="新建会话默认使用的模型（格式 {provider}/{model}，含 thinking 能力标注）">
             <select value={s.default_model || ""} onChange={(e) => set("session", "default_model", e.target.value)}>
               <option value="">（空）</option>
-              {(models.length ? models : []).map((m) => (
-                <option key={m.spec} value={m.spec}>{m.spec}{m.supports_thinking ? " · 思考" : ""}</option>
+              {(models.length ? models : []).map((spec) => (
+                <option key={spec} value={spec}>{spec}</option>
               ))}
             </select>
           </Field>
