@@ -11,7 +11,7 @@ token_budget = 120_000
 dispatch = "auto"                     # 允许自动分派子任务
 
 [agents.tools]
-enabled = ["dispatch_task", "shell", "file_read", "file_write", "file_edit", "search_grep", "glob", "todowrite", "apply_patch", "web_fetch", "web_search", "project_memory"]
+enabled = ["ask_question", "dispatch_task", "shell", "file_read", "file_write", "file_edit", "search_grep", "glob", "todowrite", "apply_patch", "web_fetch", "web_search", "project_memory"]
 
 [agents.skills]
 enabled = ["planning"]

@@ -247,6 +247,7 @@ function groupEvents(events) {
         }
       }
     } else if (t === "approval.requested") cur.push({ kind: "approval", name: p.tool, args: p.arguments });
+    else if (t === "question.requested") cur.push({ kind: "question", text: p.question, options: p.options || [], index: p.index, total: p.total });
     else if (t === "error.raised") cur.push({ kind: "error", message: p.message });
   }
   return blocks;
@@ -337,6 +338,10 @@ function Block({ b, onFork }) {
       }
     } catch (e) { detail = ""; }
     return <div className="approval-line">⏸ 审批请求：{b.name}{detail ? ` · ${detail}` : ""}</div>;
+  }
+  if (b.kind === "question") {
+    const prog = (b.total || 0) > 1 ? `（${b.index}/${b.total}）` : "";
+    return <div className="approval-line">Agent 需要确认{prog}：{b.text}</div>;
   }
   if (b.kind === "error") return <div className="error-line">错误: {b.message}</div>;
   return null;
@@ -743,6 +748,37 @@ function ApprovalDialog({ req, onResolve }) {
           <button className="btn" onClick={() => onResolve("deny")}>拒绝</button>
           <button className="btn" onClick={() => onResolve("always")}>总是允许</button>
           <button className="btn primary" onClick={() => onResolve("allow")}>允许</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function QuestionDialog({ q, onAnswer }) {
+  const [text, setText] = useState("");
+  const submit = () => { const v = text.trim(); if (v) onAnswer(v); };
+  const many = (q.total || 0) > 1;
+  return (
+    <div className="modal-mask">
+      <div className="modal">
+        <h3>Agent 需要确认{many ? <span className="q-progress">{q.index}/{q.total}</span> : null}</h3>
+        <div className="q-text">{q.question}</div>
+        {(q.options || []).length > 0 && (
+          <div className="q-options">
+            {(q.options || []).map((o, i) => (
+              <button key={i} className="chip q-opt" onClick={() => onAnswer(o)} title="点选此项">{o}</button>
+            ))}
+          </div>
+        )}
+        <div className="q-input">
+          <input
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder={((q.options || []).length ? "点选上方选项，或" : "") + "输入你的回答…"}
+            onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+            autoFocus
+          />
+          <button className="btn primary" onClick={submit}>提交回答</button>
         </div>
       </div>
     </div>
@@ -1237,6 +1273,7 @@ function App() {
   const [view, setView] = useState("work");
   const [isNew, setIsNew] = useState(false);
   const [pendingApproval, setPendingApproval] = useState(null);
+  const [pendingQuestion, setPendingQuestion] = useState(null);
   const [agent, setAgent] = useState("main");
   const [workspace, setWorkspace] = useState("");
   const [collapsed, setCollapsed] = useState(false);
@@ -1351,6 +1388,8 @@ function App() {
         }
         if (ev.type === "approval.requested") setPendingApproval(ev.payload);
         if (ev.type === "approval.resolved") setPendingApproval(null);
+        if (ev.type === "question.requested") setPendingQuestion(ev.payload);
+        if (ev.type === "question.answered") setPendingQuestion(null);
         if (ev.type === "session.status" || ev.type === "session.titled") { refreshSessions(); refreshWorkspaces(); }
       };
       ws.onclose = () => {
@@ -1485,6 +1524,12 @@ function App() {
     setPendingApproval(null);
   };
 
+  const answerQuestion = (answer) => {
+    if (!pendingQuestion || !activeSid) return;
+    api.post(`/api/sessions/${activeSid}/questions/${pendingQuestion.request_id}`, { answer });
+    setPendingQuestion(null);
+  };
+
   const activeSession = useMemo(() => {
     if (!activeSid) return null;
     const live = sessions.find((s) => s.id === activeSid);
@@ -1569,6 +1614,7 @@ function App() {
         )}
       </main>
       {pendingApproval && <ApprovalDialog req={pendingApproval} onResolve={resolveApproval} />}
+      {pendingQuestion && <QuestionDialog q={pendingQuestion} onAnswer={answerQuestion} />}
       {filePick && (
         <FilePicker
           workspace={pickWs}

@@ -50,6 +50,9 @@ class EventType(str, Enum):
     # 审批（HITL）
     APPROVAL_REQUESTED = "approval.requested"
     APPROVAL_RESOLVED = "approval.resolved"
+    # 提问（HITL）：agent 需要与用户确认细节
+    QUESTION_REQUESTED = "question.requested"
+    QUESTION_ANSWERED = "question.answered"
     # 错误 / 指标
     ERROR_RAISED = "error.raised"
     METRIC_SNAPSHOT = "metric.snapshot"

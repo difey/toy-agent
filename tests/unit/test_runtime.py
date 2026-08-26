@@ -43,6 +43,7 @@ def _make_runtime(
     mode: ApprovalMode = ApprovalMode.AUTO,
     approvals=None,
     auto_approver=None,
+    questions=None,
 ):
     agent = AgentConfig(
         id="main",
@@ -64,6 +65,7 @@ def _make_runtime(
         max_steps=5,
         approvals=approvals,
         auto_approver=auto_approver,
+        questions=questions,
     )
 
 
@@ -271,6 +273,132 @@ def test_runtime_auto_approver_fallback_to_human(tmp_path):
     th.join(timeout=3)
     assert not th.is_alive()
     assert (tmp_path / "h.txt").read_text() == "h"
+
+
+def test_runtime_ask_question_blocks_then_answer(tmp_path):
+    """ask_question 工具阻塞等待用户作答；作答后答案作为 TOOL 结果回填 LLM。"""
+    import threading
+    import time
+
+    from mira.api.questions import QuestionGate
+
+    tracer = EventLogTracer(EventStore(tmp_path / "sessions"))
+    gate = QuestionGate("sess_1")
+    rt = _make_runtime(
+        tmp_path,
+        tracer,
+        tool_calls=[
+            _tool_call(
+                "ask_question",
+                {"question": "继续吗？", "options": ["是", "否"]},
+            )
+        ],
+        questions=gate,
+    )
+    result: dict = {}
+    th = threading.Thread(
+        target=lambda: result.setdefault("reply", rt.run("确认一下", "sess_1"))
+    )
+    th.start()
+    for _ in range(100):
+        if gate.pending():
+            break
+        time.sleep(0.02)
+    assert gate.pending()
+    assert gate.pending()[0].question == "继续吗？"
+    assert gate.pending()[0].options == ["是", "否"]
+    gate.answer(gate.pending()[0].id, "是")
+    th.join(timeout=3)
+    assert not th.is_alive()
+    types = [e.type for e in EventStore(tmp_path / "sessions").read("sess_1")]
+    assert EventType.QUESTION_REQUESTED in types
+    assert EventType.QUESTION_ANSWERED in types
+    # 答案已作为 TOOL 结果回填到 LLM 历史
+    assert any(
+        m.role == ChatRole.TOOL and "用户回答：是" in m.content for m in rt.history
+    )
+
+
+def test_runtime_ask_question_interrupt_resumes(tmp_path):
+    """提问被中断（如停止会话）后工具返回占位回答，循环可继续收敛。"""
+    import threading
+    import time
+
+    from mira.api.questions import QuestionGate
+
+    tracer = EventLogTracer(EventStore(tmp_path / "sessions"))
+    gate = QuestionGate("sess_1")
+    rt = _make_runtime(
+        tmp_path,
+        tracer,
+        tool_calls=[_tool_call("ask_question", {"question": "需要确认"})],
+        questions=gate,
+    )
+    th = threading.Thread(target=lambda: rt.run("确认一下", "sess_1"))
+    th.start()
+    for _ in range(100):
+        if gate.pending():
+            break
+        time.sleep(0.02)
+    assert gate.pending()
+    gate.interrupt()
+    th.join(timeout=3)
+    assert not th.is_alive()
+    assert any(
+        m.role == ChatRole.TOOL and "用户回答" in m.content for m in rt.history
+    )
+
+
+def test_runtime_ask_question_batch_progress(tmp_path):
+    """同一批多个 ask_question：问题带 1/N 进度（index/total），逐个作答后收敛。"""
+    import threading
+    import time
+
+    from mira.api.questions import QuestionGate
+
+    tracer = EventLogTracer(EventStore(tmp_path / "sessions"))
+    gate = QuestionGate("sess_1")
+    rt = _make_runtime(
+        tmp_path,
+        tracer,
+        tool_calls=[
+            _tool_call("ask_question", {"question": "问题一", "options": ["A", "B"]}, call_id="c1"),
+            _tool_call("ask_question", {"question": "问题二", "options": ["C", "D"]}, call_id="c2"),
+        ],
+        questions=gate,
+    )
+    th = threading.Thread(target=lambda: rt.run("提两个问题", "sess_1"))
+    th.start()
+
+    def _wait_pending():
+        for _ in range(100):
+            if gate.pending():
+                return gate.pending()[0]
+            time.sleep(0.02)
+        raise AssertionError("未出现挂起提问")
+
+    q1 = _wait_pending()
+    assert q1.question == "问题一"
+    assert q1.index == 1 and q1.total == 2
+    gate.answer(q1.id, "A")
+
+    q2 = _wait_pending()
+    assert q2.question == "问题二"
+    assert q2.index == 2 and q2.total == 2
+    gate.answer(q2.id, "C")
+
+    th.join(timeout=3)
+    assert not th.is_alive()
+    # question.requested 事件携带进度
+    reqs = [
+        e
+        for e in EventStore(tmp_path / "sessions").read("sess_1")
+        if e.type == EventType.QUESTION_REQUESTED
+    ]
+    assert [(e.payload.get("index"), e.payload.get("total")) for e in reqs] == [
+        (1, 2),
+        (2, 2),
+    ]
 
 
 def test_runtime_history_accumulates(tmp_path):

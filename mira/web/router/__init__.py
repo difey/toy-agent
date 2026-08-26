@@ -7,10 +7,20 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from mira.web.router import approvals, config, events, fs, sessions, system, tools, workspaces
+from mira.web.router import (
+    approvals,
+    config,
+    events,
+    fs,
+    questions,
+    sessions,
+    system,
+    tools,
+    workspaces,
+)
 
 router = APIRouter()
-for _mod in (system, config, workspaces, sessions, approvals, events, fs, tools):
+for _mod in (system, config, workspaces, sessions, approvals, questions, events, fs, tools):
     router.include_router(_mod.router)
 
 __all__ = ["router"]

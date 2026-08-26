@@ -41,6 +41,10 @@ class ResolveApprovalBody(BaseModel):
     decision: str  # allow | deny | always
 
 
+class AnswerQuestionBody(BaseModel):
+    answer: str = Field(min_length=1)  # 用户回答（预设选项文本或自由输入）
+
+
 class UpdateConfigBody(BaseModel):
     section: str  # general | providers | mcp | skills | agents
     data: dict

@@ -158,7 +158,7 @@ def test_shell_default_timeout():
     assert set(ToolRegistry.with_builtins().names()) == {
         "shell", "file_read", "file_write", "file_edit", "search_grep",
         "glob", "todowrite", "apply_patch", "project_memory", "web_fetch", "web_search",
-        "attach_image", "skill",
+        "attach_image", "skill", "ask_question",
     }
 
 
@@ -304,3 +304,17 @@ def test_attach_image_missing_hook(tmp_path):
     img.write_bytes(b"x")
     r = tool.run(_ctx(tmp_path), path=str(img))  # 无 attach_image 钩子
     assert not r.ok and "钩子" in r.error
+
+
+def test_ask_question_requires_gate():
+    """ask_question：无提问通道时报错（提示在运行时会话中执行）。"""
+    tool = ToolRegistry.with_builtins().get("ask_question")
+    assert tool is not None
+    r = tool.run(ToolContext(), question="继续吗")
+    assert not r.ok and "缺少提问通道" in r.error
+
+
+def test_ask_question_missing_question():
+    tool = ToolRegistry.with_builtins().get("ask_question")
+    r = tool.run(ToolContext(meta={"question_gate": object()}), options=["A"])
+    assert not r.ok and "question" in r.error

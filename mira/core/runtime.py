@@ -14,6 +14,7 @@ from types import SimpleNamespace
 from typing import Any, Callable
 
 from mira.api.approval import ApprovalDecision, ApprovalGate, ApprovalRequest, ApprovalStatus
+from mira.api.questions import QuestionGate
 from mira.core.agents.base import BaseAgent
 from mira.core.context import build_context
 from mira.core.providers.base import ChatMessage, ChatRole
@@ -43,6 +44,7 @@ class AgentRuntime:
         max_steps: int = 12,
         token_budget: int | None = None,
         approvals: ApprovalGate | None = None,
+        questions: QuestionGate | None = None,
         auto_approver: Callable[[str, dict, str | None], ApprovalDecision | None] | None = None,
         dispatcher: Any = None,  # P3：TaskDispatcher（dispatch_task 工具回调）
         tools_override: list[str] | None = None,  # P3：工具白名单覆盖（含 MCP 工具）
@@ -58,6 +60,7 @@ class AgentRuntime:
         self.max_steps = max_steps
         self.token_budget = token_budget
         self.approvals = approvals  # P2：ask 命中时的阻塞审批通道（None=自动放行）
+        self.questions = questions  # 提问通道：ask_question 工具挂起问题并等待用户作答
         # 自动审批决策器（approval.mode=auto 时由 SessionManager 注入）：
         # (tool, args, path) -> allow/deny；返回 None 表示无法判断 → 回退人工审批
         self.auto_approver = auto_approver
@@ -310,12 +313,24 @@ class AgentRuntime:
         model: str,
         effort: str | None,
     ) -> None:
+        # 提问进度：统计同一批 tool_calls 中 ask_question 的序号/总数（前端展示 2/4 等）
+        ask_total = sum(
+            1
+            for c in tool_calls
+            if ((c.get("function") or {}).get("name") or "") == "ask_question"
+        )
+        ask_seen = 0
         for idx, call in enumerate(tool_calls, 1):
             function = call.get("function") or {}
             name = function.get("name", "")
             args, parse_err = self._parse_args(function.get("arguments"))
             path = args.get("path") or args.get("cwd")
             action = self.permissions.check(name, str(path) if path else None)
+            # 当前是否为 ask_question 及其在本批中的进度
+            ask_progress = None
+            if name == "ask_question":
+                ask_seen += 1
+                ask_progress = (ask_seen, ask_total)
 
             tool_span = f"sp_tool_{idx}"
             self.tracer.emit(
@@ -379,6 +394,9 @@ class AgentRuntime:
                                 "effort": effort,
                                 "attach_image": self._attach_image,
                                 "skill_lookup": self._lookup_skill,
+                                "tracer": self.tracer,
+                                "question_gate": self.questions,
+                                "question_progress": ask_progress,
                             },
                         ),
                         **args,

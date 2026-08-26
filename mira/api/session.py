@@ -16,6 +16,7 @@ from typing import Callable
 from mira import paths
 from mira.api.approval import ApprovalDecision, ApprovalGate
 from mira.api.protocol import Session, SessionStatus
+from mira.api.questions import QuestionGate
 from mira.api.quota import SessionQuota
 from mira.api.stream import EventStream, StreamTracer
 from mira.core.providers.base import ChatMessage, ChatRole
@@ -69,6 +70,7 @@ class SessionManager:
         self._streams: dict[str, EventStream] = {}
         self._tracers: dict[str, CompositeTracer] = {}
         self._approvals: dict[str, ApprovalGate] = {}
+        self._questions: dict[str, QuestionGate] = {}  # 提问通道（ask_question 工具挂起问题）
         self._mcp: dict[str, McpManager] = {}  # P3：每会话 MCP 连接（决策 #8d）
         self._stop_events: dict[str, threading.Event] = {}  # 停止生成标志（置位后中断当前回复）
         self._queued: dict[str, list[dict]] = {}  # 运行中插入的排队消息（FIFO；interrupt 插队到最前）
@@ -119,10 +121,12 @@ class SessionManager:
                 session_id=sess.id,
             )
             gate = ApprovalGate(sess.id, on_state_change=self._on_approval_state)
+            qgate = QuestionGate(sess.id, on_state_change=self._on_question_state)
             self._sessions[sess.id] = sess
             self._streams[sess.id] = stream
             self._tracers[sess.id] = tracer
             self._approvals[sess.id] = gate
+            self._questions[sess.id] = qgate
         return sess
 
     def fork_session(self, source_id: str, until_seq: int) -> Session:
@@ -334,6 +338,9 @@ class SessionManager:
                 self._tracers[session_id] = tracer
                 self._approvals[session_id] = ApprovalGate(
                     session_id, on_state_change=self._on_approval_state
+                )
+                self._questions[session_id] = QuestionGate(
+                    session_id, on_state_change=self._on_question_state
                 )
                 # 直接重建 runtime（含 LLM 历史上下文），让会话在 _sessions/_runtimes 中完整可用；
                 # 构建失败（如 MCP/provider 配置问题）不阻断恢复，_run_turn 会重试并统一处理
@@ -568,6 +575,7 @@ class SessionManager:
                 skills=skills,
                 token_budget=agent.config.token_budget,
                 approvals=self._approvals[session.id],
+                questions=self._questions[session.id],
                 auto_approver=auto_approver,
                 tools_override=effective,
                 dispatcher=dispatcher,
@@ -590,6 +598,7 @@ class SessionManager:
             self._runtimes.pop(session_id, None)
             self._tracers.pop(session_id, None)
             self._approvals.pop(session_id, None)
+            self._questions.pop(session_id, None)
             self._stop_events.pop(session_id, None)
             self._queued.pop(session_id, None)
             mcp = self._mcp.pop(session_id, None)
@@ -604,6 +613,9 @@ class SessionManager:
         gate = self._approvals.get(session_id)
         if gate is not None:
             gate.interrupt()
+        qgate = self._questions.get(session_id)
+        if qgate is not None:
+            qgate.interrupt()
 
     def resolve_approval(self, session_id: str, request_id: str, decision: str) -> dict:
         """审批决议：allow / deny / always。"""
@@ -615,6 +627,17 @@ class SessionManager:
     def pending_approvals(self, session_id: str) -> list[dict]:
         gate = self._approvals.get(session_id)
         return [r.model_dump() for r in gate.pending()] if gate else []
+
+    def answer_question(self, session_id: str, question_id: str, answer: str) -> dict:
+        """用户作答：解除 ask_question 工具阻塞，答案作为工具结果回填给 LLM。"""
+        gate = self._questions.get(session_id)
+        if gate is None:
+            raise KeyError(f"未知会话: {session_id!r}")
+        return gate.answer(question_id, answer).model_dump()
+
+    def pending_questions(self, session_id: str) -> list[dict]:
+        gate = self._questions.get(session_id)
+        return [q.model_dump() for q in gate.pending()] if gate else []
 
     def quota_usage(self) -> dict:
         return self._quota.usage()
@@ -660,6 +683,14 @@ class SessionManager:
 
     def _on_approval_state(self, session_id: str, waiting: bool) -> None:
         """审批挂起/解除时更新会话状态（waiting/running）。"""
+        session = self._sessions.get(session_id)
+        if not session:
+            return
+        session.status = SessionStatus.WAITING if waiting else SessionStatus.RUNNING
+        self._emit_status(session, session.status.value)
+
+    def _on_question_state(self, session_id: str, waiting: bool) -> None:
+        """提问挂起/解除时更新会话状态（waiting/running）。"""
         session = self._sessions.get(session_id)
         if not session:
             return

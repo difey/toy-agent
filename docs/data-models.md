@@ -42,6 +42,7 @@
 | 任务分派 | `task.dispatch` / `task.start` / `task.complete` / `task.failed` |
 | 技能 | `skill.used` |
 | 审批 | `approval.requested` / `approval.resolved` |
+| 提问 | `question.requested` / `question.answered` |
 | 错误 | `error.raised` |
 | 指标 | `metric.snapshot`（周期聚合快照） |
 

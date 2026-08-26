@@ -95,6 +95,13 @@ class AppClient:
     def pending_approvals(self, session_id: str) -> list[dict]:
         return self.manager.pending_approvals(session_id)
 
+    def answer_question(self, session_id: str, question_id: str, answer: str) -> dict:
+        """用户作答：解除 ask_question 工具阻塞，答案作为工具结果回填给 LLM。"""
+        return self.manager.answer_question(session_id, question_id, answer)
+
+    def pending_questions(self, session_id: str) -> list[dict]:
+        return self.manager.pending_questions(session_id)
+
     def quota_usage(self) -> dict:
         return self.manager.quota_usage()
 

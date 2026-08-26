@@ -55,6 +55,7 @@ mira-code/
 │   │   ├── session.py                #     SessionManager：会话生命周期 + 编排 / MCP 接线
 │   │   ├── quota.py                  #     并发配额（max_concurrent_sessions）
 │   │   ├── approval.py               #     审批通道（HITL：allow / deny / always）
+│   │   ├── questions.py              #     提问通道（HITL：ask_question 挂起问题，用户作答回填）
 │   │   └── client.py                 #     AppClient：CLI 与 Web 的统一门面
 │   ├── core/                         #   核心层
 │   │   ├── runtime.py                #     AgentRuntime：agent 执行循环（LLM↔工具↔编排）

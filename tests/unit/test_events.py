@@ -33,6 +33,8 @@ def test_taxonomy_expected_types():
         "skill.used",
         "approval.requested",
         "approval.resolved",
+        "question.requested",
+        "question.answered",
         "error.raised",
         "metric.snapshot",
     }

@@ -249,6 +249,61 @@ def test_approval_deny_blocks_tool(tmp_path):
         assert "tool.error" in types  # 被拒绝 → 工具报错
 
 
+def test_question_block_and_answer(tmp_path):
+    """ask_question：工具挂起问题 → 会话 waiting → 作答后继续执行并回填。"""
+    app = create_app(
+        _client_with_scripted(
+            "完成",
+            [{
+                "id": "c_ask",
+                "type": "function",
+                "function": {
+                    "name": "ask_question",
+                    "arguments": json.dumps(
+                        {"question": "用哪个方案？", "options": ["A", "B"]}
+                    ),
+                },
+            }],
+        )
+    )
+    c = TestClient(app)
+    sid = c.post(
+        "/api/sessions", json={"workspace": str(tmp_path), "agent_type": "main"}
+    ).json()["id"]
+
+    with c.websocket_connect(f"/api/ws/sessions/{sid}") as ws:
+        ws.send_json({"last_seq": 0})
+        c.post(
+            f"/api/sessions/{sid}/messages",
+            json={"content": "帮我选方案", "model": "mock/mock-model"},
+        )
+        qid = None
+        for _ in range(40):
+            ev = ws.receive_json()
+            if ev["type"] == "question.requested":
+                qid = ev["payload"]["request_id"]
+                assert ev["payload"]["question"] == "用哪个方案？"
+                assert ev["payload"]["options"] == ["A", "B"]
+                break
+        assert qid
+        # 挂起期间：pending 列表可见 + 会话处于 waiting
+        pending = c.get(f"/api/sessions/{sid}/questions").json()
+        assert pending and pending[0]["id"] == qid
+        assert c.get(f"/api/sessions/{sid}").json()["status"] == "waiting"
+        # 作答 → 继续执行
+        r = c.post(f"/api/sessions/{sid}/questions/{qid}", json={"answer": "A"})
+        assert r.status_code == 200
+        assert r.json()["answer"] == "A"
+        types = []
+        for _ in range(40):
+            ev = ws.receive_json()
+            types.append(ev["type"])
+            if ev["type"] == "session.status" and ev["payload"]["status"] == "idle":
+                break
+        assert "question.answered" in types
+        assert "tool.result" in types
+
+
 def test_workspace_rename_and_delete(tmp_path):
     app = create_app(_client_with_scripted())
     c = TestClient(app)

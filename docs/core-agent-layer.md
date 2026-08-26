@@ -48,7 +48,7 @@
   - `name`、`description`、`params_schema`（JSON Schema，供 LLM 生成参数）、`timeout_s`（超时秒，0=不限时）、`run(ctx, **args) -> ToolResult`；`invoke(ctx, **args)` 在 `timeout_s>0` 时于 daemon 线程限时执行（超时返回 `ToolResult(ok=False)`）。
   - **工具名统一为下划线 `x_y`**（LLM provider 不支持 `.`，如 `file_read`/`search_grep`；MCP 工具 `mcp_<server>_<tool>`）。
 - `ToolRegistry`：注册/查找/枚举，供 AgentRuntime 组装 tools 描述。
-- 内建工具（`core/tools/builtin/`）：`shell`、文件读写编辑（`file_read`/`file_write`/`file_edit`）、检索（`search_grep`/`glob`）、`todowrite`（任务清单）、`apply_patch`（补丁）、`web_fetch`（URL 抓取）、`web_search`（Exa AI 实时搜索，可选 `EXA_API_KEY`）、`dispatch_task`（子任务分派）。
+- 内建工具（`core/tools/builtin/`）：`shell`、文件读写编辑（`file_read`/`file_write`/`file_edit`）、检索（`search_grep`/`glob`）、`todowrite`（任务清单）、`apply_patch`（补丁）、`web_fetch`（URL 抓取）、`web_search`（Exa AI 实时搜索，可选 `EXA_API_KEY`）、`ask_question`（信息不足时向用户提问：问题 + 可选选项，用户点选或自由作答，答案作为工具结果回填）、`dispatch_task`（子任务分派）。
 - **DeepSeek thinking**：assistant 消息携带 `reasoning_content` 推理链，多轮历史原样回传（`ChatMessage.to_api`），避免 litellm 占位符警告与多轮降质（决策 #29）。
 - **权限模型**：`allow / deny / ask`，按工具 + 路径规则匹配；`ask` 走 [应用层审批通道](application-layer.md)。
 - 执行包装：超时、错误捕获、输出截断、耗时统计 —— 全部产出 `tool.*` 事件。

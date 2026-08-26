@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from mira.core.tools.base import Tool
 from mira.core.tools.builtin.apply_patch import ApplyPatchTool
+from mira.core.tools.builtin.ask import AskQuestionTool
 from mira.core.tools.builtin.attach_image import AttachImageTool
 from mira.core.tools.builtin.file_tools import FileEditTool, FileReadTool, FileWriteTool
 from mira.core.tools.builtin.glob_tool import GlobTool
@@ -63,5 +64,6 @@ class ToolRegistry:
                 WebSearchTool(),
                 AttachImageTool(),
                 SkillTool(),
+                AskQuestionTool(),
             ]
         )
